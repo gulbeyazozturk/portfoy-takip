@@ -1,0 +1,304 @@
+import { Ionicons } from '@expo/vector-icons';
+import { useLocalSearchParams, useRouter } from 'expo-router';
+import React, { useMemo, useState } from 'react';
+import {
+  SafeAreaView,
+  StyleSheet,
+  TextInput,
+  TouchableOpacity,
+  View,
+} from 'react-native';
+import Svg, { Defs, LinearGradient, Path, Stop } from 'react-native-svg';
+
+import { ThemedText } from '@/components/themed-text';
+import { ThemedView } from '@/components/themed-view';
+
+const MOCK_POINTS = [10, 14, 13, 18, 16, 20, 19];
+
+export default function AssetEntryScreen() {
+  const router = useRouter();
+  const params = useLocalSearchParams<{ name?: string; price?: string }>();
+
+  const name = params.name ?? 'Varlık';
+  const currentPrice = params.price ? Number(params.price) : 0;
+
+  const [amount, setAmount] = useState('');
+  const [unitPrice, setUnitPrice] = useState('');
+
+  const linePath = useMemo(() => {
+    const width = 260;
+    const height = 120;
+    const max = Math.max(...MOCK_POINTS);
+    const min = Math.min(...MOCK_POINTS);
+    const range = max - min || 1;
+    const stepX = width / (MOCK_POINTS.length - 1);
+
+    const points = MOCK_POINTS.map((v, i) => {
+      const x = i * stepX;
+      const y = height - ((v - min) / range) * (height - 10) - 5;
+      return { x, y };
+    });
+
+    let d = `M ${points[0].x} ${points[0].y}`;
+    for (let i = 1; i < points.length; i++) {
+      d += ` L ${points[i].x} ${points[i].y}`;
+    }
+
+    const last = points[points.length - 1];
+    d += ` L ${last.x} ${height} L 0 ${height} Z`;
+
+    return { d, width, height };
+  }, []);
+
+  const handleSave = () => {
+    console.log('Varlık kaydı:', {
+      name,
+      amount,
+      unitPrice,
+    });
+
+    router.replace('/(tabs)');
+  };
+
+  return (
+    <SafeAreaView style={styles.safeArea}>
+      <ThemedView style={styles.container} lightColor="#4a4e69" darkColor="#4a4e69">
+        {/* Header */}
+        <View style={styles.header}>
+          <TouchableOpacity
+            style={styles.backButton}
+            onPress={() => router.back()}
+            activeOpacity={0.8}>
+            <Ionicons name="chevron-back" size={22} color="#f9fafb" />
+          </TouchableOpacity>
+          <ThemedText type="subtitle" style={styles.headerTitle}>
+            {name}
+          </ThemedText>
+          <View style={{ width: 32 }} />
+        </View>
+
+        {/* Grafik alanı */}
+        <View style={styles.chartArea}>
+          {/* Sağ üst bilgi kartı */}
+          <View style={styles.infoCard}>
+            <ThemedText style={styles.infoLabel}>Güncel Fiyat</ThemedText>
+            <ThemedText type="defaultSemiBold" style={styles.infoValue}>
+              {currentPrice
+                ? `${currentPrice.toLocaleString('tr-TR', {
+                    minimumFractionDigits: 2,
+                    maximumFractionDigits: 2,
+                  })} TL`
+                : '-'}
+            </ThemedText>
+            <ThemedText style={styles.infoChange}>+1,2% (örnek)</ThemedText>
+          </View>
+
+          {/* Line chart */}
+          <View style={styles.chartWrapper}>
+            <Svg width={linePath.width} height={linePath.height}>
+              <Defs>
+                <LinearGradient id="lineGradient" x1="0" y1="0" x2="0" y2="1">
+                  <Stop offset="0" stopColor="#60a5fa" stopOpacity="0.8" />
+                  <Stop offset="1" stopColor="#60a5fa" stopOpacity="0" />
+                </LinearGradient>
+              </Defs>
+              <Path d={linePath.d} fill="url(#lineGradient)" stroke="#60a5fa" strokeWidth={2} />
+            </Svg>
+          </View>
+
+          {/* Periyot ve TL butonları */}
+          <View style={styles.periodRow}>
+            <TouchableOpacity style={styles.periodButton}>
+              <ThemedText style={styles.periodText}>Son 7 Gün</ThemedText>
+              <Ionicons
+                name="chevron-down-outline"
+                size={14}
+                color="#e5e7eb"
+                style={{ marginLeft: 4 }}
+              />
+            </TouchableOpacity>
+            <TouchableOpacity style={styles.periodButton}>
+              <ThemedText style={styles.periodText}>TL</ThemedText>
+            </TouchableOpacity>
+          </View>
+        </View>
+
+        {/* Form alanı */}
+        <View style={styles.formContainer}>
+          <ThemedText style={styles.formTitle}>Varlık Gir | PORTFÖY_1</ThemedText>
+
+          <View style={styles.formCard}>
+            {/* Miktar */}
+            <View style={styles.fieldRow}>
+              <ThemedText style={styles.fieldLabel}>Miktar</ThemedText>
+              <View style={styles.fieldInputWrapper}>
+                <TextInput
+                  style={styles.fieldInput}
+                  keyboardType="numeric"
+                  placeholder="0"
+                  placeholderTextColor="#9ca3af"
+                  value={amount}
+                  onChangeText={setAmount}
+                />
+                <ThemedText style={styles.fieldUnit}>Gr</ThemedText>
+              </View>
+            </View>
+
+            {/* Birim maliyet */}
+            <View style={styles.fieldRow}>
+              <ThemedText style={styles.fieldLabel}>Birim Maliyet (opsiyonel)</ThemedText>
+              <View style={styles.fieldInputWrapper}>
+                <TextInput
+                  style={styles.fieldInput}
+                  keyboardType="numeric"
+                  placeholder="0"
+                  placeholderTextColor="#9ca3af"
+                  value={unitPrice}
+                  onChangeText={setUnitPrice}
+                />
+                <ThemedText style={styles.fieldUnit}>TL</ThemedText>
+              </View>
+            </View>
+          </View>
+
+          {/* Kaydet butonu */}
+          <TouchableOpacity style={styles.saveButton} activeOpacity={0.85} onPress={handleSave}>
+            <ThemedText style={styles.saveButtonText}>KAYDET</ThemedText>
+          </TouchableOpacity>
+        </View>
+      </ThemedView>
+    </SafeAreaView>
+  );
+}
+
+const styles = StyleSheet.create({
+  safeArea: {
+    flex: 1,
+    backgroundColor: '#4a4e69',
+  },
+  container: {
+    flex: 1,
+  },
+  header: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: 16,
+    paddingTop: 8,
+    paddingBottom: 12,
+  },
+  backButton: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: 'rgba(0,0,0,0.18)',
+  },
+  headerTitle: {
+    color: '#f9fafb',
+  },
+  chartArea: {
+    paddingHorizontal: 16,
+    marginBottom: 16,
+  },
+  infoCard: {
+    position: 'absolute',
+    right: 16,
+    top: 0,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: 12,
+    backgroundColor: 'rgba(249,250,251,0.9)',
+    zIndex: 10,
+  },
+  infoLabel: {
+    fontSize: 11,
+    color: '#4b5563',
+  },
+  infoValue: {
+    color: '#111827',
+  },
+  infoChange: {
+    fontSize: 11,
+    color: '#16a34a',
+  },
+  chartWrapper: {
+    marginTop: 32,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  periodRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    marginTop: 8,
+  },
+  periodButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 999,
+    backgroundColor: 'rgba(0,0,0,0.18)',
+  },
+  periodText: {
+    fontSize: 13,
+    color: '#f9fafb',
+  },
+  formContainer: {
+    flex: 1,
+    paddingHorizontal: 16,
+    paddingBottom: 24,
+  },
+  formTitle: {
+    marginBottom: 8,
+    color: '#f9fafb',
+  },
+  formCard: {
+    borderRadius: 16,
+    backgroundColor: '#ffffff',
+    paddingHorizontal: 16,
+    paddingVertical: 14,
+    marginBottom: 12,
+  },
+  fieldRow: {
+    marginBottom: 12,
+  },
+  fieldLabel: {
+    marginBottom: 4,
+    color: '#111827',
+  },
+  fieldInputWrapper: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    borderRadius: 999,
+    borderWidth: 1,
+    borderColor: '#d1d5db',
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+  },
+  fieldInput: {
+    flex: 1,
+    fontSize: 14,
+    color: '#111827',
+    paddingVertical: 0,
+  },
+  fieldUnit: {
+    fontSize: 13,
+    color: '#6b7280',
+    marginLeft: 8,
+  },
+  saveButton: {
+    marginTop: 4,
+    borderRadius: 999,
+    backgroundColor: '#1d3557',
+    paddingVertical: 12,
+    alignItems: 'center',
+  },
+  saveButtonText: {
+    color: '#f9fafb',
+    fontWeight: '600',
+    letterSpacing: 0.5,
+  },
+});
+
