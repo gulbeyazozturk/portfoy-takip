@@ -1,210 +1,249 @@
 import { Ionicons } from '@expo/vector-icons';
 import { useLocalSearchParams, useRouter } from 'expo-router';
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import {
+  ActivityIndicator,
   FlatList,
-  SafeAreaView,
+  KeyboardAvoidingView,
+  Platform,
+  Pressable,
   StyleSheet,
+  Text,
   TextInput,
   TouchableOpacity,
+  Image,
   View,
 } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 
-import { ThemedText } from '@/components/themed-text';
-import { ThemedView } from '@/components/themed-view';
+import { supabase } from '@/lib/supabase';
 
-type AssetRow = {
-  id: string;
-  name: string;
-  price: number;
-  changePct: number;
-};
+const BG = '#000000';
+const SURFACE = '#1C1C1E';
+const WHITE = '#FFFFFF';
+const SLATE = '#AAB0C4';
+const PRIMARY = '#2979FF';
+const ICON_BG = '#111827';
 
-const MOCK_ASSETS: Record<string, AssetRow[]> = {
-  commodity: [
-    { id: '1', name: 'Gram Altın', price: 7183.73, changePct: -1.1 },
-    { id: '2', name: 'Has Altın', price: 7200.0, changePct: 0.3 },
-    { id: '3', name: 'Bilezik 22 Ayar', price: 7050.5, changePct: -0.4 },
-  ],
-  fx: [
-    { id: '4', name: 'USD', price: 34.25, changePct: 0.2 },
-    { id: '5', name: 'EUR', price: 37.8, changePct: -0.1 },
-  ],
-  default: [
-    { id: '6', name: 'Örnek Varlık 1', price: 100.0, changePct: 0.5 },
-    { id: '7', name: 'Örnek Varlık 2', price: 200.0, changePct: -0.7 },
-  ],
-};
+type AssetItem = { id: string; name: string; symbol: string; price?: number; iconUrl?: string | null };
+
+function Radio({ selected }: { selected: boolean }) {
+  return (
+    <View style={[styles.radio, selected && styles.radioSelected]}>
+      {selected && <View style={styles.radioInner} />}
+    </View>
+  );
+}
 
 export default function AssetListScreen() {
   const router = useRouter();
   const params = useLocalSearchParams<{ categoryId?: string; label?: string }>();
 
   const categoryId = params.categoryId ?? 'default';
-  const label = params.label ?? 'Varlıklar';
+  const label = params.label ?? 'Varlık';
 
   const [query, setQuery] = useState('');
+  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [assets, setAssets] = useState<AssetItem[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
 
-  const allAssets = useMemo<AssetRow[]>(() => {
-    if (categoryId in MOCK_ASSETS) return MOCK_ASSETS[categoryId];
-    return MOCK_ASSETS.default;
+  useEffect(() => {
+    setLoading(true);
+    setError(null);
+    supabase
+      .from('assets')
+      .select('id, name, symbol, current_price, icon_url')
+      .eq('category_id', categoryId)
+      .order('symbol', { ascending: true })
+      .then(({ data, error: e }) => {
+        setLoading(false);
+        if (e) {
+          setError(e.message);
+          setAssets([]);
+          return;
+        }
+        setAssets(
+          (data ?? []).map((r: any) => ({
+            id: r.id,
+            name: r.name,
+            symbol: r.symbol,
+            price: r.current_price ?? undefined,
+            iconUrl: r.icon_url ?? null,
+          })),
+        );
+      });
   }, [categoryId]);
 
   const filteredAssets = useMemo(
     () =>
-      allAssets.filter((asset) =>
-        asset.name.toLocaleLowerCase('tr-TR').includes(query.toLocaleLowerCase('tr-TR')),
+      assets.filter(
+        (a) =>
+          a.name.toLocaleLowerCase('tr-TR').includes(query.toLocaleLowerCase('tr-TR')) ||
+          a.symbol.toLocaleLowerCase('tr-TR').includes(query.toLocaleLowerCase('tr-TR')),
       ),
-    [allAssets, query],
+    [assets, query],
   );
 
-  const renderItem = ({ item }: { item: AssetRow }) => {
-    const isPositive = item.changePct >= 0;
+  const selectedAsset = selectedId ? assets.find((a) => a.id === selectedId) : null;
 
-    return (
-      <TouchableOpacity
-        style={styles.row}
-        activeOpacity={0.8}
-        onPress={() =>
-          router.push({
-            pathname: '/(tabs)/asset-entry',
-            params: { assetId: item.id, name: item.name, price: String(item.price) },
-          })
-        }>
-        <View style={styles.rowLeft}>
-          <View style={styles.assetIconCircle}>
-            <Ionicons name="ellipsis-horizontal" size={16} color="#f9fafb" />
-          </View>
-          <ThemedText style={styles.assetName}>{item.name}</ThemedText>
-        </View>
-        <View style={styles.rowRight}>
-          <ThemedText style={styles.assetPrice}>
-            {item.price.toLocaleString('tr-TR', {
-              minimumFractionDigits: 2,
-              maximumFractionDigits: 2,
-            })}{' '}
-            TL
-          </ThemedText>
-          <ThemedText
-            style={[
-              styles.assetChange,
-              isPositive ? styles.assetChangePositive : styles.assetChangeNegative,
-            ]}>
-            {isPositive ? '▲' : '▼'} %{Math.abs(item.changePct).toFixed(1)}
-          </ThemedText>
-        </View>
-        <Ionicons name="chevron-forward" size={18} color="#e5e7eb" />
-      </TouchableOpacity>
-    );
+  const handleAdd = () => {
+    if (!selectedAsset) return;
+    router.push({
+      pathname: '/(tabs)/asset-entry',
+      params: {
+        assetId: selectedAsset.id,
+        name: selectedAsset.name,
+        symbol: selectedAsset.symbol,
+        price: selectedAsset.price != null ? String(selectedAsset.price) : '',
+      },
+    });
   };
 
+  const title = `${label} arayarak ekleme yapabilirsiniz.`;
+  const searchPlaceholder = `${label} Ara...`;
+
   return (
-    <SafeAreaView style={styles.safeArea}>
-      <ThemedView style={styles.container} lightColor="#4a4e69" darkColor="#4a4e69">
-        {/* Header */}
-        <View style={styles.header}>
-          <TouchableOpacity
-            style={styles.backButton}
-            onPress={() => router.back()}
-            activeOpacity={0.8}>
-            <Ionicons name="chevron-back" size={22} color="#f9fafb" />
-          </TouchableOpacity>
-          <ThemedText type="subtitle" style={styles.headerTitle}>
-            {label}
-          </ThemedText>
-          <View style={styles.headerRight}>
-            <TouchableOpacity style={styles.headerIconButton}>
-              <ThemedText style={styles.headerIconText}>TL</ThemedText>
+    <View style={styles.root}>
+      <SafeAreaView style={styles.safe} edges={['top']}>
+        <KeyboardAvoidingView
+          style={styles.kav}
+          behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+          keyboardVerticalOffset={0}>
+          <View style={styles.topSection}>
+            <TouchableOpacity
+              onPress={() => router.back()}
+              hitSlop={12}
+              style={styles.backBtn}>
+              <Ionicons name="arrow-back" size={26} color={WHITE} />
             </TouchableOpacity>
-            <TouchableOpacity style={styles.headerIconButton}>
-              <Ionicons name="star-outline" size={18} color="#f9fafb" />
+            <Text style={styles.title}>{title}</Text>
+          </View>
+
+          <View style={styles.searchWrap}>
+            <View style={styles.searchBar}>
+              <Ionicons name="search" size={20} color={SLATE} />
+              <TextInput
+                value={query}
+                onChangeText={setQuery}
+                placeholder={searchPlaceholder}
+                placeholderTextColor={`${SLATE}80`}
+                style={styles.searchInput}
+                autoCapitalize="none"
+                autoCorrect={false}
+                returnKeyType="search"
+              />
+            </View>
+          </View>
+
+          <View style={styles.sectionHeader}>
+            <Text style={styles.sectionTitle}>Popüler Varlıklar</Text>
+          </View>
+
+          {loading ? (
+            <View style={styles.centered}>
+              <ActivityIndicator size="large" color={PRIMARY} />
+            </View>
+          ) : error ? (
+            <View style={styles.centered}>
+              <Text style={styles.errorText}>{error}</Text>
+            </View>
+          ) : (
+            <FlatList
+              data={filteredAssets}
+              keyExtractor={(item) => item.id}
+              contentContainerStyle={styles.listContent}
+              keyboardShouldPersistTaps="handled"
+              renderItem={({ item }) => {
+                const selected = selectedId === item.id;
+                return (
+                  <Pressable
+                    style={({ pressed }) => [styles.row, pressed && styles.rowPressed]}
+                    onPress={() => setSelectedId(item.id)}>
+                    <View style={styles.rowLeft}>
+                      <View style={styles.iconCircle}>
+                        {item.iconUrl ? (
+                          <Image
+                            source={{ uri: item.iconUrl }}
+                            style={styles.iconImage}
+                            resizeMode="contain"
+                          />
+                        ) : (
+                          <Text style={styles.iconFallback}>{item.symbol.charAt(0).toUpperCase()}</Text>
+                        )}
+                      </View>
+                      <View>
+                        <Text style={styles.rowName}>{item.name}</Text>
+                        <Text style={styles.rowSymbol}>{item.symbol}</Text>
+                      </View>
+                    </View>
+                    <Radio selected={selected} />
+                  </Pressable>
+                );
+              }}
+            />
+          )}
+
+          <View style={styles.bottomWrap}>
+            <TouchableOpacity
+              style={[styles.addButton, !selectedAsset && styles.addButtonDisabled]}
+              onPress={handleAdd}
+              disabled={!selectedAsset}
+              activeOpacity={0.85}>
+              <Text style={styles.addButtonText}>Varlık Ekle</Text>
             </TouchableOpacity>
           </View>
-        </View>
-
-        {/* Search bar */}
-        <View style={styles.searchContainer}>
-          <Ionicons name="search" size={16} color="#6b7280" style={{ marginRight: 6 }} />
-          <TextInput
-            style={styles.searchInput}
-            placeholder="Varlık ara"
-            placeholderTextColor="#9ca3af"
-            value={query}
-            onChangeText={setQuery}
-          />
-        </View>
-
-        {/* Asset list */}
-        <FlatList
-          data={filteredAssets}
-          keyExtractor={(item) => item.id}
-          contentContainerStyle={styles.listContent}
-          ItemSeparatorComponent={() => <View style={styles.separator} />}
-          renderItem={renderItem}
-        />
-      </ThemedView>
-    </SafeAreaView>
+          <View style={styles.bottomSpacer} />
+        </KeyboardAvoidingView>
+      </SafeAreaView>
+    </View>
   );
 }
 
 const styles = StyleSheet.create({
-  safeArea: {
-    flex: 1,
-    backgroundColor: '#4a4e69',
+  root: { flex: 1, backgroundColor: BG },
+  safe: { flex: 1, backgroundColor: BG },
+  kav: { flex: 1 },
+  topSection: {
+    paddingHorizontal: 24,
+    paddingTop: 24,
+    paddingBottom: 8,
+    gap: 16,
   },
-  container: {
-    flex: 1,
+  backBtn: { alignSelf: 'flex-start' },
+  title: {
+    fontSize: 24,
+    fontWeight: '700',
+    color: WHITE,
+    lineHeight: 30,
+    letterSpacing: -0.5,
   },
-  header: {
+  searchWrap: { paddingHorizontal: 24, paddingVertical: 16 },
+  searchBar: {
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingHorizontal: 16,
-    paddingTop: 8,
-    paddingBottom: 12,
-  },
-  backButton: {
-    width: 32,
-    height: 32,
+    gap: 12,
+    height: 56,
+    backgroundColor: SURFACE,
     borderRadius: 16,
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: 'rgba(0,0,0,0.18)',
-  },
-  headerTitle: {
-    color: '#f9fafb',
-  },
-  headerRight: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-  },
-  headerIconButton: {
-    paddingHorizontal: 10,
-    paddingVertical: 6,
-    borderRadius: 999,
-    backgroundColor: 'rgba(0,0,0,0.18)',
-  },
-  headerIconText: {
-    fontSize: 12,
-    color: '#f9fafb',
-  },
-  searchContainer: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginHorizontal: 16,
-    marginBottom: 8,
-    paddingHorizontal: 12,
-    paddingVertical: 8,
-    borderRadius: 999,
-    backgroundColor: '#d6d8db',
+    paddingHorizontal: 16,
   },
   searchInput: {
     flex: 1,
-    fontSize: 14,
+    color: WHITE,
+    fontSize: 16,
     paddingVertical: 0,
-    color: '#111827',
   },
+  sectionHeader: { paddingHorizontal: 24, paddingVertical: 8 },
+  sectionTitle: {
+    fontSize: 11,
+    fontWeight: '700',
+    color: SLATE,
+    letterSpacing: 2,
+    opacity: 0.6,
+  },
+  centered: { flex: 1, justifyContent: 'center', alignItems: 'center', padding: 24 },
+  errorText: { color: '#ef4444', fontSize: 14 },
   listContent: {
     paddingHorizontal: 16,
     paddingBottom: 24,
@@ -213,46 +252,70 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    paddingVertical: 10,
+    paddingVertical: 16,
+    paddingHorizontal: 16,
+    borderRadius: 16,
   },
-  rowLeft: {
+  rowPressed: { backgroundColor: 'rgba(255,255,255,0.05)' },
+   rowLeft: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 10,
-    flex: 1,
+    gap: 12,
   },
-  assetIconCircle: {
-    width: 26,
-    height: 26,
-    borderRadius: 13,
-    backgroundColor: 'rgba(0,0,0,0.25)',
+  iconCircle: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    backgroundColor: ICON_BG,
     alignItems: 'center',
     justifyContent: 'center',
   },
-  assetName: {
-    color: '#f9fafb',
+  iconImage: {
+    width: 28,
+    height: 28,
+    borderRadius: 14,
   },
-  rowRight: {
-    alignItems: 'flex-end',
-    marginRight: 8,
+  iconFallback: {
+    fontSize: 16,
+    fontWeight: '700',
+    color: WHITE,
   },
-  assetPrice: {
-    color: '#f9fafb',
-    fontWeight: '600',
+  rowName: { fontSize: 16, fontWeight: '600', color: WHITE },
+  rowSymbol: { fontSize: 14, fontWeight: '500', color: SLATE, marginTop: 2, opacity: 0.7 },
+  radio: {
+    width: 20,
+    height: 20,
+    borderRadius: 10,
+    borderWidth: 2,
+    borderColor: '#333',
+    alignItems: 'center',
+    justifyContent: 'center',
   },
-  assetChange: {
-    marginTop: 2,
-    fontSize: 12,
+  radioSelected: { borderColor: PRIMARY },
+  radioInner: {
+    width: 10,
+    height: 10,
+    borderRadius: 5,
+    backgroundColor: PRIMARY,
   },
-  assetChangePositive: {
-    color: '#4ade80',
+  bottomWrap: {
+    paddingHorizontal: 24,
+    paddingTop: 16,
+    paddingBottom: 8,
   },
-  assetChangeNegative: {
-    color: '#f97373',
+  addButton: {
+    width: '100%',
+    backgroundColor: PRIMARY,
+    paddingVertical: 16,
+    borderRadius: 16,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
-  separator: {
-    height: StyleSheet.hairlineWidth,
-    backgroundColor: 'rgba(249,250,251,0.2)',
+  addButtonDisabled: { opacity: 0.5 },
+  addButtonText: {
+    fontSize: 16,
+    fontWeight: '700',
+    color: WHITE,
   },
+  bottomSpacer: { height: 32, backgroundColor: BG },
 });
-

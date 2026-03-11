@@ -2,6 +2,8 @@ import { Ionicons } from '@expo/vector-icons';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import React, { useMemo, useState } from 'react';
 import {
+  ActivityIndicator,
+  Alert,
   SafeAreaView,
   StyleSheet,
   TextInput,
@@ -12,18 +14,24 @@ import Svg, { Defs, LinearGradient, Path, Stop } from 'react-native-svg';
 
 import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
+import { usePortfolio } from '@/context/portfolio';
+import { supabase } from '@/lib/supabase';
 
 const MOCK_POINTS = [10, 14, 13, 18, 16, 20, 19];
 
 export default function AssetEntryScreen() {
   const router = useRouter();
-  const params = useLocalSearchParams<{ name?: string; price?: string }>();
+  const { portfolioId } = usePortfolio();
+  const params = useLocalSearchParams<{ assetId?: string; name?: string; symbol?: string; price?: string }>();
 
+  const assetId = params.assetId as string | undefined;
   const name = params.name ?? 'Varlık';
+  const symbol = params.symbol ?? '';
   const currentPrice = params.price ? Number(params.price) : 0;
 
   const [amount, setAmount] = useState('');
   const [unitPrice, setUnitPrice] = useState('');
+  const [saving, setSaving] = useState(false);
 
   const linePath = useMemo(() => {
     const width = 260;
@@ -50,19 +58,35 @@ export default function AssetEntryScreen() {
     return { d, width, height };
   }, []);
 
-  const handleSave = () => {
-    console.log('Varlık kaydı:', {
-      name,
-      amount,
-      unitPrice,
+  const handleSave = async () => {
+    const qty = parseFloat(amount?.replace(',', '.') ?? '0');
+    if (!assetId || !portfolioId) {
+      Alert.alert('Hata', 'Portföy veya varlık bilgisi eksik.');
+      return;
+    }
+    if (!qty || qty <= 0) {
+      Alert.alert('Hata', 'Geçerli bir miktar girin.');
+      return;
+    }
+    const avg = unitPrice ? parseFloat(unitPrice.replace(',', '.')) : null;
+    setSaving(true);
+    const { error } = await supabase.from('holdings').insert({
+      portfolio_id: portfolioId,
+      asset_id: assetId,
+      quantity: qty,
+      avg_price: avg,
     });
-
+    setSaving(false);
+    if (error) {
+      Alert.alert('Kayıt hatası', error.message);
+      return;
+    }
     router.replace('/(tabs)');
   };
 
   return (
     <SafeAreaView style={styles.safeArea}>
-      <ThemedView style={styles.container} lightColor="#4a4e69" darkColor="#4a4e69">
+      <ThemedView style={styles.container} lightColor="#000000" darkColor="#000000">
         {/* Header */}
         <View style={styles.header}>
           <TouchableOpacity
@@ -140,7 +164,7 @@ export default function AssetEntryScreen() {
                   value={amount}
                   onChangeText={setAmount}
                 />
-                <ThemedText style={styles.fieldUnit}>Gr</ThemedText>
+                <ThemedText style={styles.fieldUnit}>{symbol || 'Adet'}</ThemedText>
               </View>
             </View>
 
@@ -162,8 +186,16 @@ export default function AssetEntryScreen() {
           </View>
 
           {/* Kaydet butonu */}
-          <TouchableOpacity style={styles.saveButton} activeOpacity={0.85} onPress={handleSave}>
-            <ThemedText style={styles.saveButtonText}>KAYDET</ThemedText>
+          <TouchableOpacity
+            style={[styles.saveButton, saving && styles.saveButtonDisabled]}
+            activeOpacity={0.85}
+            onPress={handleSave}
+            disabled={saving}>
+            {saving ? (
+              <ActivityIndicator size="small" color="#f9fafb" />
+            ) : (
+              <ThemedText style={styles.saveButtonText}>KAYDET</ThemedText>
+            )}
           </TouchableOpacity>
         </View>
       </ThemedView>
@@ -174,7 +206,7 @@ export default function AssetEntryScreen() {
 const styles = StyleSheet.create({
   safeArea: {
     flex: 1,
-    backgroundColor: '#4a4e69',
+    backgroundColor: '#000000',
   },
   container: {
     flex: 1,
@@ -295,6 +327,7 @@ const styles = StyleSheet.create({
     paddingVertical: 12,
     alignItems: 'center',
   },
+  saveButtonDisabled: { opacity: 0.7 },
   saveButtonText: {
     color: '#f9fafb',
     fontWeight: '600',

@@ -7,7 +7,7 @@ import { ThemedView } from '@/components/themed-view';
 export default function SettingsScreen() {
   return (
     <SafeAreaView style={styles.safeArea}>
-      <ThemedView style={styles.container} lightColor="#d4d4d8" darkColor="#d4d4d8">
+      <ThemedView style={styles.container} lightColor="#000000" darkColor="#000000">
         <View style={styles.center}>
           <ThemedText type="subtitle">Ayarlar</ThemedText>
           <ThemedText>Buraya uygulama ayarları gelecek.</ThemedText>
@@ -20,7 +20,7 @@ export default function SettingsScreen() {
 const styles = StyleSheet.create({
   safeArea: {
     flex: 1,
-    backgroundColor: '#d4d4d8',
+    backgroundColor: '#000000',
   },
   container: {
     flex: 1,

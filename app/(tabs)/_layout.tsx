@@ -1,43 +1,91 @@
 import { Tabs } from 'expo-router';
 import React from 'react';
+import { Ionicons } from '@expo/vector-icons';
 
+import { FABTabButton } from '@/components/fab-tab-button';
 import { HapticTab } from '@/components/haptic-tab';
-import { IconSymbol } from '@/components/ui/icon-symbol';
+import { PortfolioProvider } from '@/context/portfolio';
+import { SelectedCategoriesProvider } from '@/context/selected-categories';
+
+const TAB_BG = '#000000';
+const PASSIVE = '#888A96';
+const ACTIVE = '#2979FF';
 
 export default function TabLayout() {
   return (
+    <PortfolioProvider>
+    <SelectedCategoriesProvider>
     <Tabs
+      initialRouteName="index"
       screenOptions={{
         headerShown: false,
-        tabBarButton: HapticTab,
         tabBarStyle: {
-          backgroundColor: '#d1d5db',
-          borderTopColor: '#9ca3af',
+          backgroundColor: TAB_BG,
+          borderTopColor: 'rgba(255,255,255,0.08)',
         },
-        tabBarActiveTintColor: '#111827',
-        tabBarInactiveTintColor: '#4b5563',
+        tabBarActiveTintColor: ACTIVE,
+        tabBarInactiveTintColor: PASSIVE,
+        tabBarShowLabel: true,
+        tabBarLabelStyle: { fontSize: 10, fontWeight: '500' },
       }}>
+      <Tabs.Screen
+        name="home"
+        options={{
+          title: 'Home',
+          tabBarButton: HapticTab,
+          tabBarIcon: ({ color }) => <Ionicons name="home-outline" size={24} color={color} />,
+        }}
+      />
       <Tabs.Screen
         name="index"
         options={{
-          title: 'Ana Sayfa',
-          tabBarIcon: ({ color }) => <IconSymbol size={26} name="house.fill" color={color} />,
+          title: 'Portfolio',
+          tabBarButton: HapticTab,
+          tabBarIcon: ({ color }) => <Ionicons name="pie-chart-outline" size={24} color={color} />,
         }}
       />
       <Tabs.Screen
         name="add"
         options={{
-          title: 'Ekle',
-          tabBarIcon: ({ color }) => <IconSymbol size={30} name="plus.circle.fill" color={color} />,
+          title: 'Add',
+          tabBarButton: FABTabButton,
+          tabBarIcon: () => null,
         }}
       />
       <Tabs.Screen
-        name="settings"
+        name="explore"
         options={{
-          title: 'Ayarlar',
-          tabBarIcon: ({ color }) => <IconSymbol size={26} name="gearshape.fill" color={color} />,
+          title: 'Swap',
+          tabBarButton: HapticTab,
+          tabBarIcon: ({ color }) => <Ionicons name="swap-horizontal" size={24} color={color} />,
         }}
       />
+      <Tabs.Screen
+        name="following"
+        options={{
+          title: 'Profile',
+          tabBarButton: HapticTab,
+          tabBarIcon: ({ color }) => <Ionicons name="person-outline" size={24} color={color} />,
+        }}
+      />
+      <Tabs.Screen
+        name="insights"
+        options={{ href: null }}
+      />
+      <Tabs.Screen
+        name="settings"
+        options={{ href: null }}
+      />
+      <Tabs.Screen
+        name="asset-entry"
+        options={{ href: null }}
+      />
+      <Tabs.Screen
+        name="asset-list"
+        options={{ href: null }}
+      />
     </Tabs>
+    </SelectedCategoriesProvider>
+    </PortfolioProvider>
   );
 }
