@@ -125,6 +125,7 @@ type AssetRow = {
   symbol: string;
   category_id: string;
   current_price: number | null;
+  change_24h_pct?: number | null;
 };
 type HoldingRow = { id: string; quantity: number; avg_price: number | null; asset: AssetRow | AssetRow[] | null };
 
@@ -167,7 +168,9 @@ export default function PortfolioScreen() {
     setError(null);
     const { data, error: e } = await supabase
       .from('holdings')
-      .select('id, quantity, avg_price, asset:assets(id, name, symbol, category_id, current_price)')
+      .select(
+        'id, quantity, avg_price, asset:assets(id, name, symbol, category_id, current_price, change_24h_pct)'
+      )
       .eq('portfolio_id', portfolioId);
     if (e) {
       setError(e.message);
@@ -377,10 +380,13 @@ export default function PortfolioScreen() {
                 if (!asset) return null;
                 const currentPrice = asset.current_price ?? h.avg_price ?? 0;
                 const value = h.quantity * currentPrice;
+                // Günlük değişim: öncelik asset.tablosundaki 24saatlik yüzde.
                 const changePct =
-                  h.avg_price && h.avg_price > 0
-                    ? ((currentPrice - h.avg_price) / h.avg_price) * 100
-                    : null;
+                  asset.change_24h_pct != null
+                    ? asset.change_24h_pct
+                    : h.avg_price && h.avg_price > 0
+                      ? ((currentPrice - h.avg_price) / h.avg_price) * 100
+                      : null;
                 const iconStyle = ASSET_ICONS[asset.symbol] ?? ASSET_ICONS.default;
                 return (
                   <Pressable

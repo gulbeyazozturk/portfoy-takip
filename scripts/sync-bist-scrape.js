@@ -120,6 +120,7 @@ async function upsertBistAssets(supabase, rows) {
     currency: 'TRY',
     external_id: r.code,
     current_price: r.last,
+    change_24h_pct: r.changePct,
     price_updated_at: r.updatedAtIso || now,
   }));
 

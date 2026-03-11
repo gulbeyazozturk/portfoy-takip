@@ -25,6 +25,11 @@ create table if not exists public.assets (
   name text not null,
   symbol text not null,
   currency text not null default 'USD',
+  -- Son senkronize edilen piyasa fiyatı (ör. CoinGecko, BIST)
+  current_price numeric,
+  price_updated_at timestamptz,
+  -- Son 24 saatteki yüzde değişim (piyasa verisi)
+  change_24h_pct numeric,
   created_at timestamptz not null default now(),
   unique(category_id, symbol)
 );

@@ -64,6 +64,9 @@ async function upsertKriptoAssets(supabase, markets) {
     currency: 'TRY',
     external_id: m.id,
     current_price: m.current_price == null ? null : Number(m.current_price),
+    // CoinGecko response: price_change_percentage_24h
+    change_24h_pct:
+      m.price_change_percentage_24h == null ? null : Number(m.price_change_percentage_24h),
     icon_url: m.image || null,
     price_updated_at: new Date().toISOString(),
   }));
