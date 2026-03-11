@@ -1,10 +1,12 @@
 import { Ionicons } from '@expo/vector-icons';
 import { useFocusEffect } from '@react-navigation/native';
+import { useRouter } from 'expo-router';
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   ActivityIndicator,
   LayoutAnimation,
   Platform,
+  Pressable,
   ScrollView,
   StyleSheet,
   Text,
@@ -117,7 +119,13 @@ function MiniAreaChart() {
 }
 
 type CategoryRow = { id: string; name: string; sort_order: number };
-type AssetRow = { id: string; name: string; symbol: string; category_id: string; current_price: number | null };
+type AssetRow = {
+  id: string;
+  name: string;
+  symbol: string;
+  category_id: string;
+  current_price: number | null;
+};
 type HoldingRow = { id: string; quantity: number; avg_price: number | null; asset: AssetRow | AssetRow[] | null };
 
 function normalizeAsset(asset: HoldingRow['asset']): AssetRow | null {
@@ -127,6 +135,7 @@ function normalizeAsset(asset: HoldingRow['asset']): AssetRow | null {
 }
 
 export default function PortfolioScreen() {
+  const router = useRouter();
   const { portfolioId } = usePortfolio();
   const { toggle: toggleCategory, isSelected: isCategorySelected } = useSelectedCategories();
   const [allocationOpen, setAllocationOpen] = useState(true);
@@ -241,7 +250,8 @@ export default function PortfolioScreen() {
         <ScrollView
           style={styles.scroll}
           contentContainerStyle={styles.scrollContent}
-          showsVerticalScrollIndicator={false}>
+          showsVerticalScrollIndicator={false}
+          keyboardShouldPersistTaps="handled">
           {error ? (
             <View style={styles.errorWrap}>
               <Text style={styles.errorText}>{error}</Text>
@@ -373,7 +383,24 @@ export default function PortfolioScreen() {
                     : null;
                 const iconStyle = ASSET_ICONS[asset.symbol] ?? ASSET_ICONS.default;
                 return (
-                  <View key={h.id} style={styles.assetRow}>
+                  <Pressable
+                    key={h.id}
+                    style={({ pressed }) => [styles.assetRow, pressed && styles.assetRowPressed]}
+                    onPress={() =>
+                      router.push({
+                        pathname: '/(tabs)/asset-entry',
+                        params: {
+                          holdingId: h.id,
+                          assetId: asset.id,
+                          name: asset.name,
+                          symbol: asset.symbol,
+                          price:
+                            asset.current_price != null ? String(asset.current_price) : h.avg_price != null ? String(h.avg_price) : '',
+                          quantity: String(h.quantity),
+                          avgPrice: h.avg_price != null ? String(h.avg_price) : '',
+                        },
+                      })
+                    }>
                     <View style={styles.assetLeft}>
                       <View style={[styles.assetIcon, { backgroundColor: iconStyle.bg }]}>
                         <Ionicons name={iconStyle.icon as any} size={24} color={iconStyle.color} />
@@ -391,7 +418,7 @@ export default function PortfolioScreen() {
                           minimumFractionDigits: 2,
                           maximumFractionDigits: 2,
                         })}{' '}
-                        {asset.category_id === 'bist' ? 'TL' : 'USD'}
+                        {asset.category_id === 'bist' || asset.category_id === 'kripto' ? 'TL' : 'USD'}
                       </Text>
                       <Text
                         style={[
@@ -403,7 +430,7 @@ export default function PortfolioScreen() {
                         {changePct == null ? '—' : `${changePct >= 0 ? '+' : ''}${changePct.toFixed(2)}%`}
                       </Text>
                     </View>
-                  </View>
+                  </Pressable>
                 );
               })
             )}
@@ -557,6 +584,9 @@ const styles = StyleSheet.create({
     paddingVertical: 20,
     borderBottomWidth: StyleSheet.hairlineWidth,
     borderBottomColor: BORDER,
+  },
+  assetRowPressed: {
+    opacity: 0.7,
   },
   assetLeft: { flexDirection: 'row', alignItems: 'center', gap: 16 },
   assetIcon: { width: 48, height: 48, borderRadius: 24, alignItems: 'center', justifyContent: 'center' },

@@ -16,7 +16,8 @@ const SUPABASE_KEY =
   process.env.SUPABASE_ANON_KEY;
 
 const COINGECKO_MARKETS = 'https://api.coingecko.com/api/v3/coins/markets';
-const VS_CURRENCY = 'usd';
+// Kripto fiyatlarını doğrudan TL olarak çekiyoruz.
+const VS_CURRENCY = 'try';
 
 async function loadEnv() {
   const path = require('path');
@@ -59,7 +60,8 @@ async function upsertKriptoAssets(supabase, markets) {
     category_id: 'kripto',
     name: m.name,
     symbol: (m.symbol || '').toUpperCase(),
-    currency: 'USD',
+    // CoinGecko'dan vs_currency=try ile çekildiği için fiyat TL.
+    currency: 'TRY',
     external_id: m.id,
     current_price: m.current_price == null ? null : Number(m.current_price),
     icon_url: m.image || null,

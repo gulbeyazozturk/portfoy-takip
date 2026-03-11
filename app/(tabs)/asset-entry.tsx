@@ -4,6 +4,8 @@ import React, { useMemo, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
+  Platform,
+  Pressable,
   SafeAreaView,
   StyleSheet,
   TextInput,
@@ -22,15 +24,24 @@ const MOCK_POINTS = [10, 14, 13, 18, 16, 20, 19];
 export default function AssetEntryScreen() {
   const router = useRouter();
   const { portfolioId } = usePortfolio();
-  const params = useLocalSearchParams<{ assetId?: string; name?: string; symbol?: string; price?: string }>();
+  const params = useLocalSearchParams<{
+    holdingId?: string;
+    assetId?: string;
+    name?: string;
+    symbol?: string;
+    price?: string;
+    quantity?: string;
+    avgPrice?: string;
+  }>();
 
+  const holdingId = params.holdingId as string | undefined;
   const assetId = params.assetId as string | undefined;
   const name = params.name ?? 'Varlık';
   const symbol = params.symbol ?? '';
   const currentPrice = params.price ? Number(params.price) : 0;
 
-  const [amount, setAmount] = useState('');
-  const [unitPrice, setUnitPrice] = useState('');
+  const [amount, setAmount] = useState(() => (params.quantity as string | undefined) ?? '');
+  const [unitPrice, setUnitPrice] = useState(() => (params.avgPrice as string | undefined) ?? '');
   const [saving, setSaving] = useState(false);
 
   const linePath = useMemo(() => {
@@ -70,18 +81,59 @@ export default function AssetEntryScreen() {
     }
     const avg = unitPrice ? parseFloat(unitPrice.replace(',', '.')) : null;
     setSaving(true);
-    const { error } = await supabase.from('holdings').insert({
-      portfolio_id: portfolioId,
-      asset_id: assetId,
-      quantity: qty,
-      avg_price: avg,
-    });
+    let error;
+    if (holdingId) {
+      ({ error } = await supabase
+        .from('holdings')
+        .update({
+          quantity: qty,
+          avg_price: avg,
+        })
+        .eq('id', holdingId));
+    } else {
+      ({ error } = await supabase.from('holdings').insert({
+        portfolio_id: portfolioId,
+        asset_id: assetId,
+        quantity: qty,
+        avg_price: avg,
+      }));
+    }
     setSaving(false);
     if (error) {
       Alert.alert('Kayıt hatası', error.message);
       return;
     }
     router.replace('/(tabs)');
+  };
+
+  const performDelete = async () => {
+    if (!holdingId) return;
+    setSaving(true);
+    const { error } = await supabase.from('holdings').delete().eq('id', holdingId);
+    setSaving(false);
+    if (error) {
+      if (Platform.OS === 'web') {
+        window.alert('Silme hatası: ' + error.message);
+      } else {
+        Alert.alert('Silme hatası', error.message);
+      }
+      return;
+    }
+    router.replace('/(tabs)');
+  };
+
+  const handleDelete = () => {
+    if (!holdingId) return;
+    if (Platform.OS === 'web') {
+      if (window.confirm(`${name} kaydını silmek istiyor musun?`)) {
+        performDelete();
+      }
+    } else {
+      Alert.alert('Varlığı sil', `${name} kaydını silmek istiyor musun?`, [
+        { text: 'İptal', style: 'cancel' },
+        { text: 'SİL', style: 'destructive', onPress: performDelete },
+      ]);
+    }
   };
 
   return (
@@ -149,7 +201,17 @@ export default function AssetEntryScreen() {
 
         {/* Form alanı */}
         <View style={styles.formContainer}>
-          <ThemedText style={styles.formTitle}>Varlık Gir | PORTFÖY_1</ThemedText>
+          <View style={styles.formTitleRow}>
+            <ThemedText style={styles.formTitle}>Varlık Gir | PORTFÖY_1</ThemedText>
+            {holdingId ? (
+              <Pressable
+                style={({ pressed }) => [styles.deleteButton, pressed && styles.deleteButtonPressed]}
+                onPress={handleDelete}
+                disabled={saving}>
+                <ThemedText style={styles.deleteButtonText}>SİL</ThemedText>
+              </Pressable>
+            ) : null}
+          </View>
 
           <View style={styles.formCard}>
             {/* Miktar */}
@@ -282,9 +344,30 @@ const styles = StyleSheet.create({
     paddingHorizontal: 16,
     paddingBottom: 24,
   },
-  formTitle: {
+  formTitleRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
     marginBottom: 8,
+  },
+  formTitle: {
     color: '#f9fafb',
+  },
+  deleteButton: {
+    paddingHorizontal: 42,
+    paddingVertical: 10,
+    borderRadius: 999,
+    backgroundColor: '#1d3557',
+    minHeight: 40,
+  },
+  deleteButtonPressed: {
+    opacity: 0.8,
+  },
+  deleteButtonText: {
+    color: '#f9fafb',
+    fontWeight: '600',
+    fontSize: 12,
+    letterSpacing: 0.5,
   },
   formCard: {
     borderRadius: 16,
