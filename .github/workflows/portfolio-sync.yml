@@ -32,3 +32,6 @@ jobs:
 
       - name: Sync BIST (scrape)
         run: node scripts/sync-bist-scrape.js
+
+      - name: Sync Döviz (doviz.dev)
+        run: node scripts/sync-doviz-dev.js

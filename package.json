@@ -4,6 +4,7 @@
   "version": "1.0.0",
   "scripts": {
     "start": "expo start",
+    "start:tunnel": "expo start --tunnel --port 8083",
     "reset-project": "node ./scripts/reset-project.js",
     "sync-crypto": "node ./scripts/sync-crypto-prices.js",
     "sync-bist-scrape": "node ./scripts/sync-bist-scrape.js",

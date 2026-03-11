@@ -92,27 +92,45 @@ function Accordion({
   );
 }
 
-function MiniAreaChart() {
+const CHART_W = 400;
+const CHART_H = 120;
+
+function PerformanceChart({
+  series,
+  isPositive,
+}: {
+  series: number[];
+  isPositive: boolean;
+}) {
+  if (!series.length) return null;
+  const vals = series;
+  const minVal = Math.min(...vals);
+  const maxVal = Math.max(...vals);
+  const range = maxVal - minVal || 1;
+  const padding = range * 0.1;
+  const vMin = minVal - padding;
+  const vMax = maxVal + padding;
+  const vRange = vMax - vMin || 1;
+  const toY = (v: number) => CHART_H - 20 - ((v - vMin) / vRange) * (CHART_H - 40);
+  const lineColor = isPositive ? '#22c55e' : '#EF4444';
+  let dLine = '';
+  vals.forEach((v, idx) => {
+    const x = vals.length === 1 ? CHART_W / 2 : (CHART_W * idx) / (vals.length - 1);
+    const y = toY(v);
+    dLine += idx === 0 ? `M ${x} ${y}` : ` L ${x} ${y}`;
+  });
+  const dFill = `${dLine} L ${CHART_W} ${CHART_H} L 0 ${CHART_H} Z`;
   return (
     <View style={styles.chartArea}>
-      <Svg width="100%" height={120} viewBox="0 0 400 150" preserveAspectRatio="none">
+      <Svg width="100%" height={CHART_H} viewBox={`0 0 ${CHART_W} ${CHART_H}`} preserveAspectRatio="none">
         <Defs>
-          <LinearGradient id="chartGrad" x1="0%" x2="0%" y1="0%" y2="100%">
-            <Stop offset="0%" stopColor="#EF4444" stopOpacity="0.2" />
-            <Stop offset="100%" stopColor="#EF4444" stopOpacity="0" />
+          <LinearGradient id="perfChartGrad" x1="0%" x2="0%" y1="0%" y2="100%">
+            <Stop offset="0%" stopColor={lineColor} stopOpacity="0.25" />
+            <Stop offset="100%" stopColor={lineColor} stopOpacity="0" />
           </LinearGradient>
         </Defs>
-        <Path
-          d="M0,50 Q50,45 100,60 T200,80 T300,110 T400,120 L400,150 L0,150 Z"
-          fill="url(#chartGrad)"
-        />
-        <Path
-          d="M0,50 Q50,45 100,60 T200,80 T300,110 T400,120"
-          fill="none"
-          stroke="#EF4444"
-          strokeWidth={2}
-          strokeLinecap="round"
-        />
+        <Path d={dFill} fill="url(#perfChartGrad)" />
+        <Path d={dLine} fill="none" stroke={lineColor} strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" />
       </Svg>
     </View>
   );
@@ -127,7 +145,13 @@ type AssetRow = {
   current_price: number | null;
   change_24h_pct?: number | null;
 };
-type HoldingRow = { id: string; quantity: number; avg_price: number | null; asset: AssetRow | AssetRow[] | null };
+type HoldingRow = {
+  id: string;
+  quantity: number;
+  avg_price: number | null;
+  created_at: string;
+  asset: AssetRow | AssetRow[] | null;
+};
 
 function normalizeAsset(asset: HoldingRow['asset']): AssetRow | null {
   if (!asset) return null;
@@ -169,7 +193,7 @@ export default function PortfolioScreen() {
     const { data, error: e } = await supabase
       .from('holdings')
       .select(
-        'id, quantity, avg_price, asset:assets(id, name, symbol, category_id, current_price, change_24h_pct)'
+        'id, quantity, avg_price, created_at, asset:assets(id, name, symbol, category_id, current_price, change_24h_pct)'
       )
       .eq('portfolio_id', portfolioId);
     if (e) {
@@ -197,25 +221,27 @@ export default function PortfolioScreen() {
 
   const allocationData = useMemo(() => {
     const withAsset = holdings.map((h) => ({ ...h, asset: normalizeAsset(h.asset) })).filter((h) => h.asset);
-    if (withAsset.length === 0) return DEFAULT_ALLOCATION;
+    if (withAsset.length === 0) return [];
     const byCategory: Record<string, number> = {};
     let total = 0;
     for (const h of withAsset) {
       const cat = (h.asset as AssetRow).category_id;
       const price = (h.asset as AssetRow).current_price ?? h.avg_price ?? 0;
-      const value = h.quantity * price;
+      const value = h.quantity * (Number(price) || 0);
       byCategory[cat] = (byCategory[cat] ?? 0) + value;
       total += value;
     }
-    if (total === 0) return DEFAULT_ALLOCATION;
+    if (total === 0 || !Number.isFinite(total)) return [];
     const catNames: Record<string, string> = {};
     categories.forEach((c) => { catNames[c.id] = c.name; });
-    const out = Object.entries(byCategory).map(([id, value]) => ({
-      label: catNames[id] ?? id,
-      value: Math.round((value / total) * 1000) / 10,
-      color: CATEGORY_COLORS[id] ?? '#666',
-    }));
-    return out.length ? out : DEFAULT_ALLOCATION;
+    const out = Object.entries(byCategory)
+      .map(([id, value]) => ({
+        label: catNames[id] ?? id,
+        value: Math.round((value / total) * 10000) / 100,
+        color: CATEGORY_COLORS[id] ?? '#666',
+      }))
+      .filter((d) => d.value > 0);
+    return out;
   }, [holdings, categories]);
 
   const filteredHoldings = useMemo(() => {
@@ -226,6 +252,81 @@ export default function PortfolioScreen() {
       return asset ? selected.includes(asset.category_id) : false;
     });
   }, [holdings, categories, isCategorySelected]);
+
+  const performanceValues = useMemo(() => {
+    const withAsset = holdings.map((h) => ({ ...h, asset: normalizeAsset(h.asset) })).filter((h) => h.asset);
+    let totalValueTL = 0;
+    let costBasisTL = 0;
+    let hasAnyCost = false;
+    for (const h of withAsset) {
+      const price = (h.asset as AssetRow).current_price ?? h.avg_price ?? 0;
+      const cost = h.avg_price != null && h.avg_price > 0 ? h.avg_price : price;
+      const value = h.quantity * (Number(price) || 0);
+      const costVal = h.quantity * (Number(cost) || 0);
+      totalValueTL += value;
+      costBasisTL += costVal;
+      if (h.avg_price != null && h.avg_price > 0) hasAnyCost = true;
+    }
+    const changeAmount = totalValueTL - costBasisTL;
+    const changePct =
+      costBasisTL > 0 ? Math.round((changeAmount / costBasisTL) * 10000) / 100 : null;
+    return {
+      totalValueTL,
+      costBasisTL,
+      changeAmount,
+      changePct,
+      hasAnyCost,
+    };
+  }, [holdings]);
+
+  const performanceSeries = useMemo(() => {
+    if (!holdings.length) return [];
+    const now = Date.now();
+    const createdTimes = holdings
+      .map((h) => new Date(h.created_at).getTime())
+      .filter((t) => Number.isFinite(t));
+    const firstCreated = createdTimes.length ? Math.min(...createdTimes) : now;
+    const totalNow = performanceValues.totalValueTL;
+    const costNow = performanceValues.costBasisTL;
+
+    const makeZeroToNow = (startMs: number) => {
+      const points = 20;
+      const out: number[] = [];
+      for (let i = 0; i < points; i++) {
+        const t = startMs + ((now - startMs) * i) / (points - 1);
+        if (t < firstCreated) {
+          out.push(0);
+        } else {
+          out.push(totalNow);
+        }
+      }
+      return out;
+    };
+
+    switch (activeTimeframe) {
+      case '1H':
+      case '1D':
+        return [costNow || totalNow, totalNow];
+      case '1W': {
+        const start = now - 7 * 24 * 60 * 60 * 1000;
+        return makeZeroToNow(start);
+      }
+      case '1M': {
+        const start = now - 30 * 24 * 60 * 60 * 1000;
+        return makeZeroToNow(start);
+      }
+      case 'YTD': {
+        const d = new Date();
+        const start = new Date(d.getFullYear(), 0, 1).getTime();
+        return makeZeroToNow(start);
+      }
+      case 'ALL':
+      default: {
+        const start = Math.min(firstCreated - 7 * 24 * 60 * 60 * 1000, now);
+        return makeZeroToNow(start);
+      }
+    }
+  }, [holdings, performanceValues.totalValueTL, performanceValues.costBasisTL, activeTimeframe]);
 
   const toggleAllocation = () => {
     LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
@@ -274,21 +375,11 @@ export default function PortfolioScreen() {
                   data={allocationData}
                   size={224}
                   strokeWidth={24}
-                  showLabels={false}
+                  showLabels
                 />
                 <TouchableOpacity activeOpacity={0.85} style={styles.donutCenterBtn}>
                   <Ionicons name="ellipsis-horizontal" size={20} color={WHITE} />
                 </TouchableOpacity>
-              </View>
-              <View style={styles.legendGrid}>
-                {allocationData.map((item) => (
-                  <View key={item.label} style={styles.legendRow}>
-                    <View style={[styles.legendDot, { backgroundColor: item.color }]} />
-                    <Text style={styles.legendText}>
-                      {item.value}% {item.label}
-                    </Text>
-                  </View>
-                ))}
               </View>
             </View>
           </Accordion>
@@ -300,23 +391,53 @@ export default function PortfolioScreen() {
                 <View>
                   <Text style={styles.totalLabel}>Total Value</Text>
                   <View style={styles.totalRow}>
-                    <Text style={styles.totalValue}>210.181</Text>
-                    <Text style={styles.totalCurrency}>USD</Text>
+                    <Text style={styles.totalValue}>
+                      {performanceValues.totalValueTL.toLocaleString('tr-TR', {
+                        minimumFractionDigits: 0,
+                        maximumFractionDigits: 0,
+                      })}
+                    </Text>
+                    <Text style={styles.totalCurrency}>TL</Text>
                     <Ionicons name="sync-outline" size={14} color={MUTED} style={{ marginLeft: 4 }} />
                   </View>
-                  <View style={styles.trendRow}>
-                    <Text style={styles.trendNegative}>-389,39</Text>
-                    <View style={styles.trendBadge}>
-                      <Text style={styles.trendBadgeText}>-0,18%</Text>
+                  {performanceValues.costBasisTL > 0 && performanceValues.changePct != null && (
+                    <View style={styles.trendRow}>
+                      <Text
+                        style={
+                          performanceValues.changeAmount >= 0 ? styles.trendPositive : styles.trendNegative
+                        }>
+                        {performanceValues.changeAmount >= 0 ? '+' : ''}
+                        {performanceValues.changeAmount.toLocaleString('tr-TR', {
+                          minimumFractionDigits: 2,
+                          maximumFractionDigits: 2,
+                        })}
+                      </Text>
+                      <View
+                        style={[
+                          styles.trendBadge,
+                          performanceValues.changeAmount >= 0 && styles.trendBadgePositive,
+                        ]}>
+                        <Text
+                          style={[
+                            styles.trendBadgeText,
+                            performanceValues.changeAmount >= 0 && styles.trendBadgeTextPositive,
+                          ]}>
+                          {performanceValues.changeAmount >= 0 ? '+' : ''}
+                          {performanceValues.changePct.toFixed(2).replace('.', ',')}%
+                        </Text>
+                      </View>
                     </View>
-                  </View>
+                  )}
                 </View>
                 <TouchableOpacity style={styles.insightsBtn}>
                   <Ionicons name="sparkles" size={16} color={ACCENT_BLUE} />
                   <Text style={styles.insightsBtnText}>Insights</Text>
                 </TouchableOpacity>
               </View>
-              <MiniAreaChart />
+              <PerformanceChart
+                series={performanceSeries}
+                isPositive={performanceValues.changeAmount >= 0}
+              />
               <View style={styles.timeframeRow}>
                 {TIMEFRAMES.map((tf) => (
                   <TouchableOpacity
@@ -380,13 +501,12 @@ export default function PortfolioScreen() {
                 if (!asset) return null;
                 const currentPrice = asset.current_price ?? h.avg_price ?? 0;
                 const value = h.quantity * currentPrice;
-                // Günlük değişim: öncelik asset.tablosundaki 24saatlik yüzde.
-                const changePct =
-                  asset.change_24h_pct != null
-                    ? asset.change_24h_pct
-                    : h.avg_price && h.avg_price > 0
-                      ? ((currentPrice - h.avg_price) / h.avg_price) * 100
-                      : null;
+                // Sadece günlük (24s) artış/düşüş; piyasa verisi yoksa — göster.
+                const changePct = asset.change_24h_pct ?? null;
+                const valueCurrency =
+                  asset.category_id === 'bist' || asset.category_id === 'kripto' || asset.category_id === 'doviz'
+                    ? 'TL'
+                    : 'USD';
                 const iconStyle = ASSET_ICONS[asset.symbol] ?? ASSET_ICONS.default;
                 return (
                   <Pressable
@@ -424,7 +544,7 @@ export default function PortfolioScreen() {
                           minimumFractionDigits: 2,
                           maximumFractionDigits: 2,
                         })}{' '}
-                        {asset.category_id === 'bist' || asset.category_id === 'kripto' ? 'TL' : 'USD'}
+                        {valueCurrency}
                       </Text>
                       <Text
                         style={[
@@ -433,7 +553,7 @@ export default function PortfolioScreen() {
                             ? styles.assetChangePositive
                             : styles.assetChangeNegative,
                         ]}>
-                        {changePct == null ? '—' : `${changePct >= 0 ? '+' : ''}${changePct.toFixed(2)}%`}
+                        {changePct == null ? '—' : `${changePct >= 0 ? '+' : ''}${changePct.toFixed(2).replace('.', ',')}%`}
                       </Text>
                     </View>
                   </Pressable>
@@ -489,6 +609,8 @@ const styles = StyleSheet.create({
     position: 'relative',
     alignItems: 'center',
     justifyContent: 'center',
+    minWidth: 336,
+    minHeight: 336,
   },
   donutCenterBtn: {
     position: 'absolute',
@@ -523,8 +645,11 @@ const styles = StyleSheet.create({
   totalCurrency: { fontSize: 14, color: '#94A3B8', marginLeft: 8, fontWeight: '500' },
   trendRow: { flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: 8 },
   trendNegative: { fontSize: 14, fontWeight: '600', color: '#ef4444' },
+  trendPositive: { fontSize: 14, fontWeight: '600', color: '#22c55e' },
   trendBadge: { backgroundColor: 'rgba(239,68,68,0.1)', paddingHorizontal: 6, paddingVertical: 2, borderRadius: 4 },
+  trendBadgePositive: { backgroundColor: 'rgba(34,197,94,0.15)' },
   trendBadgeText: { fontSize: 10, fontWeight: '700', color: '#ef4444' },
+  trendBadgeTextPositive: { color: '#22c55e' },
   insightsBtn: {
     flexDirection: 'row',
     alignItems: 'center',

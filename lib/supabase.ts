@@ -1,15 +1,18 @@
 import 'react-native-url-polyfill/auto';
+import { Platform } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { createClient } from '@supabase/supabase-js';
 
 const supabaseUrl = process.env.EXPO_PUBLIC_SUPABASE_URL ?? '';
 const supabaseAnonKey = process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY ?? '';
 
-// Web'de (SSR) window yok; AsyncStorage window kullanınca hata veriyor.
-// Bu yüzden: tarayıcıda localStorage, native'de AsyncStorage, SSR'da güvenli no-op.
+const isWeb = Platform.OS === 'web';
+const hasLocalStorage =
+  isWeb && typeof window !== 'undefined' && typeof window.localStorage !== 'undefined';
+
 const safeStorage = {
   getItem: async (key: string): Promise<string | null> => {
-    if (typeof window !== 'undefined') return localStorage.getItem(key);
+    if (hasLocalStorage) return window.localStorage.getItem(key);
     try {
       return await AsyncStorage.getItem(key);
     } catch {
@@ -17,25 +20,25 @@ const safeStorage = {
     }
   },
   setItem: async (key: string, value: string): Promise<void> => {
-    if (typeof window !== 'undefined') {
-      localStorage.setItem(key, value);
+    if (hasLocalStorage) {
+      window.localStorage.setItem(key, value);
       return;
     }
     try {
       await AsyncStorage.setItem(key, value);
     } catch {
-      // SSR / geçersiz ortamda sessizce yoksay
+      // native / SSR'da sessizce yoksay
     }
   },
   removeItem: async (key: string): Promise<void> => {
-    if (typeof window !== 'undefined') {
-      localStorage.removeItem(key);
+    if (hasLocalStorage) {
+      window.localStorage.removeItem(key);
       return;
     }
     try {
       await AsyncStorage.removeItem(key);
     } catch {
-      // SSR'da yoksay
+      // native / SSR'da yoksay
     }
   },
 };
