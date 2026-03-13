@@ -29,17 +29,9 @@ export default function TabLayout() {
         tabBarLabelStyle: { fontSize: 10, fontWeight: '500' },
       }}>
       <Tabs.Screen
-        name="home"
-        options={{
-          title: 'Home',
-          tabBarButton: HapticTab,
-          tabBarIcon: ({ color }) => <Ionicons name="home-outline" size={24} color={color} />,
-        }}
-      />
-      <Tabs.Screen
         name="index"
         options={{
-          title: 'Portfolio',
+          title: 'Portföy',
           tabBarButton: HapticTab,
           tabBarIcon: ({ color }) => <Ionicons name="pie-chart-outline" size={24} color={color} />,
         }}
@@ -47,33 +39,33 @@ export default function TabLayout() {
       <Tabs.Screen
         name="add"
         options={{
-          title: 'Add',
+          title: 'Artı',
           tabBarButton: FABTabButton,
           tabBarIcon: () => null,
         }}
       />
       <Tabs.Screen
-        name="explore"
+        name="settings"
         options={{
-          title: 'Swap',
+          title: 'Ayarlar',
           tabBarButton: HapticTab,
-          tabBarIcon: ({ color }) => <Ionicons name="swap-horizontal" size={24} color={color} />,
+          tabBarIcon: ({ color }) => <Ionicons name="settings-outline" size={24} color={color} />,
         }}
       />
       <Tabs.Screen
-        name="following"
-        options={{
-          title: 'Profile',
-          tabBarButton: HapticTab,
-          tabBarIcon: ({ color }) => <Ionicons name="person-outline" size={24} color={color} />,
-        }}
-      />
-      <Tabs.Screen
-        name="insights"
+        name="home"
         options={{ href: null }}
       />
       <Tabs.Screen
-        name="settings"
+        name="explore"
+        options={{ href: null }}
+      />
+      <Tabs.Screen
+        name="following"
+        options={{ href: null }}
+      />
+      <Tabs.Screen
+        name="insights"
         options={{ href: null }}
       />
       <Tabs.Screen

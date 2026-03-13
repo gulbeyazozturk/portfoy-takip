@@ -8,23 +8,21 @@ type SelectedCategoriesContextValue = {
 const SelectedCategoriesContext = createContext<SelectedCategoriesContextValue | null>(null);
 
 export function SelectedCategoriesProvider({ children }: { children: React.ReactNode }) {
-  const [selected, setSelected] = useState<Set<string>>(new Set());
+  // Boş set = hepsi seçili. Set içinde olanlar kapalı (deselected) kabul edilir.
+  const [deselected, setDeselected] = useState<Set<string>>(new Set());
 
   const toggle = useCallback((categoryId: string) => {
-    setSelected((prev) => {
+    setDeselected((prev) => {
       const next = new Set(prev);
-      if (next.has(categoryId)) {
-        next.delete(categoryId);
-      } else {
-        next.add(categoryId);
-      }
+      if (next.has(categoryId)) next.delete(categoryId);
+      else next.add(categoryId);
       return next;
     });
   }, []);
 
   const isSelected = useCallback(
-    (categoryId: string) => selected.has(categoryId),
-    [selected]
+    (categoryId: string) => !deselected.has(categoryId),
+    [deselected]
   );
 
   return (

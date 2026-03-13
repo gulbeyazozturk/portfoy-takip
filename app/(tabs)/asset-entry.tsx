@@ -1,6 +1,6 @@
 import { Ionicons } from '@expo/vector-icons';
 import { useLocalSearchParams, useRouter } from 'expo-router';
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
@@ -25,10 +25,14 @@ export default function AssetEntryScreen() {
   const router = useRouter();
   const { portfolioId } = usePortfolio();
   const params = useLocalSearchParams<{
+    returnTo?: string;
+    returnCategoryId?: string;
+    returnLabel?: string;
     holdingId?: string;
     assetId?: string;
     name?: string;
     symbol?: string;
+    categoryId?: string;
     price?: string;
     quantity?: string;
     avgPrice?: string;
@@ -38,11 +42,48 @@ export default function AssetEntryScreen() {
   const assetId = params.assetId as string | undefined;
   const name = params.name ?? 'Varlık';
   const symbol = params.symbol ?? '';
+  const categoryId = params.categoryId as string | undefined;
+  const returnTo = params.returnTo as string | undefined;
+  const returnCategoryId = params.returnCategoryId as string | undefined;
+  const returnLabel = params.returnLabel as string | undefined;
   const currentPrice = params.price ? Number(params.price) : 0;
+
+  const handleBack = () => {
+    if (returnTo === '/(tabs)/asset-list' && returnCategoryId != null) {
+      router.replace({
+        pathname: '/(tabs)/asset-list',
+        params: { categoryId: returnCategoryId, label: returnLabel ?? '' },
+      });
+      return;
+    }
+    if (returnTo === '/(tabs)/index') {
+      router.replace('/(tabs)');
+      return;
+    }
+    router.back();
+  };
+
+  const amountUnitLabel = useMemo(() => {
+    if (categoryId === 'doviz') return symbol || '—';
+    if (categoryId === 'emtia') {
+      if (['XAU', 'XAG', 'XPT', 'XPD'].includes(symbol)) return symbol;
+      const s = (symbol ?? '').toUpperCase();
+      if (s.includes('22_AYAR') && s.includes('BILEZIK')) return 'Gram';
+      if (s.includes('14_AYAR') || s.includes('18_AYAR')) return 'Gram';
+      return 'Adet';
+    }
+    return symbol || 'Adet';
+  }, [categoryId, symbol]);
 
   const [amount, setAmount] = useState(() => (params.quantity as string | undefined) ?? '');
   const [unitPrice, setUnitPrice] = useState(() => (params.avgPrice as string | undefined) ?? '');
   const [saving, setSaving] = useState(false);
+
+  // Ekran her açıldığında form alanlarını route parametrelerine göre sıfırla
+  useEffect(() => {
+    setAmount((params.quantity as string | undefined) ?? '');
+    setUnitPrice((params.avgPrice as string | undefined) ?? '');
+  }, [params.quantity, params.avgPrice, holdingId, assetId]);
 
   const linePath = useMemo(() => {
     const width = 260;
@@ -143,7 +184,7 @@ export default function AssetEntryScreen() {
         <View style={styles.header}>
           <TouchableOpacity
             style={styles.backButton}
-            onPress={() => router.back()}
+            onPress={handleBack}
             activeOpacity={0.8}>
             <Ionicons name="chevron-back" size={22} color="#f9fafb" />
           </TouchableOpacity>
@@ -226,7 +267,7 @@ export default function AssetEntryScreen() {
                   value={amount}
                   onChangeText={setAmount}
                 />
-                <ThemedText style={styles.fieldUnit}>{symbol || 'Adet'}</ThemedText>
+                <ThemedText style={styles.fieldUnit}>{amountUnitLabel}</ThemedText>
               </View>
             </View>
 

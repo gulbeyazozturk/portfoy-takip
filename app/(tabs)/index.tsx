@@ -4,6 +4,7 @@ import { useRouter } from 'expo-router';
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   ActivityIndicator,
+  Image,
   LayoutAnimation,
   Platform,
   Pressable,
@@ -35,6 +36,8 @@ const WHITE = '#FFFFFF';
 const BUTTON_BG = '#3F4250';
 const BORDER = 'rgba(255,255,255,0.05)';
 
+// Not: Döviz için ülke bayrakları icon_url üzerinden geliyor.
+
 const DEFAULT_ALLOCATION = [
   { label: 'Fon', value: 40.6, color: '#00C2F2' },
   { label: 'Emtia', value: 24.4, color: '#F9A000' },
@@ -55,15 +58,34 @@ const CATEGORY_COLORS: Record<string, string> = {
 
 const ASSET_ICONS: Record<string, { icon: string; bg: string; color: string }> = {
   default: { icon: 'ellipse-outline', bg: 'rgba(148,163,184,0.2)', color: '#94A3B8' },
+  // Kripto
   BTC: { icon: 'cash', bg: 'rgba(249,115,22,0.2)', color: '#f97316' },
   ETH: { icon: 'analytics', bg: 'rgba(59,130,246,0.2)', color: '#3b82f6' },
   SOL: { icon: 'flash', bg: 'rgba(168,85,247,0.2)', color: '#a855f7' },
   ADA: { icon: 'diamond-outline', bg: 'rgba(99,102,241,0.2)', color: '#6366f1' },
   XRP: { icon: 'flash-outline', bg: 'rgba(34,197,94,0.2)', color: '#22c55e' },
   DOT: { icon: 'ellipse-outline', bg: 'rgba(234,88,12,0.2)', color: '#ea580c' },
+  // Emtia: Ionicons cube, metale göre renk
+  XAU: { icon: 'cube', bg: 'rgba(250,204,21,0.4)', color: '#facc15' }, // altın
+  XAG: { icon: 'cube', bg: 'rgba(148,163,184,0.4)', color: '#e5e7eb' }, // gümüş
+  XPT: { icon: 'cube', bg: 'rgba(156,163,175,0.4)', color: '#d1d5db' }, // platin
+  XPD: { icon: 'cube', bg: 'rgba(129,140,248,0.4)', color: '#a5b4fc' }, // paladyum
+  // Diğer emtia / kategoriler için fallback
+  emtia: { icon: 'cube-outline', bg: 'rgba(250,204,21,0.28)', color: '#facc15' },
+  // BIST: basit grafik ikonu
+  bist: { icon: 'stats-chart', bg: 'rgba(56,189,248,0.3)', color: '#38bdf8' },
 };
 
 const TIMEFRAMES = ['1H', '1D', '1W', '1M', 'YTD', 'ALL'] as const;
+
+type SortMode = 'todayTopGainers' | 'todayTopLosers' | 'highestValue' | 'lowestValue';
+
+const SORT_OPTIONS: { id: SortMode; label: string }[] = [
+  { id: 'todayTopGainers', label: 'Bugün En Çok Artanlar' },
+  { id: 'todayTopLosers', label: 'Bugün En Çok Düşenler' },
+  { id: 'highestValue', label: 'En Yüksek Değere Sahipler' },
+  { id: 'lowestValue', label: 'En Düşük Değere Sahipler' },
+];
 
 function Accordion({
   title,
@@ -143,6 +165,7 @@ type AssetRow = {
   symbol: string;
   category_id: string;
   current_price: number | null;
+  icon_url?: string | null;
   change_24h_pct?: number | null;
 };
 type HoldingRow = {
@@ -166,6 +189,8 @@ export default function PortfolioScreen() {
   const [allocationOpen, setAllocationOpen] = useState(true);
   const [performanceOpen, setPerformanceOpen] = useState(true);
   const [activeTimeframe, setActiveTimeframe] = useState<(typeof TIMEFRAMES)[number]>('1H');
+  const [sortMode, setSortMode] = useState<SortMode>('todayTopGainers');
+  const [isSortMenuOpen, setIsSortMenuOpen] = useState(false);
   const [categories, setCategories] = useState<CategoryRow[]>([]);
   const [holdings, setHoldings] = useState<HoldingRow[]>([]);
   const [loading, setLoading] = useState(true);
@@ -193,7 +218,7 @@ export default function PortfolioScreen() {
     const { data, error: e } = await supabase
       .from('holdings')
       .select(
-        'id, quantity, avg_price, created_at, asset:assets(id, name, symbol, category_id, current_price, change_24h_pct)'
+        'id, quantity, avg_price, created_at, asset:assets(id, name, symbol, category_id, current_price, change_24h_pct, icon_url)'
       )
       .eq('portfolio_id', portfolioId);
     if (e) {
@@ -217,6 +242,11 @@ export default function PortfolioScreen() {
     useCallback(() => {
       if (portfolioId) fetchHoldings();
     }, [portfolioId, fetchHoldings])
+  );
+
+  const sortLabel = useMemo(
+    () => SORT_OPTIONS.find((o) => o.id === sortMode)?.label ?? SORT_OPTIONS[0].label,
+    [sortMode],
   );
 
   const allocationData = useMemo(() => {
@@ -246,12 +276,50 @@ export default function PortfolioScreen() {
 
   const filteredHoldings = useMemo(() => {
     const selected = categories.filter((c) => isCategorySelected(c.id)).map((c) => c.id);
-    if (selected.length === 0) return holdings;
-    return holdings.filter((h) => {
-      const asset = normalizeAsset(h.asset);
-      return asset ? selected.includes(asset.category_id) : false;
+    const base =
+      selected.length === 0
+        ? holdings
+        : holdings.filter((h) => {
+            const asset = normalizeAsset(h.asset);
+            return asset ? selected.includes(asset.category_id) : false;
+          });
+
+    const sorted = [...base];
+
+    sorted.sort((a, b) => {
+      const assetA = normalizeAsset(a.asset);
+      const assetB = normalizeAsset(b.asset);
+
+      const priceA = (assetA?.current_price ?? a.avg_price ?? 0) || 0;
+      const priceB = (assetB?.current_price ?? b.avg_price ?? 0) || 0;
+      const valueA = a.quantity * Number(priceA || 0);
+      const valueB = b.quantity * Number(priceB || 0);
+
+      const changeA = assetA?.change_24h_pct;
+      const changeB = assetB?.change_24h_pct;
+
+      switch (sortMode) {
+        case 'todayTopGainers': {
+          const ca = changeA ?? -Infinity;
+          const cb = changeB ?? -Infinity;
+          return cb - ca;
+        }
+        case 'todayTopLosers': {
+          const ca = changeA ?? Infinity;
+          const cb = changeB ?? Infinity;
+          return ca - cb;
+        }
+        case 'highestValue':
+          return (valueB || 0) - (valueA || 0);
+        case 'lowestValue':
+          return (valueA || 0) - (valueB || 0);
+        default:
+          return 0;
+      }
     });
-  }, [holdings, categories, isCategorySelected]);
+
+    return sorted;
+  }, [holdings, categories, isCategorySelected, sortMode]);
 
   const performanceValues = useMemo(() => {
     const withAsset = holdings.map((h) => ({ ...h, asset: normalizeAsset(h.asset) })).filter((h) => h.asset);
@@ -342,19 +410,13 @@ export default function PortfolioScreen() {
       <SafeAreaView style={styles.safe} edges={['top']}>
         {/* Header */}
         <View style={styles.header}>
-          <TouchableOpacity hitSlop={12} style={styles.headerBtn}>
-            <Ionicons name="menu" size={24} color={WHITE} />
-          </TouchableOpacity>
           <Text style={styles.headerTitle}>Portfolio</Text>
-          <TouchableOpacity hitSlop={12} style={styles.headerBtn}>
-            <Ionicons name="notifications-outline" size={24} color={WHITE} />
-          </TouchableOpacity>
         </View>
 
         <ScrollView
           style={styles.scroll}
           contentContainerStyle={styles.scrollContent}
-          showsVerticalScrollIndicator={false}
+          showsVerticalScrollIndicator={true}
           keyboardShouldPersistTaps="handled">
           {error ? (
             <View style={styles.errorWrap}>
@@ -398,7 +460,6 @@ export default function PortfolioScreen() {
                       })}
                     </Text>
                     <Text style={styles.totalCurrency}>TL</Text>
-                    <Ionicons name="sync-outline" size={14} color={MUTED} style={{ marginLeft: 4 }} />
                   </View>
                   {performanceValues.costBasisTL > 0 && performanceValues.changePct != null && (
                     <View style={styles.trendRow}>
@@ -429,10 +490,6 @@ export default function PortfolioScreen() {
                     </View>
                   )}
                 </View>
-                <TouchableOpacity style={styles.insightsBtn}>
-                  <Ionicons name="sparkles" size={16} color={ACCENT_BLUE} />
-                  <Text style={styles.insightsBtnText}>Insights</Text>
-                </TouchableOpacity>
               </View>
               <PerformanceChart
                 series={performanceSeries}
@@ -459,14 +516,41 @@ export default function PortfolioScreen() {
 
           {/* Filter row */}
           <View style={styles.filterRow}>
-            <TouchableOpacity style={styles.filterBtn}>
-              <Text style={styles.filterBtnText}>Highest holdings</Text>
-              <Ionicons name="chevron-down" size={16} color={MUTED} />
-            </TouchableOpacity>
-            <TouchableOpacity style={styles.filterBtn}>
-              <Text style={styles.filterBtnText}>24 Hours</Text>
-              <Ionicons name="chevron-down" size={16} color={MUTED} />
-            </TouchableOpacity>
+            <View>
+              <TouchableOpacity
+                style={styles.filterBtn}
+                onPress={() => setIsSortMenuOpen((o) => !o)}
+                activeOpacity={0.85}>
+                <Text style={styles.filterBtnText}>{sortLabel}</Text>
+                <Ionicons
+                  name={isSortMenuOpen ? 'chevron-up' : 'chevron-down'}
+                  size={16}
+                  color={MUTED}
+                />
+              </TouchableOpacity>
+              {isSortMenuOpen && (
+                <View style={styles.filterMenu}>
+                  {SORT_OPTIONS.map((opt) => (
+                    <TouchableOpacity
+                      key={opt.id}
+                      style={styles.filterMenuItem}
+                      activeOpacity={0.85}
+                      onPress={() => {
+                        setSortMode(opt.id);
+                        setIsSortMenuOpen(false);
+                      }}>
+                      <Text
+                        style={[
+                          styles.filterMenuItemText,
+                          opt.id === sortMode && styles.filterMenuItemTextActive,
+                        ]}>
+                        {opt.label}
+                      </Text>
+                    </TouchableOpacity>
+                  ))}
+                </View>
+              )}
+            </View>
           </View>
 
           {/* Category pills */}
@@ -504,10 +588,33 @@ export default function PortfolioScreen() {
                 // Sadece günlük (24s) artış/düşüş; piyasa verisi yoksa — göster.
                 const changePct = asset.change_24h_pct ?? null;
                 const valueCurrency =
-                  asset.category_id === 'bist' || asset.category_id === 'kripto' || asset.category_id === 'doviz'
+                  asset.category_id === 'bist' ||
+                  asset.category_id === 'kripto' ||
+                  asset.category_id === 'doviz' ||
+                  asset.category_id === 'emtia'
                     ? 'TL'
                     : 'USD';
-                const iconStyle = ASSET_ICONS[asset.symbol] ?? ASSET_ICONS.default;
+                const listAmountUnit =
+                  asset.category_id === 'doviz'
+                    ? asset.symbol
+                    : asset.category_id === 'emtia'
+                      ? ['XAU', 'XAG', 'XPT', 'XPD'].includes(asset.symbol)
+                        ? asset.symbol
+                        : (() => {
+                            const s = (asset.symbol ?? '').toUpperCase();
+                            if ((s.includes('22_AYAR') && s.includes('BILEZIK')) || s.includes('14_AYAR') || s.includes('18_AYAR'))
+                              return 'Gram';
+                            return 'Adet';
+                          })()
+                      : asset.symbol;
+                const quantityFormatted = Number(h.quantity).toLocaleString('tr-TR', {
+                  minimumFractionDigits: 0,
+                  maximumFractionDigits: 4,
+                });
+                const iconStyle =
+                  ASSET_ICONS[asset.symbol] ??
+                  ASSET_ICONS[asset.category_id] ??
+                  ASSET_ICONS.default;
                 return (
                   <Pressable
                     key={h.id}
@@ -516,10 +623,12 @@ export default function PortfolioScreen() {
                       router.push({
                         pathname: '/(tabs)/asset-entry',
                         params: {
+                          returnTo: '/(tabs)/index',
                           holdingId: h.id,
                           assetId: asset.id,
                           name: asset.name,
                           symbol: asset.symbol,
+                          categoryId: asset.category_id,
                           price:
                             asset.current_price != null ? String(asset.current_price) : h.avg_price != null ? String(h.avg_price) : '',
                           quantity: String(h.quantity),
@@ -529,12 +638,20 @@ export default function PortfolioScreen() {
                     }>
                     <View style={styles.assetLeft}>
                       <View style={[styles.assetIcon, { backgroundColor: iconStyle.bg }]}>
-                        <Ionicons name={iconStyle.icon as any} size={24} color={iconStyle.color} />
+                        {asset.category_id === 'doviz' && asset.icon_url ? (
+                          <Image
+                            source={{ uri: asset.icon_url }}
+                            style={styles.assetIconImage}
+                            resizeMode="contain"
+                          />
+                        ) : (
+                          <Ionicons name={iconStyle.icon as any} size={24} color={iconStyle.color} />
+                        )}
                       </View>
                       <View>
                         <Text style={styles.assetName}>{asset.name}</Text>
                         <Text style={styles.assetAmount}>
-                          {h.quantity} {asset.symbol}
+                          {quantityFormatted} {listAmountUnit}
                         </Text>
                       </View>
                     </View>
@@ -574,11 +691,10 @@ const styles = StyleSheet.create({
   header: {
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'space-between',
+    justifyContent: 'center',
     paddingHorizontal: 24,
     paddingVertical: 16,
   },
-  headerBtn: { padding: 8 },
   headerTitle: { fontSize: 18, fontWeight: '700', color: WHITE },
   scroll: { flex: 1 },
   scrollContent: { paddingHorizontal: 16, paddingBottom: 24 },
@@ -650,18 +766,6 @@ const styles = StyleSheet.create({
   trendBadgePositive: { backgroundColor: 'rgba(34,197,94,0.15)' },
   trendBadgeText: { fontSize: 10, fontWeight: '700', color: '#ef4444' },
   trendBadgeTextPositive: { color: '#22c55e' },
-  insightsBtn: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-    backgroundColor: 'rgba(255,255,255,0.05)',
-    paddingHorizontal: 12,
-    paddingVertical: 6,
-    borderRadius: 999,
-    borderWidth: 1,
-    borderColor: BORDER,
-  },
-  insightsBtnText: { fontSize: 12, fontWeight: '600', color: '#e2e8f0' },
   chartArea: { width: '100%', height: 120, borderRadius: 12, overflow: 'hidden', backgroundColor: SURFACE },
   timeframeRow: {
     flexDirection: 'row',
@@ -681,6 +785,7 @@ const styles = StyleSheet.create({
   timeframeBtnTextActive: { fontSize: 12, fontWeight: '700', color: WHITE },
   filterRow: {
     flexDirection: 'row',
+    justifyContent: 'flex-end',
     gap: 12,
     marginBottom: 16,
     paddingHorizontal: 8,
@@ -697,6 +802,20 @@ const styles = StyleSheet.create({
     borderColor: BORDER,
   },
   filterBtnText: { fontSize: 14, fontWeight: '500', color: WHITE },
+  filterMenu: {
+    marginTop: 6,
+    backgroundColor: SURFACE,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: BORDER,
+    overflow: 'hidden',
+  },
+  filterMenuItem: {
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+  },
+  filterMenuItemText: { fontSize: 13, color: MUTED },
+  filterMenuItemTextActive: { fontSize: 13, fontWeight: '600', color: WHITE },
   pillsRow: { flexDirection: 'row', gap: 8, paddingHorizontal: 8, marginBottom: 8 },
   categoryPill: {
     paddingHorizontal: 16,
@@ -721,6 +840,7 @@ const styles = StyleSheet.create({
   },
   assetLeft: { flexDirection: 'row', alignItems: 'center', gap: 16 },
   assetIcon: { width: 48, height: 48, borderRadius: 24, alignItems: 'center', justifyContent: 'center' },
+  assetIconImage: { width: 32, height: 32, borderRadius: 16 },
   assetName: { fontSize: 16, fontWeight: '600', color: WHITE },
   assetAmount: { fontSize: 12, color: '#A1A1AA', marginTop: 2 },
   assetRight: { alignItems: 'flex-end' },

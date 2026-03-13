@@ -56,6 +56,7 @@ export default function AssetListScreen() {
       .select('id, name, symbol, current_price, icon_url')
       .eq('category_id', categoryId)
       .order('symbol', { ascending: true })
+      .limit(50000)
       .then(({ data, error: e }) => {
         setLoading(false);
         if (e) {
@@ -92,9 +93,13 @@ export default function AssetListScreen() {
     router.push({
       pathname: '/(tabs)/asset-entry',
       params: {
+        returnTo: '/(tabs)/asset-list',
+        returnCategoryId: categoryId,
+        returnLabel: label,
         assetId: selectedAsset.id,
         name: selectedAsset.name,
         symbol: selectedAsset.symbol,
+        categoryId,
         price: selectedAsset.price != null ? String(selectedAsset.price) : '',
       },
     });

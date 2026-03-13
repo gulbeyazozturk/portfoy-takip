@@ -8,6 +8,11 @@
     "reset-project": "node ./scripts/reset-project.js",
     "sync-crypto": "node ./scripts/sync-crypto-prices.js",
     "sync-bist-scrape": "node ./scripts/sync-bist-scrape.js",
+    "sync-doviz-dev": "node ./scripts/sync-doviz-dev.js",
+    "sync-emtia-scrape": "node ./scripts/sync-emtia-scrape.js",
+    "sync-kapalicarsi-gold": "node ./scripts/sync-kapalicarsi-gold.js",
+    "sync-yurtdisi-list": "node ./scripts/sync-yurtdisi-list.js",
+    "sync-yurtdisi-prices": "node ./scripts/sync-yurtdisi-prices.js",
     "android": "expo start --android",
     "ios": "expo start --ios",
     "web": "expo start --web",
@@ -43,7 +48,8 @@
     "react-native-svg": "15.12.1",
     "react-native-url-polyfill": "^3.0.0",
     "react-native-web": "~0.21.0",
-    "react-native-worklets": "0.5.1"
+    "react-native-worklets": "0.5.1",
+    "yahoo-finance2": "^3.13.2"
   },
   "devDependencies": {
     "@types/react": "~19.1.0",

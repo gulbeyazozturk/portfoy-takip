@@ -32,13 +32,28 @@ const FOREX_PAIRS = [
   { key: 'PLNTRY', symbol: 'PLN', name: 'Polonya Zlotisi' },
 ];
 
+// ISO ülke / bölge kodları; bayrak ikonları için kullanılır.
+// flagcdn.com altında 40px PNG kullanıyoruz (örn: https://flagcdn.com/w40/us.png)
+const FLAG_BY_SYMBOL = {
+  USD: 'us',
+  EUR: 'eu',
+  GBP: 'gb',
+  CHF: 'ch',
+  JPY: 'jp',
+  AUD: 'au',
+  CAD: 'ca',
+  DKK: 'dk',
+  PLN: 'pl',
+};
+
 async function loadEnv() {
   const path = require('path');
   const fs = require('fs');
   const envPath = path.resolve(__dirname, '..', '.env');
   if (fs.existsSync(envPath)) {
-    const content = fs.readFileSync(envPath, 'utf8');
-    for (const line of content.split('\n')) {
+    let content = fs.readFileSync(envPath, 'utf8');
+    if (content.charCodeAt(0) === 0xfeff) content = content.slice(1);
+    for (const line of content.split(/\r?\n/)) {
       const m = line.match(/^\s*([A-Za-z0-9_]+)\s*=\s*(.*?)\s*$/);
       if (m) process.env[m[1]] = m[2].replace(/^["']|["']$/g, '').trim();
     }
@@ -90,12 +105,16 @@ async function upsertDovizAssets(supabase, rates, todayTurkey, existingMidnight)
         ? ((currentPrice - priceAtMidnight) / priceAtMidnight) * 100
         : null;
 
+    const flagCode = FLAG_BY_SYMBOL[symbol];
+    const iconUrl = flagCode ? `https://flagcdn.com/w40/${flagCode}.png` : null;
+
     rows.push({
       category_id: 'doviz',
       symbol,
       name,
       currency: symbol,
       current_price: currentPrice,
+      icon_url: iconUrl,
       price_updated_at: now,
       price_at_midnight: priceAtMidnight,
       price_midnight_date: priceMidnightDate,

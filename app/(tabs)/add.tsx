@@ -1,4 +1,5 @@
 import { Ionicons } from '@expo/vector-icons';
+import { useFocusEffect } from '@react-navigation/native';
 import { useRouter } from 'expo-router';
 import React, { useEffect, useMemo, useState } from 'react';
 import {
@@ -77,6 +78,13 @@ export default function AddScreen() {
         (c.subtitle && c.subtitle.toLocaleLowerCase('tr-TR').includes(q)),
     );
   }, [categories, query]);
+
+  // Ekran her odaklandığında arama kutusunu temizle
+  useFocusEffect(
+    React.useCallback(() => {
+      setQuery('');
+    }, []),
+  );
 
   return (
     <View style={styles.root}>

@@ -35,3 +35,15 @@ jobs:
 
       - name: Sync Döviz (doviz.dev)
         run: node scripts/sync-doviz-dev.js
+
+      - name: Sync Emtia (scrape)
+        run: node scripts/sync-emtia-scrape.js
+
+      - name: Sync Kapalıçarşı Altın
+        run: node scripts/sync-kapalicarsi-gold.js
+
+      - name: Sync Yurtdışı liste (S&P 500)
+        run: node scripts/sync-yurtdisi-list.js
+
+      - name: Sync Yurtdışı fiyat (Yahoo)
+        run: node scripts/sync-yurtdisi-prices.js
