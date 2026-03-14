@@ -430,7 +430,7 @@ export default function PortfolioScreen() {
             </View>
           ) : null}
           {/* Accordion 1: Asset Allocation */}
-          <Accordion title="Asset Allocation" open={allocationOpen} onToggle={toggleAllocation}>
+          <Accordion title="Varlık dağılımı" open={allocationOpen} onToggle={toggleAllocation}>
             <View style={styles.allocationBody}>
               <View style={styles.donutWrap}>
                 <UltraDarkDonutChart
@@ -666,9 +666,11 @@ export default function PortfolioScreen() {
                       <Text
                         style={[
                           styles.assetChange,
-                          changePct != null && changePct >= 0
-                            ? styles.assetChangePositive
-                            : styles.assetChangeNegative,
+                          changePct == null
+                            ? styles.assetChangeNeutral
+                            : changePct >= 0
+                              ? styles.assetChangePositive
+                              : styles.assetChangeNegative,
                         ]}>
                         {changePct == null ? '—' : `${changePct >= 0 ? '+' : ''}${changePct.toFixed(2).replace('.', ',')}%`}
                       </Text>
@@ -848,5 +850,6 @@ const styles = StyleSheet.create({
   assetChange: { fontSize: 12, fontWeight: '500', marginTop: 2 },
   assetChangePositive: { color: PRIMARY },
   assetChangeNegative: { color: '#f87171' },
+  assetChangeNeutral: { color: '#9ca3af' },
   bottomSpacer: { height: 120 },
 });

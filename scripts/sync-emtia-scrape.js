@@ -80,6 +80,7 @@ function parseMetalRows(html) {
     const nameText = $(tds[0]).text().trim();
     const bidText = $(tds[1]).text().trim();
     const askText = $(tds[2]).text().trim();
+    const perfText = tds.length >= 4 ? $(tds[3]).text().trim() : '';
 
     if (!nameText) return;
 
@@ -98,10 +99,13 @@ function parseMetalRows(html) {
     const priceUsd = bid ?? ask ?? null;
     if (priceUsd == null) return;
 
+    const changePct = normalizeEnNumber(perfText);
+
     rows.push({
       symbol: meta.symbol,
       name: meta.name,
       priceUsd,
+      change_24h_pct: changePct != null ? changePct : null,
     });
   });
 
@@ -141,7 +145,7 @@ async function upsertEmtiaAssets(supabase, rows) {
       name: r.name,
       currency: 'TRY',
       current_price: priceTl,
-      change_24h_pct: null,
+      change_24h_pct: r.change_24h_pct ?? null,
       price_updated_at: now,
     };
   });
