@@ -156,13 +156,16 @@ export default function AddScreen() {
             ListFooterComponent={
               <View style={styles.footerWrap}>
                 <View style={styles.helpCard}>
-                  <View style={{ flex: 1 }}>
-                    <Text style={styles.helpTitle}>Yardıma mı ihtiyacınız var?</Text>
-                    <Text style={styles.helpText}>
-                      Varlık türlerini nasıl ekleyeceğinizi öğrenin.
-                    </Text>
-                  </View>
-                  <Ionicons name="information-circle" size={22} color={PRIMARY} />
+                  <Text style={styles.helpTitle} numberOfLines={2}>
+                    Portföyünüzü dosya ile toplu olarak yüklemek ister misiniz?
+                  </Text>
+                  <TouchableOpacity
+                    style={styles.helpButton}
+                    activeOpacity={0.8}
+                    onPress={() => {}}
+                  >
+                    <Text style={styles.helpButtonText}>Devam et</Text>
+                  </TouchableOpacity>
                 </View>
               </View>
             }
@@ -260,6 +263,12 @@ const styles = StyleSheet.create({
     borderRadius: 16,
     padding: 16,
   },
-  helpTitle: { color: PRIMARY, fontSize: 14, fontWeight: '600' },
-  helpText: { color: '#94A3B8', fontSize: 12, marginTop: 4 },
+  helpTitle: { flex: 1, color: PRIMARY, fontSize: 14, fontWeight: '600' },
+  helpButton: {
+    backgroundColor: PRIMARY,
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+    borderRadius: 10,
+  },
+  helpButtonText: { color: BG_DARK, fontSize: 13, fontWeight: '600' },
 });
