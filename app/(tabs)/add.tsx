@@ -162,7 +162,7 @@ export default function AddScreen() {
                   <TouchableOpacity
                     style={styles.helpButton}
                     activeOpacity={0.8}
-                    onPress={() => {}}
+                    onPress={() => router.push('/bulk-upload')}
                   >
                     <Text style={styles.helpButtonText}>Devam et</Text>
                   </TouchableOpacity>

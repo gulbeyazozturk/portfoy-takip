@@ -4,8 +4,6 @@ import { Ionicons } from '@expo/vector-icons';
 
 import { FABTabButton } from '@/components/fab-tab-button';
 import { HapticTab } from '@/components/haptic-tab';
-import { PortfolioProvider } from '@/context/portfolio';
-import { SelectedCategoriesProvider } from '@/context/selected-categories';
 
 const TAB_BG = '#000000';
 const PASSIVE = '#888A96';
@@ -13,8 +11,6 @@ const ACTIVE = '#2979FF';
 
 export default function TabLayout() {
   return (
-    <PortfolioProvider>
-    <SelectedCategoriesProvider>
     <Tabs
       initialRouteName="index"
       screenOptions={{
@@ -77,7 +73,5 @@ export default function TabLayout() {
         options={{ href: null }}
       />
     </Tabs>
-    </SelectedCategoriesProvider>
-    </PortfolioProvider>
   );
 }

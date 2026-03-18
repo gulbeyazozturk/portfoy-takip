@@ -4,6 +4,8 @@ import { StatusBar } from 'expo-status-bar';
 import 'react-native-reanimated';
 
 import { useColorScheme } from '@/hooks/use-color-scheme';
+import { PortfolioProvider } from '@/context/portfolio';
+import { SelectedCategoriesProvider } from '@/context/selected-categories';
 
 export const unstable_settings = {
   anchor: '(tabs)',
@@ -14,10 +16,18 @@ export default function RootLayout() {
 
   return (
     <ThemeProvider value={colorScheme === 'dark' ? DarkTheme : DefaultTheme}>
-      <Stack>
-        <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
-        <Stack.Screen name="modal" options={{ presentation: 'modal', title: 'Modal' }} />
-      </Stack>
+      <PortfolioProvider>
+        <SelectedCategoriesProvider>
+          <Stack>
+            <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
+            <Stack.Screen
+              name="bulk-upload"
+              options={{ headerShown: false, title: 'Toplu yükleme' }}
+            />
+            <Stack.Screen name="modal" options={{ presentation: 'modal', title: 'Modal' }} />
+          </Stack>
+        </SelectedCategoriesProvider>
+      </PortfolioProvider>
       <StatusBar style="auto" />
     </ThemeProvider>
   );
