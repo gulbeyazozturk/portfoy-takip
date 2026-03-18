@@ -7,7 +7,9 @@ import {
   ActivityIndicator,
   Alert,
   FlatList,
+  Modal,
   Platform,
+  Pressable,
   ScrollView,
   StyleSheet,
   Text,
@@ -44,8 +46,17 @@ type ParsedRow = {
   changeType: 'Ekleme' | 'Güncelleme';
 };
 
+const stripQuotes = (value: string) => value.replace(/^["']+|["']+$/g, '').trim();
+
+const turkishLower = (s: string) =>
+  s.replace(/İ/g, 'i').replace(/I/g, 'ı').replace(/Ş/g, 'ş').replace(/Ğ/g, 'ğ')
+   .replace(/Ü/g, 'ü').replace(/Ö/g, 'ö').replace(/Ç/g, 'ç').toLowerCase();
+
 const normalize = (value: string | null | undefined) =>
-  (value ?? '').toString().trim().toLowerCase();
+  turkishLower(stripQuotes((value ?? '').toString()).trim());
+
+const normalizeLoose = (value: string | null | undefined) =>
+  normalize(value).replace(/\s+/g, '');
 
 export default function BulkUploadScreen() {
   const router = useRouter();
@@ -54,6 +65,20 @@ export default function BulkUploadScreen() {
   const [uploads, setUploads] = useState<UploadRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [uploading, setUploading] = useState(false);
+
+  const [modalVisible, setModalVisible] = useState(false);
+  const [modalTitle, setModalTitle] = useState('');
+  const [modalBody, setModalBody] = useState('');
+
+  const showAlert = (title: string, body: string) => {
+    if (Platform.OS === 'web') {
+      setModalTitle(title);
+      setModalBody(body);
+      setModalVisible(true);
+    } else {
+      Alert.alert(title, body);
+    }
+  };
 
   const fetchUploads = useCallback(async () => {
     const { data, error } = await supabase
@@ -78,7 +103,7 @@ export default function BulkUploadScreen() {
 
   const ensureWebDownload = () => {
     if (Platform.OS !== 'web') {
-      Alert.alert('Sadece web', 'Örnek CSV dosyalarını şu anda sadece web tarayıcısından indirebilirsiniz.');
+      showAlert('Sadece web', 'Örnek CSV dosyalarını şu anda sadece web tarayıcısından indirebilirsiniz.');
       return false;
     }
     return true;
@@ -112,15 +137,29 @@ export default function BulkUploadScreen() {
     triggerCsvDownload('ornek-portfoy-yukleme.csv', sample);
   };
 
+
   const handleDownloadAllValuesCsv = async () => {
     try {
       if (!ensureWebDownload()) return;
-      const [{ data: categories }, { data: assets }] = await Promise.all([
-        supabase.from('categories').select('id, name, subtitle'),
-        supabase.from('assets').select('category_id, symbol, name'),
-      ]);
+
+      const { data: categories } = await supabase.from('categories').select('id, name, subtitle');
+      const allAssets: Array<{ category_id: string; symbol: string; name: string }> = [];
+      let from = 0;
+      const PG = 1000;
+      while (true) {
+        const { data: batch } = await supabase
+          .from('assets')
+          .select('category_id, symbol, name')
+          .order('symbol', { ascending: true })
+          .range(from, from + PG - 1);
+        if (!batch || batch.length === 0) break;
+        allAssets.push(...batch);
+        if (batch.length < PG) break;
+        from += PG;
+      }
+
       const catList = (categories ?? []) as Array<{ id: string; name: string; subtitle: string | null }>;
-      const assetList = (assets ?? []) as Array<{ category_id: string; symbol: string; name: string }>;
+      const assetList = allAssets;
 
       const header = ['Varlık Tipi', 'Varlık (Sembol)', 'Varlık (Adı)'];
       const rows: string[][] = [header];
@@ -140,19 +179,74 @@ export default function BulkUploadScreen() {
       triggerCsvDownload('tum-varlik-degerleri.csv', csv);
     } catch (e) {
       console.error(e);
-      Alert.alert('Hata', 'Değerler listesi oluşturulurken bir hata oluştu.');
+      showAlert('Hata', 'Değerler listesi oluşturulurken bir hata oluştu.');
     }
+  };
+
+  const detectDelimiter = (headerLine: string): string => {
+    const tabCount = (headerLine.match(/\t/g) || []).length;
+    if (tabCount >= 3) return '\t';
+    const semiCount = (headerLine.match(/;/g) || []).length;
+    if (semiCount >= 3) return ';';
+    return ',';
+  };
+
+  const parseCsvLine = (line: string, delimiter: string): string[] => {
+    if (delimiter === ';' || delimiter === '\t') {
+      return line.split(delimiter).map((p) => p.trim());
+    }
+    // RFC 4180 aware split: respect quoted fields (Google Sheets quotes fields containing commas)
+    const fields: string[] = [];
+    let current = '';
+    let inQuotes = false;
+    for (let j = 0; j < line.length; j++) {
+      const ch = line[j];
+      if (inQuotes) {
+        if (ch === '"' && line[j + 1] === '"') {
+          current += '"';
+          j++;
+        } else if (ch === '"') {
+          inQuotes = false;
+        } else {
+          current += ch;
+        }
+      } else if (ch === '"') {
+        inQuotes = true;
+      } else if (ch === ',') {
+        fields.push(current.trim());
+        current = '';
+      } else {
+        current += ch;
+      }
+    }
+    fields.push(current.trim());
+
+    if (fields.length <= 4) return fields;
+
+    // Fallback: if more than 4 fields, try smart merge for unquoted decimal commas
+    const last = normalize(fields[fields.length - 1]);
+    if (last === 'ekleme' || last === 'güncelleme' || last === 'g\u00fcncelleme') {
+      const colA = fields[0];
+      const colB = fields[1];
+      const colD = fields[fields.length - 1];
+      const colC = fields.slice(2, fields.length - 1).join(',');
+      return [colA, colB, colC, colD];
+    }
+    return fields;
   };
 
   const parseCsv = (raw: string): ParsedRow[] => {
     const lines = raw.split(/\r?\n/);
     const rows: ParsedRow[] = [];
+    if (lines.length === 0) return rows;
+
+    const delimiter = detectDelimiter(lines[0]);
 
     for (let i = 1; i < lines.length; i++) {
       const line = lines[i];
       if (!line || !line.trim()) continue;
 
-      const parts = line.split(',').map((p) => p.trim());
+      const parts = parseCsvLine(line, delimiter).map(stripQuotes);
       const [colA, colB, colC, colD] = parts;
 
       if (!colA && !colB && !colC && !colD) continue;
@@ -160,17 +254,22 @@ export default function BulkUploadScreen() {
       const changeType =
         normalize(colD) === 'ekleme'
           ? 'Ekleme'
-          : normalize(colD) === 'güncelleme'
+          : normalize(colD) === 'güncelleme' || normalize(colD) === 'g\u00fcncelleme'
           ? 'Güncelleme'
           : null;
 
-      const quantityRaw = (colC ?? '').replace(/\./g, '').replace(',', '.');
+      let quantityRaw = stripQuotes(colC ?? '').trim();
+      if (quantityRaw.includes(',') && !quantityRaw.includes('.')) {
+        quantityRaw = quantityRaw.replace(',', '.');
+      } else if (quantityRaw.includes('.') && quantityRaw.includes(',')) {
+        quantityRaw = quantityRaw.replace(/\./g, '').replace(',', '.');
+      }
       const quantity = Number(quantityRaw);
 
       rows.push({
         rowNumber: i + 1,
-        categoryName: colA ?? '',
-        assetValue: colB ?? '',
+        categoryName: stripQuotes(colA ?? ''),
+        assetValue: stripQuotes(colB ?? ''),
         quantity,
         changeType: changeType as ParsedRow['changeType'],
       });
@@ -184,16 +283,31 @@ export default function BulkUploadScreen() {
       .from('categories')
       .select('id, name')
       .order('sort_order', { ascending: true });
-    const { data: assets } = await supabase
-      .from('assets')
-      .select('id, category_id, symbol, name');
+
+    const uniqueSymbols = [...new Set(rows.map((r) => r.assetValue.trim()).filter(Boolean))];
+    const assetChunks: AssetRow[] = [];
+    const CHUNK = 200;
+    for (let i = 0; i < uniqueSymbols.length; i += CHUNK) {
+      const batch = uniqueSymbols.slice(i, i + CHUNK);
+      const [bySymbol, byName] = await Promise.all([
+        supabase.from('assets').select('id, category_id, symbol, name').in('symbol', batch),
+        supabase.from('assets').select('id, category_id, symbol, name').in('name', batch),
+      ]);
+      for (const a of (bySymbol.data ?? []) as AssetRow[]) {
+        if (!assetChunks.some((x) => x.id === a.id)) assetChunks.push(a);
+      }
+      for (const a of (byName.data ?? []) as AssetRow[]) {
+        if (!assetChunks.some((x) => x.id === a.id)) assetChunks.push(a);
+      }
+    }
+
     const { data: holdings } = await supabase
       .from('holdings')
       .select('id, asset_id, quantity')
       .eq('portfolio_id', portfolioId);
 
     const catList = (categories ?? []) as CategoryRow[];
-    const assetList = (assets ?? []) as AssetRow[];
+    const assetList = assetChunks;
     const holdingList = (holdings ?? []) as HoldingRow[];
 
     const errors: string[] = [];
@@ -203,12 +317,17 @@ export default function BulkUploadScreen() {
     for (const row of rows) {
       if (!row.changeType || !Number.isFinite(row.quantity) || row.quantity <= 0) {
         errors.push(
-          `Satır ${row.rowNumber}: Geçersiz miktar veya değişiklik tipi (Ekleme / Güncelleme olmalı).`
+          `Satır ${row.rowNumber}: Geçersiz miktar (${row.quantity}) veya tip ("${row.changeType ?? 'boş'}"). ` +
+          `[kategori="${row.categoryName}", varlık="${row.assetValue}"]`
         );
         continue;
       }
 
-      const category = catList.find((c) => normalize(c.name) === normalize(row.categoryName));
+      const category = catList.find(
+        (c) =>
+          normalizeLoose(c.name) === normalizeLoose(row.categoryName) ||
+          normalizeLoose(c.id) === normalizeLoose(row.categoryName)
+      );
       if (!category) {
         errors.push(
           `Satır ${row.rowNumber}: Varlık tipi \"${row.categoryName}\" bulunamadı.`
@@ -251,7 +370,7 @@ export default function BulkUploadScreen() {
     }
 
     if (errors.length > 0) {
-      Alert.alert('Dosya yüklenemedi', errors.join('\n'));
+      showAlert('Dosya yüklenemedi', errors.join('\n'));
       return;
     }
 
@@ -265,7 +384,7 @@ export default function BulkUploadScreen() {
         }))
       );
       if (error) {
-        Alert.alert('Hata', 'Yeni kayıtlar eklenirken bir hata oluştu.');
+        showAlert('Hata', `Yeni kayıtlar eklenirken hata:\n${error.message}`);
         return;
       }
     }
@@ -276,12 +395,15 @@ export default function BulkUploadScreen() {
         .update({ quantity: u.quantity })
         .eq('id', u.holdingId);
       if (error) {
-        Alert.alert('Hata', 'Bazı kayıtlar güncellenirken bir hata oluştu.');
+        showAlert('Hata', `Güncelleme hatası:\n${error.message}`);
         return;
       }
     }
 
-    Alert.alert('Başarılı', 'Dosyadaki kayıtlar başarıyla işlendi.');
+    showAlert(
+      'Başarılı',
+      `Dosyadaki kayıtlar işlendi.\n${inserts.length} ekleme, ${updates.length} güncelleme.`
+    );
   };
 
   const pickAndUpload = async () => {
@@ -293,26 +415,59 @@ export default function BulkUploadScreen() {
       if (result.canceled) return;
       const file = result.assets[0];
       setUploading(true);
-      const rawContent = await readFileContent(file.uri);
 
-      const rows = parseCsv(rawContent);
-      if (rows.length === 0) {
-        Alert.alert('Hata', 'Dosya boş veya okunamadı. Lütfen CSV olarak kaydedip tekrar deneyin.');
+      let rawContent: string;
+      try {
+        rawContent = await readFileContent(file.uri);
+      } catch (readErr: any) {
+        showAlert('Dosya okunamadı', `Dosya okunurken hata: ${readErr?.message ?? readErr}`);
         return;
       }
 
-      const { error } = await supabase.from('portfolio_uploads').insert({
-        filename: file.name,
-        file_size: file.size ?? null,
-        raw_content: rawContent,
-      });
-      if (error) throw error;
+      const firstLines = rawContent.split(/\r?\n/).slice(0, 3);
+      const detectedDelim = detectDelimiter(firstLines[0] ?? '');
+
+      const rows = parseCsv(rawContent);
+      if (rows.length === 0) {
+        showAlert(
+          'Hata',
+          'Dosya boş veya satır bulunamadı.\n\n' +
+            `Algılanan ayraç: "${detectedDelim}"\n` +
+            'İlk 3 satır:\n' +
+            firstLines.map((l, i) => `[${i}] ${l}`).join('\n')
+        );
+        return;
+      }
+
+      // Debug: ilk satırın parse sonucunu göster
+      const debugRow = rows[0];
+      console.log(
+        'DEBUG parse:',
+        `delim="${detectedDelim}"`,
+        `cat="${debugRow.categoryName}"`,
+        `asset="${debugRow.assetValue}"`,
+        `qty=${debugRow.quantity}`,
+        `type="${debugRow.changeType}"`,
+        `raw line: ${firstLines[1]}`
+      );
+
+      // portfolio_uploads kaydı opsiyonel; tablo yoksa bile devam et
+      try {
+        await supabase.from('portfolio_uploads').insert({
+          filename: file.name,
+          file_size: file.size ?? null,
+          raw_content: rawContent,
+        });
+      } catch (_) {
+        // tablo yoksa yoksay
+      }
 
       await applyBusinessRules(rows);
       await fetchUploads();
-    } catch (e) {
+    } catch (e: any) {
       console.error(e);
-      Alert.alert('Hata', 'Dosya işlenirken bir hata oluştu.');
+      const msg = e?.message ?? JSON.stringify(e);
+      showAlert('Hata', `Dosya işlenirken bir hata oluştu:\n\n${msg}`);
     } finally {
       setUploading(false);
     }
@@ -396,6 +551,28 @@ export default function BulkUploadScreen() {
           )}
         </ScrollView>
       </SafeAreaView>
+
+      <Modal
+        visible={modalVisible}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setModalVisible(false)}
+      >
+        <Pressable style={styles.modalOverlay} onPress={() => setModalVisible(false)}>
+          <Pressable style={styles.modalCard} onPress={() => {}}>
+            <Text style={styles.modalTitle}>{modalTitle}</Text>
+            <ScrollView style={styles.modalScroll}>
+              <Text style={styles.modalBody}>{modalBody}</Text>
+            </ScrollView>
+            <TouchableOpacity
+              style={styles.modalButton}
+              onPress={() => setModalVisible(false)}
+            >
+              <Text style={styles.modalButtonText}>Tamam</Text>
+            </TouchableOpacity>
+          </Pressable>
+        </Pressable>
+      </Modal>
     </View>
   );
 }
@@ -469,4 +646,32 @@ const styles = StyleSheet.create({
   rowLeft: { flexDirection: 'row', alignItems: 'center', gap: 10 },
   rowFilename: { flex: 1, color: WHITE, fontSize: 14 },
   rowMeta: { color: '#64748B', fontSize: 12, marginTop: 6, marginLeft: 30 },
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.7)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 24,
+  },
+  modalCard: {
+    backgroundColor: SURFACE,
+    borderRadius: 16,
+    padding: 20,
+    width: '100%',
+    maxWidth: 480,
+    maxHeight: '70%',
+    borderWidth: 1,
+    borderColor: BORDER,
+  },
+  modalTitle: { color: PRIMARY, fontSize: 16, fontWeight: '700', marginBottom: 12 },
+  modalScroll: { maxHeight: 300 },
+  modalBody: { color: WHITE, fontSize: 14, lineHeight: 22 },
+  modalButton: {
+    marginTop: 16,
+    backgroundColor: PRIMARY,
+    paddingVertical: 12,
+    borderRadius: 10,
+    alignItems: 'center',
+  },
+  modalButtonText: { color: BG_DARK, fontSize: 14, fontWeight: '600' },
 });

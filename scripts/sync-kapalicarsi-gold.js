@@ -17,6 +17,8 @@ const TRUNC_GIL_URL = 'https://finans.truncgil.com/v3/today.json';
 // Trunçgil API anahtarı -> symbol + görünen isim (alış fiyatı kullanılıyor)
 const GOLD_KEYS = {
   'gram-altin': { symbol: 'GAU_TRY', name: 'Gram Altın' },
+  'gram-has-altin': { symbol: 'KULCE_ALTIN', name: 'Külçe Altın (Gram)' },
+  'gumus': { symbol: 'GUMUS_GRAM', name: 'Gram Gümüş' },
   'ceyrek-altin': { symbol: 'CEYREK_YENI', name: 'Çeyrek Altın' },
   'yarim-altin': { symbol: 'YARIM_YENI', name: 'Yarım Altın' },
   'tam-altin': { symbol: 'TAM_YENI', name: 'Tam Altın' },

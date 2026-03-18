@@ -144,7 +144,14 @@ export default function AssetEntryScreen() {
       Alert.alert('Kayıt hatası', error.message);
       return;
     }
-    router.replace('/(tabs)');
+    if (returnTo === '/(tabs)/asset-list' && returnCategoryId != null) {
+      router.replace({
+        pathname: '/(tabs)/asset-list',
+        params: { categoryId: returnCategoryId, label: returnLabel ?? '', _t: Date.now().toString() },
+      });
+    } else {
+      router.replace('/(tabs)');
+    }
   };
 
   const performDelete = async () => {

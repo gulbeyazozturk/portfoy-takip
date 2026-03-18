@@ -78,13 +78,15 @@ const ASSET_ICONS: Record<string, { icon: string; bg: string; color: string }> =
 
 const TIMEFRAMES = ['1H', '1D', '1W', '1M', 'YTD', 'ALL'] as const;
 
-type SortMode = 'todayTopGainers' | 'todayTopLosers' | 'highestValue' | 'lowestValue';
+type SortMode = 'todayTopGainers' | 'todayTopLosers' | 'highestValue' | 'lowestValue' | 'alphaAZ' | 'alphaZA';
 
 const SORT_OPTIONS: { id: SortMode; label: string }[] = [
   { id: 'todayTopGainers', label: 'Bugün En Çok Artanlar' },
   { id: 'todayTopLosers', label: 'Bugün En Çok Düşenler' },
   { id: 'highestValue', label: 'En Yüksek Değere Sahipler' },
   { id: 'lowestValue', label: 'En Düşük Değere Sahipler' },
+  { id: 'alphaAZ', label: 'Alfabetik A-Z' },
+  { id: 'alphaZA', label: 'Alfabetik Z-A' },
 ];
 
 function Accordion({
@@ -191,10 +193,27 @@ export default function PortfolioScreen() {
   const [activeTimeframe, setActiveTimeframe] = useState<(typeof TIMEFRAMES)[number]>('1H');
   const [sortMode, setSortMode] = useState<SortMode>('todayTopGainers');
   const [isSortMenuOpen, setIsSortMenuOpen] = useState(false);
+  const [summaryMode, setSummaryMode] = useState<'daily' | 'total'>('daily');
+  const [isSummaryMenuOpen, setIsSummaryMenuOpen] = useState(false);
   const [categories, setCategories] = useState<CategoryRow[]>([]);
   const [holdings, setHoldings] = useState<HoldingRow[]>([]);
+  const [usdTry, setUsdTry] = useState<number>(1);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+
+  const fetchUsdRate = useCallback(async () => {
+    try {
+      const { data } = await supabase
+        .from('assets')
+        .select('current_price')
+        .eq('category_id', 'doviz')
+        .eq('symbol', 'USD')
+        .maybeSingle();
+      if (data?.current_price) setUsdTry(Number(data.current_price));
+    } catch (_) {
+      // ignore - keep previous rate
+    }
+  }, []);
 
   const fetchCategories = useCallback(async () => {
     const { data, error: e } = await supabase
@@ -232,7 +251,8 @@ export default function PortfolioScreen() {
 
   useEffect(() => {
     fetchCategories();
-  }, [fetchCategories]);
+    fetchUsdRate();
+  }, [fetchCategories, fetchUsdRate]);
 
   useEffect(() => {
     fetchHoldings();
@@ -240,8 +260,11 @@ export default function PortfolioScreen() {
 
   useFocusEffect(
     useCallback(() => {
-      if (portfolioId) fetchHoldings();
-    }, [portfolioId, fetchHoldings])
+      if (portfolioId) {
+        fetchHoldings();
+        fetchUsdRate();
+      }
+    }, [portfolioId, fetchHoldings, fetchUsdRate])
   );
 
   const sortLabel = useMemo(
@@ -255,9 +278,11 @@ export default function PortfolioScreen() {
     const byCategory: Record<string, number> = {};
     let total = 0;
     for (const h of withAsset) {
-      const cat = (h.asset as AssetRow).category_id;
-      const price = (h.asset as AssetRow).current_price ?? h.avg_price ?? 0;
-      const value = h.quantity * (Number(price) || 0);
+      const asset = h.asset as AssetRow;
+      const cat = asset.category_id;
+      const price = asset.current_price ?? h.avg_price ?? 0;
+      const rate = cat === 'yurtdisi' ? usdTry : 1;
+      const value = h.quantity * (Number(price) || 0) * rate;
       byCategory[cat] = (byCategory[cat] ?? 0) + value;
       total += value;
     }
@@ -272,7 +297,7 @@ export default function PortfolioScreen() {
       }))
       .filter((d) => d.value > 0);
     return out;
-  }, [holdings, categories]);
+  }, [holdings, categories, usdTry]);
 
   const filteredHoldings = useMemo(() => {
     const selected = categories.filter((c) => isCategorySelected(c.id)).map((c) => c.id);
@@ -313,6 +338,10 @@ export default function PortfolioScreen() {
           return (valueB || 0) - (valueA || 0);
         case 'lowestValue':
           return (valueA || 0) - (valueB || 0);
+        case 'alphaAZ':
+          return (assetA?.symbol ?? '').localeCompare(assetB?.symbol ?? '', 'tr');
+        case 'alphaZA':
+          return (assetB?.symbol ?? '').localeCompare(assetA?.symbol ?? '', 'tr');
         default:
           return 0;
       }
@@ -321,16 +350,69 @@ export default function PortfolioScreen() {
     return sorted;
   }, [holdings, categories, isCategorySelected, sortMode]);
 
+  const summaryData = useMemo(() => {
+    let totalUSD = 0;
+    let totalTL = 0;
+    let dailyAmtUSD = 0;
+    let dailyAmtTL = 0;
+    let costUSD = 0;
+    let costTL = 0;
+    let hasUSD = false;
+    let hasTL = false;
+
+    for (const h of filteredHoldings) {
+      const asset = normalizeAsset(h.asset);
+      if (!asset) continue;
+      const price = asset.current_price ?? h.avg_price ?? 0;
+      const value = h.quantity * (Number(price) || 0);
+      const pct = asset.change_24h_pct ?? 0;
+      const prevValue = pct !== 0 ? value / (1 + pct / 100) : value;
+      const daily = value - prevValue;
+      const cost = h.avg_price != null
+        ? h.quantity * (Number(h.avg_price) || 0)
+        : prevValue;
+      const isUSD = asset.category_id === 'yurtdisi';
+      if (isUSD) {
+        totalUSD += value;
+        dailyAmtUSD += daily;
+        costUSD += cost;
+        hasUSD = true;
+      } else {
+        totalTL += value;
+        dailyAmtTL += daily;
+        costTL += cost;
+        hasTL = true;
+      }
+    }
+
+    const dailyPctUSD = totalUSD - dailyAmtUSD > 0 ? (dailyAmtUSD / (totalUSD - dailyAmtUSD)) * 100 : 0;
+    const dailyPctTL = totalTL - dailyAmtTL > 0 ? (dailyAmtTL / (totalTL - dailyAmtTL)) * 100 : 0;
+
+    const totalAmtUSD = totalUSD - costUSD;
+    const totalAmtTL = totalTL - costTL;
+    const totalPctUSD = costUSD > 0 ? (totalAmtUSD / costUSD) * 100 : 0;
+    const totalPctTL = costTL > 0 ? (totalAmtTL / costTL) * 100 : 0;
+
+    return {
+      totalUSD, totalTL, hasUSD, hasTL,
+      dailyAmtUSD, dailyAmtTL, dailyPctUSD, dailyPctTL,
+      totalAmtUSD, totalAmtTL, totalPctUSD, totalPctTL,
+    };
+  }, [filteredHoldings]);
+
   const performanceValues = useMemo(() => {
     const withAsset = holdings.map((h) => ({ ...h, asset: normalizeAsset(h.asset) })).filter((h) => h.asset);
     let totalValueTL = 0;
     let costBasisTL = 0;
     let hasAnyCost = false;
     for (const h of withAsset) {
-      const price = (h.asset as AssetRow).current_price ?? h.avg_price ?? 0;
+      const asset = h.asset as AssetRow;
+      const price = asset.current_price ?? h.avg_price ?? 0;
       const cost = h.avg_price != null && h.avg_price > 0 ? h.avg_price : price;
-      const value = h.quantity * (Number(price) || 0);
-      const costVal = h.quantity * (Number(cost) || 0);
+      const isUSD = asset.category_id === 'yurtdisi';
+      const rate = isUSD ? usdTry : 1;
+      const value = h.quantity * (Number(price) || 0) * rate;
+      const costVal = h.quantity * (Number(cost) || 0) * rate;
       totalValueTL += value;
       costBasisTL += costVal;
       if (h.avg_price != null && h.avg_price > 0) hasAnyCost = true;
@@ -345,7 +427,7 @@ export default function PortfolioScreen() {
       changePct,
       hasAnyCost,
     };
-  }, [holdings]);
+  }, [holdings, usdTry]);
 
   const performanceSeries = useMemo(() => {
     if (!holdings.length) return [];
@@ -439,9 +521,6 @@ export default function PortfolioScreen() {
                   strokeWidth={24}
                   showLabels
                 />
-                <TouchableOpacity activeOpacity={0.85} style={styles.donutCenterBtn}>
-                  <Ionicons name="ellipsis-horizontal" size={20} color={WHITE} />
-                </TouchableOpacity>
               </View>
             </View>
           </Accordion>
@@ -553,25 +632,95 @@ export default function PortfolioScreen() {
             </View>
           </View>
 
-          {/* Category pills */}
-          <ScrollView
-            horizontal
-            showsHorizontalScrollIndicator={false}
-            contentContainerStyle={styles.pillsRow}>
-            {categories.map((c) => {
-              const isActive = isCategorySelected(c.id);
-              return (
-                <TouchableOpacity
-                  key={c.id}
-                  onPress={() => toggleCategory(c.id)}
-                  style={[styles.categoryPill, isActive && styles.categoryPillActive]}>
-                  <Text style={[styles.categoryPillText, isActive && styles.categoryPillTextActive]}>
-                    {c.name}
-                  </Text>
-                </TouchableOpacity>
-              );
-            })}
-          </ScrollView>
+          {/* Category pills + summary mode combo */}
+          <View style={styles.pillsContainer}>
+            <ScrollView
+              horizontal
+              showsHorizontalScrollIndicator={false}
+              contentContainerStyle={styles.pillsRow}
+              style={styles.pillsScroll}>
+              {categories.map((c) => {
+                const isActive = isCategorySelected(c.id);
+                return (
+                  <TouchableOpacity
+                    key={c.id}
+                    onPress={() => toggleCategory(c.id)}
+                    style={[styles.categoryPill, isActive && styles.categoryPillActive]}>
+                    <Text style={[styles.categoryPillText, isActive && styles.categoryPillTextActive]}>
+                      {c.name}
+                    </Text>
+                  </TouchableOpacity>
+                );
+              })}
+            </ScrollView>
+            <View style={styles.summaryComboWrap}>
+              <TouchableOpacity
+                style={styles.summaryCombo}
+                onPress={() => setIsSummaryMenuOpen((o) => !o)}
+                activeOpacity={0.85}>
+                <Text style={styles.summaryComboText}>
+                  {summaryMode === 'daily' ? 'Günlük' : 'Toplam'}
+                </Text>
+                <Ionicons
+                  name={isSummaryMenuOpen ? 'chevron-up' : 'chevron-down'}
+                  size={14}
+                  color={MUTED}
+                />
+              </TouchableOpacity>
+              {isSummaryMenuOpen && (
+                <View style={styles.summaryMenu}>
+                  <TouchableOpacity
+                    style={styles.summaryMenuItem}
+                    onPress={() => { setSummaryMode('daily'); setIsSummaryMenuOpen(false); }}>
+                    <Text style={[styles.summaryMenuItemText, summaryMode === 'daily' && styles.summaryMenuItemTextActive]}>
+                      Günlük
+                    </Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity
+                    style={styles.summaryMenuItem}
+                    onPress={() => { setSummaryMode('total'); setIsSummaryMenuOpen(false); }}>
+                    <Text style={[styles.summaryMenuItemText, summaryMode === 'total' && styles.summaryMenuItemTextActive]}>
+                      Toplam
+                    </Text>
+                  </TouchableOpacity>
+                </View>
+              )}
+            </View>
+          </View>
+
+          {/* Summary totals */}
+          {(summaryData.hasUSD || summaryData.hasTL) && (() => {
+            const amtUSD = summaryMode === 'daily' ? summaryData.dailyAmtUSD : summaryData.totalAmtUSD;
+            const pctUSD = summaryMode === 'daily' ? summaryData.dailyPctUSD : summaryData.totalPctUSD;
+            const amtTL = summaryMode === 'daily' ? summaryData.dailyAmtTL : summaryData.totalAmtTL;
+            const pctTL = summaryMode === 'daily' ? summaryData.dailyPctTL : summaryData.totalPctTL;
+            return (
+              <View style={styles.summaryCard}>
+                {summaryData.hasUSD && (
+                  <View style={styles.summaryRow}>
+                    <Text style={styles.summaryValue}>
+                      ${summaryData.totalUSD.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                    </Text>
+                    <Text style={[styles.summaryChange, amtUSD >= 0 ? styles.summaryChangePositive : styles.summaryChangeNegative]}>
+                      {amtUSD >= 0 ? '+' : '-'}${Math.abs(amtUSD).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                      {' '}({pctUSD >= 0 ? '+' : ''}{pctUSD.toFixed(2).replace('.', ',')}%)
+                    </Text>
+                  </View>
+                )}
+                {summaryData.hasTL && (
+                  <View style={styles.summaryRow}>
+                    <Text style={styles.summaryValue}>
+                      {summaryData.totalTL.toLocaleString('tr-TR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} TL
+                    </Text>
+                    <Text style={[styles.summaryChange, amtTL >= 0 ? styles.summaryChangePositive : styles.summaryChangeNegative]}>
+                      {amtTL >= 0 ? '+' : ''}{amtTL.toLocaleString('tr-TR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} TL
+                      {' '}({pctTL >= 0 ? '+' : ''}{pctTL.toFixed(2).replace('.', ',')}%)
+                    </Text>
+                  </View>
+                )}
+              </View>
+            );
+          })()}
 
           {/* Asset list */}
           <View style={styles.assetList}>
@@ -648,10 +797,10 @@ export default function PortfolioScreen() {
                           <Ionicons name={iconStyle.icon as any} size={24} color={iconStyle.color} />
                         )}
                       </View>
-                      <View>
-                        <Text style={styles.assetName}>{asset.name}</Text>
-                        <Text style={styles.assetAmount}>
-                          {quantityFormatted} {listAmountUnit}
+                      <View style={{ flex: 1 }}>
+                        <Text style={styles.assetName}>{asset.symbol}</Text>
+                        <Text style={styles.assetAmount} numberOfLines={1}>
+                          {quantityFormatted} · {asset.name}
                         </Text>
                       </View>
                     </View>
@@ -663,17 +812,34 @@ export default function PortfolioScreen() {
                         })}{' '}
                         {valueCurrency}
                       </Text>
-                      <Text
-                        style={[
-                          styles.assetChange,
-                          changePct == null
-                            ? styles.assetChangeNeutral
-                            : changePct >= 0
-                              ? styles.assetChangePositive
-                              : styles.assetChangeNegative,
-                        ]}>
-                        {changePct == null ? '—' : `${changePct >= 0 ? '+' : ''}${changePct.toFixed(2).replace('.', ',')}%`}
-                      </Text>
+                      {(() => {
+                        const dailyPct = changePct;
+                        const costPrice = h.avg_price != null ? Number(h.avg_price) : null;
+                        const totalPct = costPrice != null && costPrice > 0
+                          ? ((currentPrice - costPrice) / costPrice) * 100
+                          : dailyPct;
+                        const displayPct = summaryMode === 'daily' ? dailyPct : totalPct;
+                        const unitPrice = currentPrice;
+                        const priceFormatted = valueCurrency === 'USD'
+                          ? `$${unitPrice.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
+                          : `${unitPrice.toLocaleString('tr-TR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} TL`;
+                        return (
+                          <View style={styles.assetChangeRow}>
+                            <Text style={styles.assetUnitPrice}>{priceFormatted}</Text>
+                            <Text
+                              style={[
+                                styles.assetChange,
+                                displayPct == null
+                                  ? styles.assetChangeNeutral
+                                  : displayPct >= 0
+                                    ? styles.assetChangePositive
+                                    : styles.assetChangeNegative,
+                              ]}>
+                              {displayPct == null ? '—' : `${displayPct >= 0 ? '+' : ''}${displayPct.toFixed(2).replace('.', ',')}%`}
+                            </Text>
+                          </View>
+                        );
+                      })()}
                     </View>
                   </Pressable>
                 );
@@ -818,7 +984,14 @@ const styles = StyleSheet.create({
   },
   filterMenuItemText: { fontSize: 13, color: MUTED },
   filterMenuItemTextActive: { fontSize: 13, fontWeight: '600', color: WHITE },
-  pillsRow: { flexDirection: 'row', gap: 8, paddingHorizontal: 8, marginBottom: 8 },
+  pillsContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 8,
+    zIndex: 5,
+  },
+  pillsScroll: { flex: 1 },
+  pillsRow: { flexDirection: 'row', gap: 8, paddingHorizontal: 8 },
   categoryPill: {
     paddingHorizontal: 16,
     paddingVertical: 10,
@@ -828,6 +1001,74 @@ const styles = StyleSheet.create({
   categoryPillActive: { backgroundColor: ACCENT_BLUE },
   categoryPillText: { fontSize: 12, fontWeight: '600', color: '#AAB0C4' },
   categoryPillTextActive: { fontSize: 12, fontWeight: '600', color: WHITE },
+  summaryComboWrap: {
+    position: 'relative',
+    marginRight: 8,
+    zIndex: 10,
+  },
+  summaryCombo: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    paddingHorizontal: 10,
+    paddingVertical: 8,
+    borderRadius: 999,
+    backgroundColor: BUTTON_BG,
+  },
+  summaryComboText: {
+    fontSize: 12,
+    fontWeight: '600',
+    color: WHITE,
+  },
+  summaryMenu: {
+    position: 'absolute',
+    top: 38,
+    right: 0,
+    backgroundColor: SURFACE,
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: BORDER,
+    overflow: 'hidden',
+    zIndex: 20,
+    minWidth: 100,
+    elevation: 10,
+  },
+  summaryMenuItem: {
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+  },
+  summaryMenuItemText: { fontSize: 13, color: MUTED },
+  summaryMenuItemTextActive: { fontWeight: '600', color: WHITE },
+  summaryCard: {
+    marginHorizontal: 8,
+    marginTop: 4,
+    marginBottom: 12,
+    backgroundColor: SURFACE,
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: BORDER,
+    paddingHorizontal: 16,
+    paddingVertical: 14,
+    gap: 8,
+  },
+  summaryRow: {
+    flexDirection: 'row',
+    alignItems: 'baseline',
+    justifyContent: 'space-between',
+  },
+  summaryValue: {
+    fontSize: 20,
+    fontWeight: '700',
+    color: WHITE,
+    fontVariant: ['tabular-nums'] as any,
+  },
+  summaryChange: {
+    fontSize: 13,
+    fontWeight: '600',
+    fontVariant: ['tabular-nums'] as any,
+  },
+  summaryChangePositive: { color: '#22c55e' },
+  summaryChangeNegative: { color: '#f87171' },
   assetList: { marginTop: 8 },
   assetRow: {
     flexDirection: 'row',
@@ -847,7 +1088,9 @@ const styles = StyleSheet.create({
   assetAmount: { fontSize: 12, color: '#A1A1AA', marginTop: 2 },
   assetRight: { alignItems: 'flex-end' },
   assetValue: { fontSize: 16, fontWeight: '500', color: WHITE, fontVariant: ['tabular-nums'] },
-  assetChange: { fontSize: 12, fontWeight: '500', marginTop: 2 },
+  assetChangeRow: { flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: 2 },
+  assetUnitPrice: { fontSize: 11, fontWeight: '500', color: MUTED, fontVariant: ['tabular-nums'] as any },
+  assetChange: { fontSize: 12, fontWeight: '500' },
   assetChangePositive: { color: PRIMARY },
   assetChangeNegative: { color: '#f87171' },
   assetChangeNeutral: { color: '#9ca3af' },

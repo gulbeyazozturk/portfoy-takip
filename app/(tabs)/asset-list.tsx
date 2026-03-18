@@ -1,6 +1,6 @@
 import { Ionicons } from '@expo/vector-icons';
 import { useLocalSearchParams, useRouter } from 'expo-router';
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   FlatList,
@@ -25,6 +25,8 @@ const SLATE = '#AAB0C4';
 const PRIMARY = '#2979FF';
 const ICON_BG = '#111827';
 
+const PAGE_SIZE = 500;
+
 type AssetItem = { id: string; name: string; symbol: string; price?: number; iconUrl?: string | null };
 
 function Radio({ selected }: { selected: boolean }) {
@@ -37,54 +39,117 @@ function Radio({ selected }: { selected: boolean }) {
 
 export default function AssetListScreen() {
   const router = useRouter();
-  const params = useLocalSearchParams<{ categoryId?: string; label?: string }>();
+  const params = useLocalSearchParams<{ categoryId?: string; label?: string; _t?: string }>();
 
   const categoryId = params.categoryId ?? 'default';
   const label = params.label ?? 'Varlık';
 
   const [query, setQuery] = useState('');
   const [selectedId, setSelectedId] = useState<string | null>(null);
-  const [assets, setAssets] = useState<AssetItem[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    setLoading(true);
-    setError(null);
-    supabase
-      .from('assets')
-      .select('id, name, symbol, current_price, icon_url')
-      .eq('category_id', categoryId)
-      .order('symbol', { ascending: true })
-      .limit(50000)
-      .then(({ data, error: e }) => {
-        setLoading(false);
+    setQuery('');
+    setSelectedId(null);
+  }, [params._t]);
+  const [assets, setAssets] = useState<AssetItem[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [loadingMore, setLoadingMore] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [hasMore, setHasMore] = useState(true);
+  const [totalCount, setTotalCount] = useState<number | null>(null);
+
+  const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const mapRow = (r: any): AssetItem => ({
+    id: r.id,
+    name: r.name,
+    symbol: r.symbol,
+    price: r.current_price ?? undefined,
+    iconUrl: r.icon_url ?? null,
+  });
+
+  const buildQuery = useCallback(
+    (searchText: string, from: number, to: number) => {
+      let q = supabase
+        .from('assets')
+        .select('id, name, symbol, current_price, icon_url')
+        .eq('category_id', categoryId)
+        .order('symbol', { ascending: true })
+        .range(from, to);
+
+      if (searchText.trim().length > 0) {
+        const term = `%${searchText.trim()}%`;
+        q = q.or(`symbol.ilike.${term},name.ilike.${term}`);
+      }
+
+      return q;
+    },
+    [categoryId],
+  );
+
+  const fetchInitial = useCallback(
+    async (searchText: string) => {
+      setLoading(true);
+      setError(null);
+      setHasMore(true);
+
+      try {
+        const [{ count }, { data, error: e }] = await Promise.all([
+          supabase
+            .from('assets')
+            .select('id', { count: 'exact', head: true })
+            .eq('category_id', categoryId),
+          buildQuery(searchText, 0, PAGE_SIZE - 1),
+        ]);
+
         if (e) {
           setError(e.message);
           setAssets([]);
           return;
         }
-        setAssets(
-          (data ?? []).map((r: any) => ({
-            id: r.id,
-            name: r.name,
-            symbol: r.symbol,
-            price: r.current_price ?? undefined,
-            iconUrl: r.icon_url ?? null,
-          })),
-        );
-      });
-  }, [categoryId]);
 
-  const filteredAssets = useMemo(
-    () =>
-      assets.filter(
-        (a) =>
-          a.name.toLocaleLowerCase('tr-TR').includes(query.toLocaleLowerCase('tr-TR')) ||
-          a.symbol.toLocaleLowerCase('tr-TR').includes(query.toLocaleLowerCase('tr-TR')),
-      ),
-    [assets, query],
+        const mapped = (data ?? []).map(mapRow);
+        setAssets(mapped);
+        setTotalCount(count);
+        setHasMore(mapped.length === PAGE_SIZE);
+      } finally {
+        setLoading(false);
+      }
+    },
+    [categoryId, buildQuery],
   );
+
+  useEffect(() => {
+    fetchInitial('');
+  }, [fetchInitial]);
+
+  useEffect(() => {
+    if (debounceRef.current) clearTimeout(debounceRef.current);
+    debounceRef.current = setTimeout(() => {
+      fetchInitial(query);
+    }, 300);
+    return () => {
+      if (debounceRef.current) clearTimeout(debounceRef.current);
+    };
+  }, [query, fetchInitial]);
+
+  const loadMore = useCallback(async () => {
+    if (loadingMore || !hasMore || loading) return;
+    setLoadingMore(true);
+    try {
+      const from = assets.length;
+      const to = from + PAGE_SIZE - 1;
+      const { data, error: e } = await buildQuery(query, from, to);
+
+      if (e || !data) return;
+
+      const mapped = data.map(mapRow);
+      setAssets((prev) => [...prev, ...mapped]);
+      setHasMore(mapped.length === PAGE_SIZE);
+    } finally {
+      setLoadingMore(false);
+    }
+  }, [loadingMore, hasMore, loading, assets.length, query, buildQuery]);
 
   const selectedAsset = selectedId ? assets.find((a) => a.id === selectedId) : null;
 
@@ -107,6 +172,13 @@ export default function AssetListScreen() {
 
   const title = `${label} arayarak ekleme yapabilirsiniz.`;
   const searchPlaceholder = `${label} Ara...`;
+
+  const countLabel = useMemo(() => {
+    if (totalCount == null) return '';
+    const showing = assets.length;
+    if (query.trim()) return `${showing} sonuç`;
+    return `${showing} / ${totalCount}`;
+  }, [totalCount, assets.length, query]);
 
   return (
     <View style={styles.root}>
@@ -138,11 +210,19 @@ export default function AssetListScreen() {
                 autoCorrect={false}
                 returnKeyType="search"
               />
+              {query.length > 0 && (
+                <TouchableOpacity onPress={() => setQuery('')} hitSlop={8}>
+                  <Ionicons name="close-circle" size={20} color={SLATE} />
+                </TouchableOpacity>
+              )}
             </View>
           </View>
 
           <View style={styles.sectionHeader}>
-            <Text style={styles.sectionTitle}>Popüler Varlıklar</Text>
+            <Text style={styles.sectionTitle}>
+              {query.trim() ? 'ARAMA SONUÇLARI' : 'TÜM VARLIKLAR'}
+            </Text>
+            {countLabel ? <Text style={styles.countLabel}>{countLabel}</Text> : null}
           </View>
 
           {loading ? (
@@ -153,12 +233,27 @@ export default function AssetListScreen() {
             <View style={styles.centered}>
               <Text style={styles.errorText}>{error}</Text>
             </View>
+          ) : assets.length === 0 ? (
+            <View style={styles.centered}>
+              <Text style={styles.emptyText}>Sonuç bulunamadı</Text>
+            </View>
           ) : (
             <FlatList
-              data={filteredAssets}
+              data={assets}
               keyExtractor={(item) => item.id}
               contentContainerStyle={styles.listContent}
               keyboardShouldPersistTaps="handled"
+              showsVerticalScrollIndicator={true}
+              onEndReached={loadMore}
+              onEndReachedThreshold={0.5}
+              initialNumToRender={30}
+              maxToRenderPerBatch={30}
+              windowSize={11}
+              getItemLayout={(_data, index) => ({
+                length: 68,
+                offset: 68 * index,
+                index,
+              })}
               renderItem={({ item }) => {
                 const selected = selectedId === item.id;
                 return (
@@ -177,8 +272,8 @@ export default function AssetListScreen() {
                           <Text style={styles.iconFallback}>{item.symbol.charAt(0).toUpperCase()}</Text>
                         )}
                       </View>
-                      <View>
-                        <Text style={styles.rowName}>{item.name}</Text>
+                      <View style={styles.rowTextWrap}>
+                        <Text style={styles.rowName} numberOfLines={1}>{item.name}</Text>
                         <Text style={styles.rowSymbol}>{item.symbol}</Text>
                       </View>
                     </View>
@@ -186,6 +281,14 @@ export default function AssetListScreen() {
                   </Pressable>
                 );
               }}
+              ListFooterComponent={
+                loadingMore ? (
+                  <View style={styles.footerLoader}>
+                    <ActivityIndicator size="small" color={PRIMARY} />
+                    <Text style={styles.footerText}>Daha fazla yükleniyor...</Text>
+                  </View>
+                ) : null
+              }
             />
           )}
 
@@ -238,8 +341,15 @@ const styles = StyleSheet.create({
     color: WHITE,
     fontSize: 16,
     paddingVertical: 0,
+    ...(Platform.OS === 'web' ? { outlineStyle: 'none' } : {}),
   },
-  sectionHeader: { paddingHorizontal: 24, paddingVertical: 8 },
+  sectionHeader: {
+    paddingHorizontal: 24,
+    paddingVertical: 8,
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+  },
   sectionTitle: {
     fontSize: 11,
     fontWeight: '700',
@@ -247,8 +357,15 @@ const styles = StyleSheet.create({
     letterSpacing: 2,
     opacity: 0.6,
   },
+  countLabel: {
+    fontSize: 11,
+    fontWeight: '600',
+    color: SLATE,
+    opacity: 0.5,
+  },
   centered: { flex: 1, justifyContent: 'center', alignItems: 'center', padding: 24 },
   errorText: { color: '#ef4444', fontSize: 14 },
+  emptyText: { color: SLATE, fontSize: 15 },
   listContent: {
     paddingHorizontal: 16,
     paddingBottom: 24,
@@ -260,13 +377,16 @@ const styles = StyleSheet.create({
     paddingVertical: 16,
     paddingHorizontal: 16,
     borderRadius: 16,
+    height: 68,
   },
   rowPressed: { backgroundColor: 'rgba(255,255,255,0.05)' },
-   rowLeft: {
+  rowLeft: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 12,
+    flex: 1,
   },
+  rowTextWrap: { flex: 1 },
   iconCircle: {
     width: 36,
     height: 36,
@@ -323,4 +443,15 @@ const styles = StyleSheet.create({
     color: WHITE,
   },
   bottomSpacer: { height: 32, backgroundColor: BG },
+  footerLoader: {
+    flexDirection: 'row',
+    justifyContent: 'center',
+    alignItems: 'center',
+    gap: 8,
+    paddingVertical: 16,
+  },
+  footerText: {
+    fontSize: 13,
+    color: SLATE,
+  },
 });

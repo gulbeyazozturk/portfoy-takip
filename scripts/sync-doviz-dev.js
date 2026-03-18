@@ -1,8 +1,8 @@
 /**
- * Döviz kurları (doviz.dev):
- * - https://doviz.dev/v1/try.json ile TRY bazlı kurları çeker
+ * Döviz kurları (doviz.dev + open.er-api.com):
+ * - Birincil: https://doviz.dev/v1/try.json (TRY bazlı, yüksek hassasiyet)
+ * - İkincil: https://open.er-api.com/v6/latest/USD (166 döviz, USD->TRY üzerinden hesaplama)
  * - Supabase'de category_id = 'doviz' olan assets kayıtlarını sembole göre UPSERT eder
- *   (liste + current_price TL; gece 00:00 TR açılış kuru saklanır, günlük değişim % hesaplanır)
  *
  * Çalıştırma:
  *   node scripts/sync-doviz-dev.js
@@ -11,39 +11,72 @@
  *   - Node 18+ (fetch)
  *   - .env: EXPO_PUBLIC_SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY (veya EXPO_PUBLIC_SUPABASE_ANON_KEY)
  *
- * Zamanlama: 15 dakikada bir (GitHub Actions); gece 24'ten bu yana değişim anlık güncellenir.
+ * Zamanlama: 15 dakikada bir (GitHub Actions); gece 24'ten bu yana degisim anlik guncellenir.
  */
 
 const DOVIZ_DEV_TRY = 'https://doviz.dev/v1/try.json';
+const ER_API_URL = 'https://open.er-api.com/v6/latest/USD';
 
 function getTurkeyDateStr() {
   return new Date().toLocaleDateString('en-CA', { timeZone: 'Europe/Istanbul' });
 }
 
 const FOREX_PAIRS = [
-  { key: 'USDTRY', symbol: 'USD', name: 'ABD Doları' },
-  { key: 'EURTRY', symbol: 'EUR', name: 'Euro' },
-  { key: 'GBPTRY', symbol: 'GBP', name: 'İngiliz Sterlini' },
-  { key: 'CHFTRY', symbol: 'CHF', name: 'İsviçre Frangı' },
-  { key: 'JPYTRY', symbol: 'JPY', name: 'Japon Yeni' },
-  { key: 'AUDTRY', symbol: 'AUD', name: 'Avustralya Doları' },
-  { key: 'CADTRY', symbol: 'CAD', name: 'Kanada Doları' },
-  { key: 'DKKTRY', symbol: 'DKK', name: 'Danimarka Kronu' },
-  { key: 'PLNTRY', symbol: 'PLN', name: 'Polonya Zlotisi' },
+  // doviz.dev'den direkt TRY bazli
+  { key: 'USDTRY', symbol: 'USD', name: 'ABD Doları', source: 'doviz' },
+  { key: 'EURTRY', symbol: 'EUR', name: 'Euro', source: 'doviz' },
+  { key: 'GBPTRY', symbol: 'GBP', name: 'İngiliz Sterlini', source: 'doviz' },
+  { key: 'CHFTRY', symbol: 'CHF', name: 'İsviçre Frangı', source: 'doviz' },
+  { key: 'JPYTRY', symbol: 'JPY', name: 'Japon Yeni', source: 'doviz' },
+  { key: 'AUDTRY', symbol: 'AUD', name: 'Avustralya Doları', source: 'doviz' },
+  { key: 'CADTRY', symbol: 'CAD', name: 'Kanada Doları', source: 'doviz' },
+  { key: 'DKKTRY', symbol: 'DKK', name: 'Danimarka Kronu', source: 'doviz' },
+  { key: 'PLNTRY', symbol: 'PLN', name: 'Polonya Zlotisi', source: 'doviz' },
+  { key: 'KWDTRY', symbol: 'KWD', name: 'Kuveyt Dinarı', source: 'doviz' },
+  { key: 'NOKTRY', symbol: 'NOK', name: 'Norveç Kronu', source: 'doviz' },
+  { key: 'SARTRY', symbol: 'SAR', name: 'Suudi Riyali', source: 'doviz' },
+  { key: 'SEKTRY', symbol: 'SEK', name: 'İsveç Kronu', source: 'doviz' },
+
+  // open.er-api.com uzerinden USD->TRY donusumle
+  { symbol: 'BGN', name: 'Bulgar Levası', source: 'erapi' },
+  { symbol: 'CNY', name: 'Çin Yuanı', source: 'erapi' },
+  { symbol: 'HKD', name: 'Hong Kong Doları', source: 'erapi' },
+  { symbol: 'KRW', name: 'Güney Kore Wonu', source: 'erapi' },
+  { symbol: 'RUB', name: 'Rus Rublesi', source: 'erapi' },
+  { symbol: 'AED', name: 'BAE Dirhemi', source: 'erapi' },
+  { symbol: 'QAR', name: 'Katar Riyali', source: 'erapi' },
+  { symbol: 'INR', name: 'Hint Rupisi', source: 'erapi' },
+  { symbol: 'BRL', name: 'Brezilya Reali', source: 'erapi' },
+  { symbol: 'MXN', name: 'Meksika Pesosu', source: 'erapi' },
+  { symbol: 'SGD', name: 'Singapur Doları', source: 'erapi' },
+  { symbol: 'THB', name: 'Tayland Bahtı', source: 'erapi' },
+  { symbol: 'NZD', name: 'Yeni Zelanda Doları', source: 'erapi' },
+  { symbol: 'ZAR', name: 'Güney Afrika Randı', source: 'erapi' },
+  { symbol: 'HUF', name: 'Macar Forinti', source: 'erapi' },
+  { symbol: 'CZK', name: 'Çek Korunası', source: 'erapi' },
+  { symbol: 'RON', name: 'Romen Leyi', source: 'erapi' },
+  { symbol: 'ILS', name: 'İsrail Şekeli', source: 'erapi' },
+  { symbol: 'EGP', name: 'Mısır Lirası', source: 'erapi' },
+  { symbol: 'GEL', name: 'Gürcistan Larisi', source: 'erapi' },
+  { symbol: 'AZN', name: 'Azerbaycan Manatı', source: 'erapi' },
+  { symbol: 'UAH', name: 'Ukrayna Grivnası', source: 'erapi' },
+  { symbol: 'PKR', name: 'Pakistan Rupisi', source: 'erapi' },
+  { symbol: 'PHP', name: 'Filipin Pesosu', source: 'erapi' },
+  { symbol: 'IDR', name: 'Endonezya Rupisi', source: 'erapi' },
+  { symbol: 'MYR', name: 'Malezya Ringgiti', source: 'erapi' },
+  { symbol: 'TWD', name: 'Tayvan Doları', source: 'erapi' },
+  { symbol: 'VND', name: 'Vietnam Dongu', source: 'erapi' },
+  { symbol: 'RSD', name: 'Sırp Dinarı', source: 'erapi' },
 ];
 
-// ISO ülke / bölge kodları; bayrak ikonları için kullanılır.
-// flagcdn.com altında 40px PNG kullanıyoruz (örn: https://flagcdn.com/w40/us.png)
 const FLAG_BY_SYMBOL = {
-  USD: 'us',
-  EUR: 'eu',
-  GBP: 'gb',
-  CHF: 'ch',
-  JPY: 'jp',
-  AUD: 'au',
-  CAD: 'ca',
-  DKK: 'dk',
-  PLN: 'pl',
+  USD: 'us', EUR: 'eu', GBP: 'gb', CHF: 'ch', JPY: 'jp', AUD: 'au',
+  CAD: 'ca', DKK: 'dk', PLN: 'pl', KWD: 'kw', NOK: 'no', SAR: 'sa',
+  SEK: 'se', BGN: 'bg', CNY: 'cn', HKD: 'hk', KRW: 'kr', RUB: 'ru',
+  AED: 'ae', QAR: 'qa', INR: 'in', BRL: 'br', MXN: 'mx', SGD: 'sg',
+  THB: 'th', NZD: 'nz', ZAR: 'za', HUF: 'hu', CZK: 'cz', RON: 'ro',
+  ILS: 'il', EGP: 'eg', GEL: 'ge', AZN: 'az', UAH: 'ua', PKR: 'pk',
+  PHP: 'ph', IDR: 'id', MYR: 'my', TWD: 'tw', VND: 'vn', RSD: 'rs',
 };
 
 async function loadEnv() {
@@ -70,12 +103,26 @@ async function fetchDovizDevRates() {
   return res.json();
 }
 
+async function fetchErApiRates() {
+  const res = await fetch(ER_API_URL, {
+    headers: { 'User-Agent': 'PortfoyTakip/1.0 (doviz sync)' },
+  });
+  if (!res.ok) {
+    throw new Error(`open.er-api.com ${res.status}: ${await res.text()}`);
+  }
+  const data = await res.json();
+  if (data.result !== 'success') {
+    throw new Error('open.er-api.com result: ' + data.result);
+  }
+  return data.rates || {};
+}
+
 async function getExistingDovizMidnight(supabase) {
   const { data, error } = await supabase
     .from('assets')
     .select('symbol, price_at_midnight, price_midnight_date')
     .eq('category_id', 'doviz');
-  if (error) throw new Error('Döviz mevcut kayıtlar: ' + error.message);
+  if (error) throw new Error('Doviz mevcut kayitlar: ' + error.message);
   const map = new Map();
   for (const row of data || []) {
     map.set((row.symbol || '').toUpperCase(), {
@@ -86,16 +133,35 @@ async function getExistingDovizMidnight(supabase) {
   return map;
 }
 
-async function upsertDovizAssets(supabase, rates, todayTurkey, existingMidnight) {
+async function upsertDovizAssets(supabase, dovizRates, erApiRates, todayTurkey, existingMidnight) {
   const now = new Date().toISOString();
   const rows = [];
 
-  for (const { key, symbol, name } of FOREX_PAIRS) {
-    const raw = rates[key];
-    const currentPrice = raw != null && typeof raw === 'number' && Number.isFinite(raw) ? raw : null;
-    if (currentPrice == null) continue;
+  const usdTry = dovizRates['USDTRY'] || erApiRates['TRY'] || null;
 
-    const ex = existingMidnight.get(symbol) || {};
+  for (const pair of FOREX_PAIRS) {
+    let currentPrice = null;
+
+    if (pair.key) {
+      const raw = dovizRates[pair.key];
+      if (raw != null && typeof raw === 'number' && Number.isFinite(raw)) {
+        currentPrice = raw;
+      }
+    }
+
+    if (currentPrice == null && usdTry) {
+      const rateVsUsd = erApiRates[pair.symbol];
+      if (rateVsUsd != null && rateVsUsd > 0) {
+        currentPrice = usdTry / rateVsUsd;
+      }
+    }
+
+    if (currentPrice == null) {
+      console.log(`  - ${pair.symbol} (${pair.name}): kur bulunamadi, atlaniyor.`);
+      continue;
+    }
+
+    const ex = existingMidnight.get(pair.symbol) || {};
     const midnightDate = ex.price_midnight_date;
     const isNewDay = !midnightDate || String(midnightDate) < todayTurkey;
     const priceAtMidnight = isNewDay ? currentPrice : (ex.price_at_midnight ?? currentPrice);
@@ -105,14 +171,14 @@ async function upsertDovizAssets(supabase, rates, todayTurkey, existingMidnight)
         ? ((currentPrice - priceAtMidnight) / priceAtMidnight) * 100
         : null;
 
-    const flagCode = FLAG_BY_SYMBOL[symbol];
+    const flagCode = FLAG_BY_SYMBOL[pair.symbol];
     const iconUrl = flagCode ? `https://flagcdn.com/w40/${flagCode}.png` : null;
 
     rows.push({
       category_id: 'doviz',
-      symbol,
-      name,
-      currency: symbol,
+      symbol: pair.symbol,
+      name: pair.name,
+      currency: pair.symbol,
       current_price: currentPrice,
       icon_url: iconUrl,
       price_updated_at: now,
@@ -123,7 +189,7 @@ async function upsertDovizAssets(supabase, rates, todayTurkey, existingMidnight)
   }
 
   if (rows.length === 0) {
-    console.log('Uyarı: doviz.dev yanıtında hiçbir kur bulunamadı.');
+    console.log('Uyari: hicbir kur bulunamadi.');
     return 0;
   }
 
@@ -131,7 +197,7 @@ async function upsertDovizAssets(supabase, rates, todayTurkey, existingMidnight)
     .from('assets')
     .upsert(rows, { onConflict: 'category_id,symbol', ignoreDuplicates: false, count: 'exact' });
 
-  if (error) throw new Error('Döviz upsert: ' + error.message);
+  if (error) throw new Error('Doviz upsert: ' + error.message);
   return typeof count === 'number' ? count : rows.length;
 }
 
@@ -145,7 +211,7 @@ async function main() {
     process.env.SUPABASE_ANON_KEY;
   if (!url || !key) {
     console.error(
-      'Eksik: EXPO_PUBLIC_SUPABASE_URL ve SUPABASE_SERVICE_ROLE_KEY (veya EXPO_PUBLIC_SUPABASE_ANON_KEY) .env içinde olmalı.',
+      'Eksik: EXPO_PUBLIC_SUPABASE_URL ve SUPABASE_SERVICE_ROLE_KEY (veya EXPO_PUBLIC_SUPABASE_ANON_KEY) .env icinde olmali.',
     );
     process.exit(1);
   }
@@ -154,15 +220,26 @@ async function main() {
   const supabase = createClient(url, key);
 
   const todayTurkey = getTurkeyDateStr();
-  console.log('Türkiye günü:', todayTurkey, '| doviz.dev kurları çekiliyor…');
-  const rates = await fetchDovizDevRates();
-  const meta = rates._meta || {};
-  console.log('Kaynak:', meta.source || '—', 'Güncelleme:', meta.updated_at || '—');
+  console.log('Turkiye gunu:', todayTurkey);
+
+  console.log('doviz.dev kurlari cekiliyor...');
+  const dovizRates = await fetchDovizDevRates();
+  const meta = dovizRates._meta || {};
+  console.log('  doviz.dev:', meta.source || '-', '|', meta.updated_at || '-');
+
+  console.log('open.er-api.com kurlari cekiliyor...');
+  let erApiRates = {};
+  try {
+    erApiRates = await fetchErApiRates();
+    console.log('  open.er-api.com: OK (' + Object.keys(erApiRates).length + ' doviz)');
+  } catch (e) {
+    console.log('  open.er-api.com HATA (sadece doviz.dev kullanilacak):', e.message);
+  }
 
   const existingMidnight = await getExistingDovizMidnight(supabase);
-  console.log('Döviz assets upsert ediliyor (gece 00:00’dan bu yana değişim % ile)…');
-  const affected = await upsertDovizAssets(supabase, rates, todayTurkey, existingMidnight);
-  console.log('Güncellenen/eklenen döviz sayısı:', affected);
+  console.log('Doviz assets upsert ediliyor...');
+  const affected = await upsertDovizAssets(supabase, dovizRates, erApiRates, todayTurkey, existingMidnight);
+  console.log('Guncellenen/eklenen doviz sayisi:', affected);
 }
 
 main().catch((e) => {
