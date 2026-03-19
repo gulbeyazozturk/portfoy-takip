@@ -53,7 +53,8 @@ create table if not exists public.portfolios (
   updated_at timestamptz not null default now()
 );
 
-insert into public.portfolios (name, currency) values ('Portföyüm', 'USD');
+-- Not: auth geldiği için burada global/anon seed portfolio oluşturmayın.
+-- Kullanıcıya ait portfolio, uygulama katmanında user_id ile oluşturulmalı.
 
 -- 4) Holding'ler
 create table if not exists public.holdings (

@@ -1,16 +1,26 @@
 import * as Linking from 'expo-linking';
-import Constants from 'expo-constants';
 import * as WebBrowser from 'expo-web-browser';
 import { Session, User } from '@supabase/supabase-js';
 import React, { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react';
+import { Platform } from 'react-native';
 
 import { supabase } from '@/lib/supabase';
 
 WebBrowser.maybeCompleteAuthSession();
-const APP_REDIRECT_URL =
-  Constants.appOwnership === 'expo'
-    ? Linking.createURL('auth/callback')
-    : 'portfoytakip://auth/callback';
+// app/oauth-callback.tsx ile aynı yol — Supabase Redirect URLs’e Metro’da log’lanan tam adresi ekleyin.
+const APP_REDIRECT_URL = Linking.createURL('oauth-callback');
+
+function getOAuthRedirectUrl() {
+  if (Platform.OS === 'web' && typeof window !== 'undefined') {
+    return `${window.location.origin}/oauth-callback`;
+  }
+  return APP_REDIRECT_URL;
+}
+
+if (__DEV__) {
+  // Supabase Dashboard → Authentication → URL Configuration → Redirect URLs içine bu adresi aynen ekleyin.
+  console.log('[auth] OAuth redirectTo (Expo/Supabase):', APP_REDIRECT_URL);
+}
 
 type AuthContextValue = {
   loading: boolean;
@@ -46,13 +56,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     let mounted = true;
 
-    // Uygulama her açıldığında kullanıcıyı logoff başlat.
-    supabase.auth.signOut({ scope: 'local' }).finally(() => {
-      supabase.auth.getSession().then(({ data }) => {
-        if (!mounted) return;
-        setSession(data.session ?? null);
-        setLoading(false);
-      });
+    supabase.auth.getSession().then(({ data }) => {
+      if (!mounted) return;
+      setSession(data.session ?? null);
+      setLoading(false);
     });
 
     const { data: sub } = supabase.auth.onAuthStateChange((_event, nextSession) => {
@@ -88,23 +95,60 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   const signInWithOAuth = useCallback(async (provider: 'google' | 'apple') => {
+    const redirectTo = getOAuthRedirectUrl();
+
+    if (Platform.OS === 'web') {
+      const { error } = await supabase.auth.signInWithOAuth({
+        provider,
+        options: { redirectTo },
+      });
+      return { error: error?.message ?? null };
+    }
+
     const { data, error } = await supabase.auth.signInWithOAuth({
       provider,
-      options: { redirectTo: APP_REDIRECT_URL, skipBrowserRedirect: true },
+      options: { redirectTo, skipBrowserRedirect: true },
     });
     if (error || !data?.url) return { error: error?.message ?? 'OAuth başlatılamadı.' };
 
     const result = await WebBrowser.openAuthSessionAsync(data.url, APP_REDIRECT_URL);
+
+    if (result.type === 'cancel' || result.type === 'dismiss') {
+      return { error: 'Giriş iptal edildi.' };
+    }
     if (result.type !== 'success' || !result.url) {
-      return { error: 'Giriş tamamlanamadı veya iptal edildi.' };
+      if (__DEV__) console.warn('[auth] openAuthSessionAsync:', result.type, result);
+      return { error: 'Giriş tamamlanamadı. Metro konsoldaki redirect URL’yi Supabase’e ekleyip tekrar deneyin.' };
     }
 
     const params = parseUrlParams(result.url);
+
+    if (params.error) {
+      const raw = params.error_description ?? params.error;
+      return { error: raw.replace(/\+/g, ' ') };
+    }
+
+    // PKCE (önerilen): ?code=...
+    if (params.code) {
+      const { error: exchangeError } = await supabase.auth.exchangeCodeForSession(params.code);
+      if (exchangeError && __DEV__) console.warn('[auth] exchangeCodeForSession:', exchangeError);
+      if (exchangeError?.message?.toLowerCase().includes('code verifier')) {
+        return {
+          error:
+            'Oturum anahtarı eşleşmedi. Uygulamayı tam kapatıp tekrar açın, sonra Google’ı yeniden deneyin.',
+        };
+      }
+      return { error: exchangeError?.message ?? null };
+    }
+
+    // Eski implicit akış: #access_token=...
     const access_token = params.access_token;
     const refresh_token = params.refresh_token;
-
     if (!access_token || !refresh_token) {
-      return { error: 'Oturum bilgisi alınamadı.' };
+      return {
+        error:
+          'Oturum bilgisi alınamadı. Supabase’te Redirect URLs listesinde bu adres olmalı: ' + redirectTo,
+      };
     }
 
     const { error: setSessionError } = await supabase.auth.setSession({ access_token, refresh_token });

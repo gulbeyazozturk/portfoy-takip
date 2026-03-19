@@ -45,6 +45,7 @@ function RootNavigator() {
     return (
       <Stack>
         <Stack.Screen name="auth" options={{ headerShown: false }} />
+        <Stack.Screen name="oauth-callback" options={{ headerShown: false }} />
       </Stack>
     );
   }

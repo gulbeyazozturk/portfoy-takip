@@ -1,7 +1,7 @@
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import React, { useMemo, useState } from 'react';
-import { ActivityIndicator, StyleSheet, TextInput, TouchableOpacity, View } from 'react-native';
+import { ActivityIndicator, Platform, StyleSheet, TextInput, TouchableOpacity, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { ThemedText } from '@/components/themed-text';
@@ -18,6 +18,7 @@ export default function AuthScreen() {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [info, setInfo] = useState<string | null>(null);
+  const showAppleButton = Platform.OS === 'ios' || Platform.OS === 'web';
 
   const isEmailValid = useMemo(() => email.trim().includes('@') && email.trim().includes('.'), [email]);
   const isPasswordValid = useMemo(() => password.trim().length >= 6, [password]);
@@ -158,10 +159,12 @@ export default function AuthScreen() {
           <ThemedText style={styles.socialText}>Google ile devam et</ThemedText>
         </TouchableOpacity>
 
-        <TouchableOpacity activeOpacity={0.85} style={styles.socialBtn} onPress={() => social('apple')} disabled={busy}>
-          <Ionicons name="logo-apple" size={18} color="#e5e7eb" />
-          <ThemedText style={styles.socialText}>Apple ile devam et</ThemedText>
-        </TouchableOpacity>
+        {showAppleButton ? (
+          <TouchableOpacity activeOpacity={0.85} style={styles.socialBtn} onPress={() => social('apple')} disabled={busy}>
+            <Ionicons name="logo-apple" size={18} color="#e5e7eb" />
+            <ThemedText style={styles.socialText}>Apple ile devam et</ThemedText>
+          </TouchableOpacity>
+        ) : null}
 
         {error ? <ThemedText style={styles.errorText}>{error}</ThemedText> : null}
         {info ? <ThemedText style={styles.infoText}>{info}</ThemedText> : null}

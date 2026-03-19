@@ -46,8 +46,11 @@ const safeStorage = {
 export const supabase = createClient(supabaseUrl, supabaseAnonKey, {
   auth: {
     storage: safeStorage,
-    autoRefreshToken: false,
-    persistSession: false,
-    detectSessionInUrl: false,
+    // PKCE code_verifier bellekte tutulursa (persistSession: false) tarayıcı dönüşünde sık kaybolur; AsyncStorage şart.
+    persistSession: true,
+    autoRefreshToken: true,
+    detectSessionInUrl: isWeb,
+    // Mobil / Expo: implicit (#access_token) hash'i deep link ile sık kaybolur; PKCE ?code= güvenilir.
+    flowType: 'pkce',
   },
 });

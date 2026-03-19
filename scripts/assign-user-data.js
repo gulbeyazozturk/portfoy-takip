@@ -36,8 +36,9 @@ async function main() {
   }
 
   const targetEmail = (process.argv[2] || '').trim().toLowerCase();
+  const includeNullPortfolios = process.argv.includes('--include-null-portfolios');
   if (!targetEmail) {
-    throw new Error('Usage: node scripts/assign-user-data.js <email>');
+    throw new Error('Usage: node scripts/assign-user-data.js <email> [--include-null-portfolios]');
   }
 
   const supabase = createClient(url, serviceRole);
@@ -55,12 +56,15 @@ async function main() {
 
   const userId = user.id;
 
-  const { data: portfolios, error: pErr } = await supabase.from('portfolios').select('id,user_id');
-  if (pErr) throw pErr;
-  const nullPortfolios = (portfolios || []).filter((p) => !p.user_id);
+  let nullPortfolios = [];
+  if (includeNullPortfolios) {
+    const { data: portfolios, error: pErr } = await supabase.from('portfolios').select('id,user_id');
+    if (pErr) throw pErr;
+    nullPortfolios = (portfolios || []).filter((p) => !p.user_id);
 
-  const { error: updPortErr } = await supabase.from('portfolios').update({ user_id: userId }).is('user_id', null);
-  if (updPortErr) throw updPortErr;
+    const { error: updPortErr } = await supabase.from('portfolios').update({ user_id: userId }).is('user_id', null);
+    if (updPortErr) throw updPortErr;
+  }
 
   const { data: uploads, error: uErr } = await supabase.from('portfolio_uploads').select('id,user_id');
   if (uErr) throw uErr;
@@ -77,6 +81,7 @@ async function main() {
       {
         targetEmail,
         userId,
+        includeNullPortfolios,
         updatedPortfolios: nullPortfolios.length,
         updatedUploads: nullUploads.length,
       },
