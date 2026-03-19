@@ -19,6 +19,7 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { usePortfolio } from '@/context/portfolio';
+import { useAuth } from '@/context/auth';
 import { supabase } from '@/lib/supabase';
 
 const BG_DARK = '#000000';
@@ -61,6 +62,7 @@ const normalizeLoose = (value: string | null | undefined) =>
 export default function BulkUploadScreen() {
   const router = useRouter();
   const { portfolioId } = usePortfolio();
+  const { user } = useAuth();
 
   const [uploads, setUploads] = useState<UploadRow[]>([]);
   const [loading, setLoading] = useState(true);
@@ -454,6 +456,7 @@ export default function BulkUploadScreen() {
       // portfolio_uploads kaydı opsiyonel; tablo yoksa bile devam et
       try {
         await supabase.from('portfolio_uploads').insert({
+          user_id: user?.id ?? null,
           filename: file.name,
           file_size: file.size ?? null,
           raw_content: rawContent,

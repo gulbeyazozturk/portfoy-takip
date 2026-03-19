@@ -37,6 +37,7 @@ const CATEGORY_ICON_COLOR: Record<string, { icon: keyof typeof Ionicons.glyphMap
   emtia: { icon: 'flame-outline', color: '#FB923C' },
   fon: { icon: 'layers-outline', color: '#2DD4BF' },
   kripto: { icon: 'logo-bitcoin', color: '#F472B6' },
+  mevduat: { icon: 'wallet-outline', color: '#FFD700' },
 };
 
 export default function AddScreen() {
@@ -97,7 +98,7 @@ export default function AddScreen() {
             <Ionicons name="arrow-back" size={22} color={WHITE} />
           </TouchableOpacity>
           <View style={styles.headerTitleWrap}>
-            <Text style={styles.headerTitle}>Hangi varlık türünü eklemek istersiniz?</Text>
+            <Text style={styles.headerTitle}>Hangi varlık türünü arıyorsunuz?</Text>
           </View>
           <View style={styles.headerRight} />
         </View>

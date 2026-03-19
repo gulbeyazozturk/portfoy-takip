@@ -1,7 +1,7 @@
 import { Ionicons } from '@expo/vector-icons';
-import { useFocusEffect } from '@react-navigation/native';
+import { useFocusEffect, useScrollToTop } from '@react-navigation/native';
 import { useRouter } from 'expo-router';
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   Image,
@@ -54,6 +54,7 @@ const CATEGORY_COLORS: Record<string, string> = {
   kripto: '#F6465D',
   bist: '#A64CEB',
   doviz: '#2EB135',
+  mevduat: '#FFD700',
 };
 
 const ASSET_ICONS: Record<string, { icon: string; bg: string; color: string }> = {
@@ -74,9 +75,15 @@ const ASSET_ICONS: Record<string, { icon: string; bg: string; color: string }> =
   emtia: { icon: 'cube-outline', bg: 'rgba(250,204,21,0.28)', color: '#facc15' },
   // BIST: basit grafik ikonu
   bist: { icon: 'stats-chart', bg: 'rgba(56,189,248,0.3)', color: '#38bdf8' },
+  mevduat: { icon: 'wallet-outline', bg: 'rgba(255,215,0,0.25)', color: '#FFD700' },
+  VADESIZ: { icon: 'wallet-outline', bg: 'rgba(255,215,0,0.25)', color: '#FFD700' },
+  VADELI: { icon: 'time-outline', bg: 'rgba(255,215,0,0.25)', color: '#FFD700' },
+  BES: { icon: 'shield-checkmark-outline', bg: 'rgba(255,215,0,0.25)', color: '#FFD700' },
+  KASA: { icon: 'lock-closed-outline', bg: 'rgba(255,215,0,0.25)', color: '#FFD700' },
+  DIGER: { icon: 'ellipsis-horizontal-circle-outline', bg: 'rgba(255,215,0,0.25)', color: '#FFD700' },
 };
 
-const TIMEFRAMES = ['1H', '1D', '1W', '1M', 'YTD', 'ALL'] as const;
+const TIMEFRAMES = ['1D', '1W', '1M', '1Y', '5Y'] as const;
 
 type SortMode = 'todayTopGainers' | 'todayTopLosers' | 'highestValue' | 'lowestValue' | 'alphaAZ' | 'alphaZA';
 
@@ -180,17 +187,21 @@ type HoldingRow = {
 
 function normalizeAsset(asset: HoldingRow['asset']): AssetRow | null {
   if (!asset) return null;
-  if (Array.isArray(asset)) return asset[0] ?? null;
-  return asset;
+  const a = Array.isArray(asset) ? asset[0] ?? null : asset;
+  if (a) a.symbol = a.symbol.replace(/^M\d+_/, '');
+  return a;
 }
 
 export default function PortfolioScreen() {
+  const scrollRef = useRef<ScrollView>(null);
+  useScrollToTop(scrollRef);
+
   const router = useRouter();
   const { portfolioId } = usePortfolio();
   const { toggle: toggleCategory, isSelected: isCategorySelected } = useSelectedCategories();
   const [allocationOpen, setAllocationOpen] = useState(true);
   const [performanceOpen, setPerformanceOpen] = useState(true);
-  const [activeTimeframe, setActiveTimeframe] = useState<(typeof TIMEFRAMES)[number]>('1H');
+  const [activeTimeframe, setActiveTimeframe] = useState<(typeof TIMEFRAMES)[number]>('1D');
   const [sortMode, setSortMode] = useState<SortMode>('todayTopGainers');
   const [isSortMenuOpen, setIsSortMenuOpen] = useState(false);
   const [summaryMode, setSummaryMode] = useState<'daily' | 'total'>('daily');
@@ -198,6 +209,7 @@ export default function PortfolioScreen() {
   const [categories, setCategories] = useState<CategoryRow[]>([]);
   const [holdings, setHoldings] = useState<HoldingRow[]>([]);
   const [usdTry, setUsdTry] = useState<number>(1);
+  const [perfCurrency, setPerfCurrency] = useState<'TL' | 'USD'>('TL');
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -404,27 +416,48 @@ export default function PortfolioScreen() {
     const withAsset = holdings.map((h) => ({ ...h, asset: normalizeAsset(h.asset) })).filter((h) => h.asset);
     let totalValueTL = 0;
     let costBasisTL = 0;
+    let totalValueUSD = 0;
+    let costBasisUSD = 0;
+    let dailyChangeTL = 0;
+    let dailyChangeUSD = 0;
     let hasAnyCost = false;
+    const safeRate = usdTry > 0 ? usdTry : 1;
     for (const h of withAsset) {
       const asset = h.asset as AssetRow;
       const price = asset.current_price ?? h.avg_price ?? 0;
       const cost = h.avg_price != null && h.avg_price > 0 ? h.avg_price : price;
       const isUSD = asset.category_id === 'yurtdisi';
-      const rate = isUSD ? usdTry : 1;
-      const value = h.quantity * (Number(price) || 0) * rate;
-      const costVal = h.quantity * (Number(cost) || 0) * rate;
-      totalValueTL += value;
-      costBasisTL += costVal;
+      const rateTL = isUSD ? safeRate : 1;
+      const rateUSD = isUSD ? 1 : 1 / safeRate;
+      const value = h.quantity * (Number(price) || 0);
+      const costVal = h.quantity * (Number(cost) || 0);
+      totalValueTL += value * rateTL;
+      costBasisTL += costVal * rateTL;
+      totalValueUSD += value * rateUSD;
+      costBasisUSD += costVal * rateUSD;
       if (h.avg_price != null && h.avg_price > 0) hasAnyCost = true;
+      const pct24 = asset.change_24h_pct ?? 0;
+      if (pct24 !== 0) {
+        const prevValue = value / (1 + pct24 / 100);
+        dailyChangeTL += (value - prevValue) * rateTL;
+        dailyChangeUSD += (value - prevValue) * rateUSD;
+      }
     }
-    const changeAmount = totalValueTL - costBasisTL;
-    const changePct =
-      costBasisTL > 0 ? Math.round((changeAmount / costBasisTL) * 10000) / 100 : null;
+
+    const totalChangeAmtTL = totalValueTL - costBasisTL;
+    const totalChangePctTL = costBasisTL > 0 ? Math.round((totalChangeAmtTL / costBasisTL) * 10000) / 100 : null;
+    const totalChangeAmtUSD = totalValueUSD - costBasisUSD;
+    const totalChangePctUSD = costBasisUSD > 0 ? Math.round((totalChangeAmtUSD / costBasisUSD) * 10000) / 100 : null;
+
+    const dailyPctTL = (totalValueTL - dailyChangeTL) > 0
+      ? Math.round((dailyChangeTL / (totalValueTL - dailyChangeTL)) * 10000) / 100 : 0;
+    const dailyPctUSD = (totalValueUSD - dailyChangeUSD) > 0
+      ? Math.round((dailyChangeUSD / (totalValueUSD - dailyChangeUSD)) * 10000) / 100 : 0;
+
     return {
-      totalValueTL,
-      costBasisTL,
-      changeAmount,
-      changePct,
+      totalValueTL, costBasisTL, totalValueUSD, costBasisUSD,
+      totalChangeAmtTL, totalChangePctTL, totalChangeAmtUSD, totalChangePctUSD,
+      dailyChangeTL, dailyPctTL, dailyChangeUSD, dailyPctUSD,
       hasAnyCost,
     };
   }, [holdings, usdTry]);
@@ -454,7 +487,6 @@ export default function PortfolioScreen() {
     };
 
     switch (activeTimeframe) {
-      case '1H':
       case '1D':
         return [costNow || totalNow, totalNow];
       case '1W': {
@@ -465,14 +497,13 @@ export default function PortfolioScreen() {
         const start = now - 30 * 24 * 60 * 60 * 1000;
         return makeZeroToNow(start);
       }
-      case 'YTD': {
-        const d = new Date();
-        const start = new Date(d.getFullYear(), 0, 1).getTime();
+      case '1Y': {
+        const start = now - 365 * 24 * 60 * 60 * 1000;
         return makeZeroToNow(start);
       }
-      case 'ALL':
+      case '5Y':
       default: {
-        const start = Math.min(firstCreated - 7 * 24 * 60 * 60 * 1000, now);
+        const start = now - 5 * 365 * 24 * 60 * 60 * 1000;
         return makeZeroToNow(start);
       }
     }
@@ -496,6 +527,7 @@ export default function PortfolioScreen() {
         </View>
 
         <ScrollView
+          ref={scrollRef}
           style={styles.scroll}
           contentContainerStyle={styles.scrollContent}
           showsVerticalScrollIndicator={true}
@@ -533,46 +565,48 @@ export default function PortfolioScreen() {
                   <Text style={styles.totalLabel}>Total Value</Text>
                   <View style={styles.totalRow}>
                     <Text style={styles.totalValue}>
-                      {performanceValues.totalValueTL.toLocaleString('tr-TR', {
+                      {(perfCurrency === 'TL' ? performanceValues.totalValueTL : performanceValues.totalValueUSD).toLocaleString('tr-TR', {
                         minimumFractionDigits: 0,
-                        maximumFractionDigits: 0,
+                        maximumFractionDigits: perfCurrency === 'USD' ? 2 : 0,
                       })}
                     </Text>
-                    <Text style={styles.totalCurrency}>TL</Text>
-                  </View>
-                  {performanceValues.costBasisTL > 0 && performanceValues.changePct != null && (
-                    <View style={styles.trendRow}>
-                      <Text
-                        style={
-                          performanceValues.changeAmount >= 0 ? styles.trendPositive : styles.trendNegative
-                        }>
-                        {performanceValues.changeAmount >= 0 ? '+' : ''}
-                        {performanceValues.changeAmount.toLocaleString('tr-TR', {
-                          minimumFractionDigits: 2,
-                          maximumFractionDigits: 2,
-                        })}
-                      </Text>
-                      <View
-                        style={[
-                          styles.trendBadge,
-                          performanceValues.changeAmount >= 0 && styles.trendBadgePositive,
-                        ]}>
-                        <Text
-                          style={[
-                            styles.trendBadgeText,
-                            performanceValues.changeAmount >= 0 && styles.trendBadgeTextPositive,
-                          ]}>
-                          {performanceValues.changeAmount >= 0 ? '+' : ''}
-                          {performanceValues.changePct.toFixed(2).replace('.', ',')}%
-                        </Text>
-                      </View>
+                    <View style={styles.currencyToggle}>
+                      <Pressable onPress={() => setPerfCurrency('TL')} style={[styles.currencyBtn, perfCurrency === 'TL' && styles.currencyBtnActive]}>
+                        <Text style={[styles.currencyBtnText, perfCurrency === 'TL' && styles.currencyBtnTextActive]}>TL</Text>
+                      </Pressable>
+                      <Pressable onPress={() => setPerfCurrency('USD')} style={[styles.currencyBtn, perfCurrency === 'USD' && styles.currencyBtnActive]}>
+                        <Text style={[styles.currencyBtnText, perfCurrency === 'USD' && styles.currencyBtnTextActive]}>USD</Text>
+                      </Pressable>
                     </View>
-                  )}
+                  </View>
+                  {(() => {
+                    const isDaily = activeTimeframe === '1D';
+                    const amt = isDaily
+                      ? (perfCurrency === 'TL' ? performanceValues.dailyChangeTL : performanceValues.dailyChangeUSD)
+                      : (perfCurrency === 'TL' ? performanceValues.totalChangeAmtTL : performanceValues.totalChangeAmtUSD);
+                    const pct = isDaily
+                      ? (perfCurrency === 'TL' ? performanceValues.dailyPctTL : performanceValues.dailyPctUSD)
+                      : (perfCurrency === 'TL' ? performanceValues.totalChangePctTL : performanceValues.totalChangePctUSD);
+                    if (pct == null) return null;
+                    return (
+                      <View style={styles.trendRow}>
+                        <Text style={amt >= 0 ? styles.trendPositive : styles.trendNegative}>
+                          {amt >= 0 ? '+' : ''}
+                          {amt.toLocaleString('tr-TR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                        </Text>
+                        <View style={[styles.trendBadge, amt >= 0 && styles.trendBadgePositive]}>
+                          <Text style={[styles.trendBadgeText, amt >= 0 && styles.trendBadgeTextPositive]}>
+                            {amt >= 0 ? '+' : ''}{pct.toFixed(2).replace('.', ',')}%
+                          </Text>
+                        </View>
+                      </View>
+                    );
+                  })()}
                 </View>
               </View>
               <PerformanceChart
                 series={performanceSeries}
-                isPositive={performanceValues.changeAmount >= 0}
+                isPositive={performanceValues.totalChangeAmtTL >= 0}
               />
               <View style={styles.timeframeRow}>
                 {TIMEFRAMES.map((tf) => (
@@ -634,12 +668,10 @@ export default function PortfolioScreen() {
 
           {/* Category pills + summary mode combo */}
           <View style={styles.pillsContainer}>
-            <ScrollView
-              horizontal
-              showsHorizontalScrollIndicator={false}
-              contentContainerStyle={styles.pillsRow}
-              style={styles.pillsScroll}>
-              {categories.map((c) => {
+            <View style={styles.pillsRow}>
+              {categories
+                .filter((c) => ['yurtdisi', 'bist', 'doviz', 'emtia'].includes(c.id))
+                .map((c) => {
                 const isActive = isCategorySelected(c.id);
                 return (
                   <TouchableOpacity
@@ -652,7 +684,24 @@ export default function PortfolioScreen() {
                   </TouchableOpacity>
                 );
               })}
-            </ScrollView>
+            </View>
+            <View style={styles.pillsRow}>
+              {categories
+                .filter((c) => ['fon', 'kripto', 'mevduat'].includes(c.id))
+                .map((c) => {
+                const isActive = isCategorySelected(c.id);
+                return (
+                  <TouchableOpacity
+                    key={c.id}
+                    onPress={() => toggleCategory(c.id)}
+                    style={[styles.categoryPill, isActive && styles.categoryPillActive]}>
+                    <Text style={[styles.categoryPillText, isActive && styles.categoryPillTextActive]}>
+                      {c.name}
+                    </Text>
+                  </TouchableOpacity>
+                );
+              })}
+            </View>
             <View style={styles.summaryComboWrap}>
               <TouchableOpacity
                 style={styles.summaryCombo}
@@ -737,25 +786,24 @@ export default function PortfolioScreen() {
                 // Sadece günlük (24s) artış/düşüş; piyasa verisi yoksa — göster.
                 const changePct = asset.change_24h_pct ?? null;
                 const valueCurrency =
-                  asset.category_id === 'bist' ||
-                  asset.category_id === 'kripto' ||
-                  asset.category_id === 'doviz' ||
-                  asset.category_id === 'emtia'
-                    ? 'TL'
-                    : 'USD';
+                  asset.category_id === 'yurtdisi'
+                    ? 'USD'
+                    : 'TL';
                 const listAmountUnit =
-                  asset.category_id === 'doviz'
-                    ? asset.symbol
-                    : asset.category_id === 'emtia'
-                      ? ['XAU', 'XAG', 'XPT', 'XPD'].includes(asset.symbol)
-                        ? asset.symbol
-                        : (() => {
-                            const s = (asset.symbol ?? '').toUpperCase();
-                            if ((s.includes('22_AYAR') && s.includes('BILEZIK')) || s.includes('14_AYAR') || s.includes('18_AYAR'))
-                              return 'Gram';
-                            return 'Adet';
-                          })()
-                      : asset.symbol;
+                  asset.category_id === 'mevduat'
+                    ? 'TL'
+                    : asset.category_id === 'doviz'
+                      ? asset.symbol
+                      : asset.category_id === 'emtia'
+                        ? ['XAU', 'XAG', 'XPT', 'XPD'].includes(asset.symbol)
+                          ? asset.symbol
+                          : (() => {
+                              const s = (asset.symbol ?? '').toUpperCase();
+                              if ((s.includes('22_AYAR') && s.includes('BILEZIK')) || s.includes('14_AYAR') || s.includes('18_AYAR'))
+                                return 'Gram';
+                              return 'Adet';
+                            })()
+                        : asset.symbol;
                 const quantityFormatted = Number(h.quantity).toLocaleString('tr-TR', {
                   minimumFractionDigits: 0,
                   maximumFractionDigits: 4,
@@ -813,8 +861,13 @@ export default function PortfolioScreen() {
                         {valueCurrency}
                       </Text>
                       {(() => {
-                        const dailyPct = changePct;
                         const costPrice = h.avg_price != null ? Number(h.avg_price) : null;
+                        const totalPctFromCost = costPrice != null && costPrice > 0
+                          ? ((currentPrice - costPrice) / costPrice) * 100
+                          : null;
+                        // Some categories (especially funds) may not have change_24h_pct.
+                        // Fallback to cost-based performance so the UI does not show "—".
+                        const dailyPct = changePct ?? totalPctFromCost ?? 0;
                         const totalPct = costPrice != null && costPrice > 0
                           ? ((currentPrice - costPrice) / costPrice) * 100
                           : dailyPct;
@@ -927,6 +980,11 @@ const styles = StyleSheet.create({
   totalRow: { flexDirection: 'row', alignItems: 'baseline' },
   totalValue: { fontSize: 28, fontWeight: '700', color: WHITE, fontVariant: ['tabular-nums'] },
   totalCurrency: { fontSize: 14, color: '#94A3B8', marginLeft: 8, fontWeight: '500' },
+  currencyToggle: { flexDirection: 'row', marginLeft: 10, gap: 2, alignSelf: 'center' },
+  currencyBtn: { paddingHorizontal: 10, paddingVertical: 4, borderRadius: 6, backgroundColor: 'rgba(255,255,255,0.06)' },
+  currencyBtnActive: { backgroundColor: ACCENT_BLUE },
+  currencyBtnText: { fontSize: 13, fontWeight: '600', color: '#6b7280' },
+  currencyBtnTextActive: { color: '#FFFFFF' },
   trendRow: { flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: 8 },
   trendNegative: { fontSize: 14, fontWeight: '600', color: '#ef4444' },
   trendPositive: { fontSize: 14, fontWeight: '600', color: '#22c55e' },
@@ -948,7 +1006,7 @@ const styles = StyleSheet.create({
     borderRadius: 8,
     backgroundColor: 'rgba(255,255,255,0.1)',
   },
-  timeframeBtnActive: { backgroundColor: 'rgba(255,255,255,0.15)' },
+  timeframeBtnActive: { backgroundColor: ACCENT_BLUE },
   timeframeBtnText: { fontSize: 12, fontWeight: '500', color: MUTED },
   timeframeBtnTextActive: { fontSize: 12, fontWeight: '700', color: WHITE },
   filterRow: {
@@ -985,13 +1043,17 @@ const styles = StyleSheet.create({
   filterMenuItemText: { fontSize: 13, color: MUTED },
   filterMenuItemTextActive: { fontSize: 13, fontWeight: '600', color: WHITE },
   pillsContainer: {
-    flexDirection: 'row',
-    alignItems: 'center',
+    flexDirection: 'column',
+    alignItems: 'stretch',
     marginBottom: 8,
     zIndex: 5,
   },
-  pillsScroll: { flex: 1 },
-  pillsRow: { flexDirection: 'row', gap: 8, paddingHorizontal: 8 },
+  pillsRow: {
+    flexDirection: 'row',
+    gap: 8,
+    paddingHorizontal: 8,
+    paddingBottom: 8,
+  },
   categoryPill: {
     paddingHorizontal: 16,
     paddingVertical: 10,
@@ -1004,6 +1066,8 @@ const styles = StyleSheet.create({
   summaryComboWrap: {
     position: 'relative',
     marginRight: 8,
+    marginTop: 8,
+    alignSelf: 'flex-end',
     zIndex: 10,
   },
   summaryCombo: {

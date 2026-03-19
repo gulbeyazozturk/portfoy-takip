@@ -2,7 +2,9 @@ import { DarkTheme, DefaultTheme, ThemeProvider } from '@react-navigation/native
 import { Stack } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import 'react-native-reanimated';
+import { ActivityIndicator, View } from 'react-native';
 
+import { AuthProvider, useAuth } from '@/context/auth';
 import { useColorScheme } from '@/hooks/use-color-scheme';
 import { PortfolioProvider } from '@/context/portfolio';
 import { SelectedCategoriesProvider } from '@/context/selected-categories';
@@ -16,19 +18,45 @@ export default function RootLayout() {
 
   return (
     <ThemeProvider value={colorScheme === 'dark' ? DarkTheme : DefaultTheme}>
-      <PortfolioProvider>
-        <SelectedCategoriesProvider>
-          <Stack>
-            <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
-            <Stack.Screen
-              name="bulk-upload"
-              options={{ headerShown: false, title: 'Toplu yükleme' }}
-            />
-            <Stack.Screen name="modal" options={{ presentation: 'modal', title: 'Modal' }} />
-          </Stack>
-        </SelectedCategoriesProvider>
-      </PortfolioProvider>
+      <AuthProvider>
+        <PortfolioProvider>
+          <SelectedCategoriesProvider>
+            <RootNavigator />
+          </SelectedCategoriesProvider>
+        </PortfolioProvider>
+      </AuthProvider>
       <StatusBar style="auto" />
     </ThemeProvider>
+  );
+}
+
+function RootNavigator() {
+  const { loading, session } = useAuth();
+
+  if (loading) {
+    return (
+      <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: '#000' }}>
+        <ActivityIndicator color="#60a5fa" />
+      </View>
+    );
+  }
+
+  if (!session) {
+    return (
+      <Stack>
+        <Stack.Screen name="auth" options={{ headerShown: false }} />
+      </Stack>
+    );
+  }
+
+  return (
+    <Stack>
+      <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
+      <Stack.Screen
+        name="bulk-upload"
+        options={{ headerShown: false, title: 'Toplu yükleme' }}
+      />
+      <Stack.Screen name="modal" options={{ presentation: 'modal', title: 'Modal' }} />
+    </Stack>
   );
 }

@@ -60,10 +60,12 @@ export default function AssetListScreen() {
 
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
+  const cleanSymbol = (s: string) => s.replace(/^M\d+_/, '');
+
   const mapRow = (r: any): AssetItem => ({
     id: r.id,
     name: r.name,
-    symbol: r.symbol,
+    symbol: cleanSymbol(r.symbol),
     price: r.current_price ?? undefined,
     iconUrl: r.icon_url ?? null,
   });
@@ -170,7 +172,7 @@ export default function AssetListScreen() {
     });
   };
 
-  const title = `${label} arayarak ekleme yapabilirsiniz.`;
+  const title = `${label} varlıklarını arayın.`;
   const searchPlaceholder = `${label} Ara...`;
 
   const countLabel = useMemo(() => {
@@ -298,7 +300,7 @@ export default function AssetListScreen() {
               onPress={handleAdd}
               disabled={!selectedAsset}
               activeOpacity={0.85}>
-              <Text style={styles.addButtonText}>Varlık Ekle</Text>
+              <Text style={styles.addButtonText}>Detaya Git</Text>
             </TouchableOpacity>
           </View>
           <View style={styles.bottomSpacer} />

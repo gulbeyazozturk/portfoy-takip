@@ -1,15 +1,21 @@
-import { Tabs } from 'expo-router';
+import { Redirect, Tabs } from 'expo-router';
 import React from 'react';
 import { Ionicons } from '@expo/vector-icons';
 
 import { FABTabButton } from '@/components/fab-tab-button';
 import { HapticTab } from '@/components/haptic-tab';
+import { useAuth } from '@/context/auth';
 
 const TAB_BG = '#000000';
 const PASSIVE = '#888A96';
 const ACTIVE = '#2979FF';
 
 export default function TabLayout() {
+  const { session, loading } = useAuth();
+  if (!loading && !session) {
+    return <Redirect href="/auth" />;
+  }
+
   return (
     <Tabs
       initialRouteName="index"
@@ -35,7 +41,7 @@ export default function TabLayout() {
       <Tabs.Screen
         name="add"
         options={{
-          title: 'Artı',
+          title: 'Ara',
           tabBarButton: FABTabButton,
           tabBarIcon: () => null,
         }}
