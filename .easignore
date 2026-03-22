@@ -31,3 +31,4 @@ app-example
 
 # --- EAS-only: not needed for the mobile bundle (still in Git for local/CI use) ---
 scripts/
+database/migrations/

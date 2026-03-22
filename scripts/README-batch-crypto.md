@@ -10,7 +10,7 @@
 
 Supabase Dashboard → SQL Editor’da şu dosyayı çalıştır:
 
-- `scripts/migrations/001_asset_price_and_icon.sql`
+- `database/migrations/001_asset_price_and_icon.sql`
 
 Böylece `assets` tablosuna gerekli sütunlar eklenir.
 
