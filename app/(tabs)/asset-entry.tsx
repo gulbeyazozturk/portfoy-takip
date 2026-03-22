@@ -20,8 +20,15 @@ import Svg, { Circle, Defs, LinearGradient, Path, Stop } from 'react-native-svg'
 import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
 import { usePortfolio } from '@/context/portfolio';
+import { resolveBistDisplayName } from '@/lib/bist-display-name';
 import { supabase } from '@/lib/supabase';
 import { useTranslation } from 'react-i18next';
+
+/** Expo Router aynı param anahtarını bazen string[] döndürebilir. */
+function firstParam(v: string | string[] | undefined): string | undefined {
+  if (v == null) return undefined;
+  return Array.isArray(v) ? v[0] : v;
+}
 
 const CHART_W = 400;
 const CHART_H = 140;
@@ -218,11 +225,17 @@ export default function AssetEntryScreen() {
     avgPrice?: string;
   }>();
 
-  const [holdingId, setHoldingId] = useState<string | undefined>(params.holdingId as string | undefined);
-  const assetId = params.assetId as string | undefined;
-  const name = params.name ?? t('assetList.defaultLabel');
-  const symbol = params.symbol ?? '';
-  const categoryId = params.categoryId as string | undefined;
+  const routeHoldingId = useMemo(() => firstParam(params.holdingId), [params.holdingId]);
+
+  const [holdingId, setHoldingId] = useState<string | undefined>(() => firstParam(params.holdingId));
+  const assetId = firstParam(params.assetId);
+  const categoryId = firstParam(params.categoryId);
+  const symbol = firstParam(params.symbol) ?? '';
+  const name = useMemo(() => {
+    const raw = firstParam(params.name) ?? t('assetList.defaultLabel');
+    if (categoryId === 'bist') return resolveBistDisplayName(symbol, raw);
+    return raw;
+  }, [params.name, categoryId, symbol, t]);
   const returnTo = params.returnTo as string | undefined;
   const returnCategoryId = params.returnCategoryId as string | undefined;
   const returnLabel = params.returnLabel as string | undefined;
@@ -305,21 +318,38 @@ export default function AssetEntryScreen() {
     setUnitPrice((params.avgPrice as string | undefined) ?? '');
   }, [params.quantity, params.avgPrice, assetId]);
 
+  /** Portföy listesinden veya aramadan gelindiğinde: yalnızca seçili portföydeki pozisyonu yükle. */
   useEffect(() => {
-    if (holdingId || !assetId) return;
+    if (routeHoldingId || !assetId || !portfolioId) return;
+    let cancelled = false;
     (async () => {
-      const { data } = await supabase
+      const { data, error } = await supabase
         .from('holdings')
         .select('id, quantity, avg_price')
         .eq('asset_id', assetId)
+        .eq('portfolio_id', portfolioId)
         .maybeSingle();
+      if (cancelled) return;
+      if (error) {
+        setHoldingId(undefined);
+        setAmount('');
+        setUnitPrice('');
+        return;
+      }
       if (data) {
         setHoldingId(data.id);
         setAmount(String(data.quantity ?? ''));
         setUnitPrice(data.avg_price != null ? String(data.avg_price) : '');
+      } else {
+        setHoldingId(undefined);
+        setAmount('');
+        setUnitPrice('');
       }
     })();
-  }, [holdingId, assetId]);
+    return () => {
+      cancelled = true;
+    };
+  }, [assetId, portfolioId, routeHoldingId]);
 
   useEffect(() => {
     if (!assetId) return;
@@ -444,39 +474,49 @@ export default function AssetEntryScreen() {
     }
     const cost = inputCost ? parseFloat(inputCost.replace(',', '.')) : null;
     setSaving(true);
-
-    if (holdingId) {
-      let newAvg: number | null = avgCost;
-      if (cost != null && cost > 0) {
-        newAvg = avgCost > 0
-          ? (qty * avgCost + inputQty * cost) / (qty + inputQty)
-          : cost;
+    try {
+      if (holdingId) {
+        let newAvg: number | null = avgCost;
+        if (cost != null && cost > 0) {
+          newAvg = avgCost > 0
+            ? (qty * avgCost + inputQty * cost) / (qty + inputQty)
+            : cost;
+        }
+        const newQty = qty + inputQty;
+        const { error } = await supabase
+          .from('holdings')
+          .update({ quantity: newQty, avg_price: newAvg })
+          .eq('id', holdingId)
+          .eq('portfolio_id', portfolioId);
+        if (error) {
+          Alert.alert(t('assetEntry.errorTitle'), error.message);
+          return;
+        }
+        setAmount(String(newQty));
+        setUnitPrice(newAvg != null ? String(newAvg) : '');
+      } else {
+        const { data, error } = await supabase.from('holdings').insert({
+          portfolio_id: portfolioId,
+          asset_id: assetId,
+          quantity: inputQty,
+          avg_price: cost,
+        }).select('id').single();
+        if (error) {
+          Alert.alert(t('assetEntry.errorTitle'), error.message);
+          return;
+        }
+        if (data) setHoldingId(data.id);
+        setAmount(String(inputQty));
+        setUnitPrice(cost != null ? String(cost) : '');
       }
-      const newQty = qty + inputQty;
-      const { error } = await supabase
-        .from('holdings')
-        .update({ quantity: newQty, avg_price: newAvg })
-        .eq('id', holdingId);
+      setInputWhole('');
+      setInputDecimal('');
+      setInputCost('');
+    } catch (e: any) {
+      Alert.alert(t('assetEntry.errorTitle'), e?.message ?? String(e));
+    } finally {
       setSaving(false);
-      if (error) { Alert.alert(t('assetEntry.errorTitle'), error.message); return; }
-      setAmount(String(newQty));
-      setUnitPrice(newAvg != null ? String(newAvg) : '');
-    } else {
-      const { data, error } = await supabase.from('holdings').insert({
-        portfolio_id: portfolioId,
-        asset_id: assetId,
-        quantity: inputQty,
-        avg_price: cost,
-      }).select('id').single();
-      setSaving(false);
-      if (error) { Alert.alert(t('assetEntry.errorTitle'), error.message); return; }
-      if (data) setHoldingId(data.id);
-      setAmount(String(inputQty));
-      setUnitPrice(cost != null ? String(cost) : '');
     }
-    setInputWhole('');
-    setInputDecimal('');
-    setInputCost('');
   };
 
   const handleReduce = async () => {
@@ -605,7 +645,11 @@ export default function AssetEntryScreen() {
           </TouchableOpacity>
         </View>
 
-        <ScrollView style={{ flex: 1 }} showsVerticalScrollIndicator={false}>
+        <ScrollView
+          style={{ flex: 1 }}
+          showsVerticalScrollIndicator={false}
+          keyboardShouldPersistTaps="handled"
+          keyboardDismissMode="on-drag">
           {/* Hero: icon + symbol + name */}
           <View style={styles.heroSection}>
             <View style={styles.heroIconWrap}>

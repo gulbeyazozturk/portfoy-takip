@@ -1,3 +1,4 @@
+import '@/lib/native-webcrypto-polyfill';
 import '@/lib/i18n';
 
 import { DarkTheme, DefaultTheme, ThemeProvider } from '@react-navigation/native';
@@ -8,7 +9,9 @@ import { ActivityIndicator, View } from 'react-native';
 import { useTranslation } from 'react-i18next';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 
+import { AppLockGate } from '@/components/app-lock-gate';
 import { MissingSupabaseConfigScreen } from '@/components/missing-supabase-config';
+import { AppLockProvider } from '@/context/app-lock';
 import { AuthProvider, useAuth } from '@/context/auth';
 import { useColorScheme } from '@/hooks/use-color-scheme';
 import { PortfolioProvider } from '@/context/portfolio';
@@ -37,11 +40,13 @@ export default function RootLayout() {
     <SafeAreaProvider>
       <ThemeProvider value={colorScheme === 'dark' ? DarkTheme : DefaultTheme}>
         <AuthProvider>
-          <PortfolioProvider>
-            <SelectedCategoriesProvider>
-              <RootNavigator />
-            </SelectedCategoriesProvider>
-          </PortfolioProvider>
+          <AppLockProvider>
+            <PortfolioProvider>
+              <SelectedCategoriesProvider>
+                <RootNavigator />
+              </SelectedCategoriesProvider>
+            </PortfolioProvider>
+          </AppLockProvider>
         </AuthProvider>
         <StatusBar style="auto" />
       </ThemeProvider>
@@ -71,13 +76,15 @@ function RootNavigator() {
   }
 
   return (
-    <Stack>
-      <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
-      <Stack.Screen
-        name="bulk-upload"
-        options={{ headerShown: false, title: t('layout.bulkUploadTitle') }}
-      />
-      <Stack.Screen name="modal" options={{ presentation: 'modal', title: t('layout.modalTitle') }} />
-    </Stack>
+    <AppLockGate>
+      <Stack>
+        <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
+        <Stack.Screen
+          name="bulk-upload"
+          options={{ headerShown: false, title: t('layout.bulkUploadTitle') }}
+        />
+        <Stack.Screen name="modal" options={{ presentation: 'modal', title: t('layout.modalTitle') }} />
+      </Stack>
+    </AppLockGate>
   );
 }

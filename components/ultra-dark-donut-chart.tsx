@@ -1,9 +1,11 @@
 import React, { useMemo } from 'react';
-import { View, StyleSheet } from 'react-native';
+import { Image, StyleSheet, View } from 'react-native';
 import Svg, { Circle, Path, Text as SvgText } from 'react-native-svg';
 import { useTranslation } from 'react-i18next';
 
 import { Fonts } from '@/constants/theme';
+
+const APP_ICON = require('@/assets/images/icon.png');
 
 export type DonutSlice = {
   label: string;
@@ -63,7 +65,7 @@ export const UltraDarkDonutChart: React.FC<UltraDarkDonutChartProps> = ({
   strokeWidth = 28,
   showLabels = true,
 }) => {
-  const { t, i18n } = useTranslation();
+  const { i18n } = useTranslation();
   const labelMargin = 80;
   const canvasSize = size + 2 * labelMargin;
   const cx = canvasSize / 2;
@@ -94,11 +96,8 @@ export const UltraDarkDonutChart: React.FC<UltraDarkDonutChartProps> = ({
   const hasData = slices.length > 0 && total > 0;
   const fallbackRingColor = '#2a2a2a';
 
-  const pctSumRounded = useMemo(
-    () => (hasData ? Math.round(slices.reduce((s, x) => s + x.pct, 0)) : 0),
-    [hasData, slices],
-  );
-  const centerPctLabel = hasData ? `${Math.min(100, pctSumRounded)}%` : '—';
+  /** İç boşluğa sığacak şekilde (glass disk ~ rInner). */
+  const centerIconSize = Math.round(Math.min(72, Math.max(40, (rInner - 6) * 1.25)));
 
   const useCommaDecimal = i18n.language?.startsWith('tr');
 
@@ -164,32 +163,6 @@ export const UltraDarkDonutChart: React.FC<UltraDarkDonutChartProps> = ({
           />
         )}
 
-        {hasData && (
-          <>
-            <SvgText
-              x={cx}
-              y={cy - 6}
-              fill="#64748b"
-              fontSize={10}
-              fontWeight="700"
-              fontFamily={Fonts.sans}
-              textAnchor="middle"
-              letterSpacing={2}>
-              {t('portfolio.donutTotal')}
-            </SvgText>
-            <SvgText
-              x={cx}
-              y={cy + 22}
-              fill="#ffffff"
-              fontSize={28}
-              fontWeight="700"
-              fontFamily={Fonts.sans}
-              textAnchor="middle">
-              {centerPctLabel}
-            </SvgText>
-          </>
-        )}
-
         {hasData &&
           showLabels &&
           slices.map(({ slice, pct, start, end }, sliceIndex) => {
@@ -236,14 +209,34 @@ export const UltraDarkDonutChart: React.FC<UltraDarkDonutChartProps> = ({
             );
           })}
       </Svg>
+
+      {/* Merkez metin yerine app ikonu (SVG Text yerine RN Image — tutarlı ölçek). */}
+      <View style={styles.centerIconWrap} pointerEvents="none">
+        <Image
+          source={APP_ICON}
+          style={{
+            width: centerIconSize,
+            height: centerIconSize,
+            borderRadius: centerIconSize / 2,
+          }}
+          resizeMode="cover"
+          accessibilityLabel="Omnifolio"
+        />
+      </View>
     </View>
   );
 };
 
 const styles = StyleSheet.create({
   wrapper: {
+    position: 'relative',
     alignItems: 'center',
     justifyContent: 'center',
     overflow: 'visible',
+  },
+  centerIconWrap: {
+    ...StyleSheet.absoluteFillObject,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
 });

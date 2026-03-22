@@ -1,82 +1,212 @@
-import React, { createContext, useCallback, useContext, useEffect, useState } from 'react';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import React, { createContext, useCallback, useContext, useEffect, useRef, useState } from 'react';
 
 import { useAuth } from '@/context/auth';
 import { supabase } from '@/lib/supabase';
 
+export type PortfolioRow = {
+  id: string;
+  name: string;
+  created_at: string;
+};
+
+const LEGACY_DEFAULT_NAME = 'Portföyüm';
+export const DEFAULT_MAIN_PORTFOLIO_NAME = 'Ana Portföy';
+
+function storageKey(userId: string) {
+  return `omnifolio_selected_portfolio_v1:${userId}`;
+}
+
 type PortfolioContextValue = {
   portfolioId: string | null;
+  portfolios: PortfolioRow[];
+  portfoliosLoading: boolean;
   refresh: () => Promise<void>;
+  selectPortfolio: (id: string) => Promise<void>;
+  addPortfolio: (name: string) => Promise<{ error?: string }>;
+  renamePortfolio: (id: string, name: string) => Promise<{ error?: string }>;
 };
 
 const PortfolioContext = createContext<PortfolioContextValue | null>(null);
 
 export function PortfolioProvider({ children }: { children: React.ReactNode }) {
   const [portfolioId, setPortfolioId] = useState<string | null>(null);
+  const [portfolios, setPortfolios] = useState<PortfolioRow[]>([]);
+  const [portfoliosLoading, setPortfoliosLoading] = useState(true);
   const { user } = useAuth();
+  const portfolioIdRef = useRef<string | null>(null);
+  portfolioIdRef.current = portfolioId;
+
+  const resolveSelection = useCallback(
+    async (list: PortfolioRow[], previousId: string | null) => {
+      if (!user?.id || list.length === 0) {
+        return null;
+      }
+      const ids = new Set(list.map((p) => p.id));
+      if (previousId && ids.has(previousId)) {
+        return previousId;
+      }
+      try {
+        const raw = await AsyncStorage.getItem(storageKey(user.id));
+        if (raw && ids.has(raw)) {
+          return raw;
+        }
+      } catch {
+        /* ignore */
+      }
+      return list[0].id;
+    },
+    [user?.id],
+  );
+
+  const persistSelection = useCallback(
+    async (id: string | null) => {
+      if (!user?.id || !id) return;
+      try {
+        await AsyncStorage.setItem(storageKey(user.id), id);
+      } catch {
+        /* ignore */
+      }
+    },
+    [user?.id],
+  );
 
   const refresh = useCallback(async () => {
     if (!user?.id) {
       setPortfolioId(null);
+      setPortfolios([]);
+      setPortfoliosLoading(false);
       return;
     }
 
-    const { data, error } = await supabase
-      .from('portfolios')
-      .select('id, created_at')
-      .eq('user_id', user.id)
-      .order('created_at', { ascending: true });
-    if (error) {
-      setPortfolioId(null);
-      return;
-    }
+    setPortfoliosLoading(true);
+    try {
+      let { data, error } = await supabase
+        .from('portfolios')
+        .select('id, name, created_at')
+        .eq('user_id', user.id)
+        .order('created_at', { ascending: true });
 
-    if ((data ?? []).length > 0) {
-      const portfolios = data ?? [];
-      const ids = portfolios.map((p) => p.id);
-      const { data: holdings, error: hErr } = await supabase
-        .from('holdings')
-        .select('portfolio_id')
-        .in('portfolio_id', ids);
-      if (hErr) {
-        // Fallback: en eski portföy
-        setPortfolioId(portfolios[0].id);
+      if (error) {
+        setPortfolioId(null);
+        setPortfolios([]);
         return;
       }
-      const counts: Record<string, number> = {};
-      for (const h of holdings ?? []) {
-        const pid = (h as any).portfolio_id as string;
-        counts[pid] = (counts[pid] ?? 0) + 1;
+
+      let rows: PortfolioRow[] = (data ?? []) as PortfolioRow[];
+
+      const legacy = rows.filter((p) => p.name === LEGACY_DEFAULT_NAME);
+      if (legacy.length > 0) {
+        await Promise.all(
+          legacy.map((p) =>
+            supabase.from('portfolios').update({ name: DEFAULT_MAIN_PORTFOLIO_NAME }).eq('id', p.id),
+          ),
+        );
+        rows = rows.map((p) =>
+          p.name === LEGACY_DEFAULT_NAME ? { ...p, name: DEFAULT_MAIN_PORTFOLIO_NAME } : p,
+        );
       }
-      const best = portfolios
-        .map((p) => ({ id: p.id, score: counts[p.id] ?? 0 }))
-        .sort((a, b) => b.score - a.score)[0];
-      setPortfolioId(best.id);
-      return;
-    }
 
-    const { data: inserted, error: insertError } = await supabase
-      .from('portfolios')
-      .insert({
-        user_id: user.id,
-        name: 'Portföyüm',
-        currency: 'USD',
-      })
-      .select('id')
-      .single();
+      if (rows.length === 0) {
+        const { data: inserted, error: insertError } = await supabase
+          .from('portfolios')
+          .insert({
+            user_id: user.id,
+            name: DEFAULT_MAIN_PORTFOLIO_NAME,
+            currency: 'USD',
+          })
+          .select('id, name, created_at')
+          .single();
 
-    if (insertError) {
-      setPortfolioId(null);
-      return;
+        if (insertError || !inserted) {
+          setPortfolioId(null);
+          setPortfolios([]);
+          return;
+        }
+        rows = [inserted as PortfolioRow];
+      }
+
+      setPortfolios(rows);
+
+      const chosen = await resolveSelection(rows, portfolioIdRef.current);
+      setPortfolioId(chosen);
+      if (chosen) {
+        await persistSelection(chosen);
+      }
+    } finally {
+      setPortfoliosLoading(false);
     }
-    setPortfolioId(inserted?.id ?? null);
-  }, [user?.id]);
+  }, [user?.id, resolveSelection, persistSelection]);
 
   useEffect(() => {
-    refresh();
-  }, [refresh]);
+    void refresh();
+  }, [user?.id, refresh]);
+
+  const selectPortfolio = useCallback(
+    async (id: string) => {
+      setPortfolioId(id);
+      await persistSelection(id);
+    },
+    [persistSelection],
+  );
+
+  const addPortfolio = useCallback(
+    async (name: string) => {
+      const trimmed = name.trim();
+      if (!user?.id) {
+        return { error: 'no_user' };
+      }
+      if (!trimmed) {
+        return { error: 'empty_name' };
+      }
+      const { error } = await supabase.from('portfolios').insert({
+        user_id: user.id,
+        name: trimmed,
+        currency: 'USD',
+      });
+      if (error) {
+        return { error: error.message ?? 'insert_failed' };
+      }
+      await refresh();
+      return {};
+    },
+    [user?.id, refresh],
+  );
+
+  const renamePortfolio = useCallback(
+    async (id: string, name: string) => {
+      const trimmed = name.trim();
+      if (!user?.id) {
+        return { error: 'no_user' };
+      }
+      if (!trimmed) {
+        return { error: 'empty_name' };
+      }
+      const { error } = await supabase
+        .from('portfolios')
+        .update({ name: trimmed })
+        .eq('id', id)
+        .eq('user_id', user.id);
+      if (error) {
+        return { error: error.message ?? 'update_failed' };
+      }
+      await refresh();
+      return {};
+    },
+    [user?.id, refresh],
+  );
 
   return (
-    <PortfolioContext.Provider value={{ portfolioId, refresh }}>
+    <PortfolioContext.Provider
+      value={{
+        portfolioId,
+        portfolios,
+        portfoliosLoading,
+        refresh,
+        selectPortfolio,
+        addPortfolio,
+        renamePortfolio,
+      }}>
       {children}
     </PortfolioContext.Provider>
   );

@@ -17,6 +17,7 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
+import { resolveBistDisplayName } from '@/lib/bist-display-name';
 import { supabase } from '@/lib/supabase';
 import { useTranslation } from 'react-i18next';
 
@@ -65,13 +66,16 @@ export default function AssetListScreen() {
 
   const cleanSymbol = (s: string) => s.replace(/^M\d+_/, '');
 
-  const mapRow = (r: any): AssetItem => ({
-    id: r.id,
-    name: r.name,
-    symbol: cleanSymbol(r.symbol),
-    price: r.current_price ?? undefined,
-    iconUrl: r.icon_url ?? null,
-  });
+  const mapRow = (r: any): AssetItem => {
+    const sym = cleanSymbol(r.symbol);
+    return {
+      id: r.id,
+      name: categoryId === 'bist' ? resolveBistDisplayName(sym, r.name) : r.name,
+      symbol: sym,
+      price: r.current_price ?? undefined,
+      iconUrl: r.icon_url ?? null,
+    };
+  };
 
   const buildQuery = useCallback(
     (searchText: string, from: number, to: number) => {

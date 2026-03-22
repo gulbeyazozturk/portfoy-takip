@@ -16,7 +16,8 @@
         "usesNonExemptEncryption": false
       },
       "infoPlist": {
-        "ITSAppUsesNonExemptEncryption": false
+        "ITSAppUsesNonExemptEncryption": false,
+        "NSFaceIDUsageDescription": "Omnifolio portföy verilerinize yalnızca sizin erişebilmeniz için Face ID kullanılır."
       }
     },
     "android": {
@@ -40,7 +41,7 @@
       [
         "expo-splash-screen",
         {
-          "image": "./assets/images/splash-icon.png",
+          "image": "./assets/images/icon.png",
           "imageWidth": 200,
           "resizeMode": "contain",
           "backgroundColor": "#ffffff",
@@ -49,7 +50,13 @@
           }
         }
       ],
-      "expo-localization"
+      "expo-localization",
+      [
+        "expo-local-authentication",
+        {
+          "faceIDPermission": "Omnifolio portföy verilerinize yalnızca sizin erişebilmeniz için Face ID kullanılır."
+        }
+      ]
     ],
     "experiments": {
       "typedRoutes": true,

@@ -1,10 +1,12 @@
 import React from 'react';
-import { StyleSheet, Text, View } from 'react-native';
+import { Image, StyleSheet, Text, View } from 'react-native';
 import { useTranslation } from 'react-i18next';
-import Svg, { Circle, Defs, LinearGradient, Stop } from 'react-native-svg';
 
 const ACCENT_A = '#38bdf8';
 const ACCENT_B = '#00e677';
+
+/** Ana ekran / splash ile aynı kaynak — `app.json` içindeki `expo.icon` ile eşleşir. */
+const APP_ICON = require('@/assets/images/icon.png');
 
 /**
  * Omnifolio marka bloğu — giriş ve splash benzeri ekranlarda kullanılır.
@@ -12,39 +14,11 @@ const ACCENT_B = '#00e677';
 export function OmnifolioBrand({ compact = false }: { compact?: boolean }) {
   const { t } = useTranslation();
   const size = compact ? 52 : 72;
-  const vb = 64;
-  const r = 26;
-  const innerR = 15;
 
   return (
     <View style={styles.wrap}>
       <View style={[styles.markWrap, { width: size, height: size, borderRadius: size / 2 }]}>
-        <Svg width={size} height={size} viewBox={`0 0 ${vb} ${vb}`}>
-          <Defs>
-            <LinearGradient id="omniBrandRing" x1="0" y1="0" x2="1" y2="1">
-              <Stop offset="0" stopColor={ACCENT_A} />
-              <Stop offset="1" stopColor={ACCENT_B} />
-            </LinearGradient>
-          </Defs>
-          <Circle
-            cx={vb / 2}
-            cy={vb / 2}
-            r={r}
-            stroke="url(#omniBrandRing)"
-            strokeWidth={3.5}
-            fill="none"
-          />
-          <Circle cx={vb / 2} cy={vb / 2} r={innerR} fill="rgba(0,230,119,0.12)" />
-          <Circle
-            cx={vb / 2}
-            cy={vb / 2}
-            r={innerR}
-            stroke="url(#omniBrandRing)"
-            strokeWidth={1.5}
-            fill="none"
-            opacity={0.85}
-          />
-        </Svg>
+        <Image source={APP_ICON} style={[styles.appIcon, { width: size, height: size, borderRadius: size / 2 }]} resizeMode="cover" accessibilityLabel="Omnifolio" />
       </View>
 
       <View style={styles.wordmarkRow}>
@@ -65,10 +39,11 @@ const styles = StyleSheet.create({
   markWrap: {
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: 'rgba(56,189,248,0.06)',
-    borderWidth: 1,
-    borderColor: 'rgba(56,189,248,0.2)',
+    overflow: 'hidden',
     marginBottom: 14,
+  },
+  appIcon: {
+    backgroundColor: 'transparent',
   },
   wordmarkRow: {
     flexDirection: 'row',

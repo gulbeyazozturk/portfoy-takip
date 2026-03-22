@@ -12,6 +12,9 @@
  *   - NOSYAPI_KEY (NosyAPI hesap key'in)
  *
  * Not: exchange-rate endpoint'i kredi tüketir (rowCount kadar). Ücretsiz pakette limitlere dikkat et.
+ *
+ * Görünen ad: `name` alanı için API'deki FullName kullanılır (kısa kod yerine şirket unvanı).
+ * Eski kayıtları güncellemek için scripti yeniden çalıştırın: `node scripts/sync-bist-assets.js` (veya npm script).
  */
 
 const NOSY_BASE = 'https://www.nosyapi.com/apiv2/service';
@@ -62,9 +65,13 @@ async function upsertBistAssets(supabase, listData, pricesData) {
   const rows = listData.map((item) => {
     const code = (item.code || '').toUpperCase();
     const price = priceByCode.get(code);
+    // FullName = şirket unvanı (örn. Tüpraş A.Ş.); ShortName çoğu kez yalnızca kod (TUPRS)
+    const full = (item.FullName || '').trim();
+    const short = (item.ShortName || '').trim();
+    const displayName = full || short || code;
     return {
       category_id: 'bist',
-      name: item.ShortName || item.FullName || code,
+      name: displayName,
       symbol: code,
       currency: 'TRY',
       external_id: code,

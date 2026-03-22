@@ -6,6 +6,7 @@ import {
   ActivityIndicator,
   Image,
   LayoutAnimation,
+  Modal,
   Platform,
   Pressable,
   ScrollView,
@@ -18,6 +19,7 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 import Svg, { Defs, LinearGradient, Path, Stop } from 'react-native-svg';
 
+import { resolveBistDisplayName } from '@/lib/bist-display-name';
 import { usePortfolio } from '@/context/portfolio';
 import { useSelectedCategories } from '@/context/selected-categories';
 import { UltraDarkDonutChart } from '@/components/ultra-dark-donut-chart';
@@ -194,7 +196,8 @@ export default function PortfolioScreen() {
   useScrollToTop(scrollRef);
 
   const router = useRouter();
-  const { portfolioId } = usePortfolio();
+  const { portfolioId, portfolios, selectPortfolio, portfoliosLoading } = usePortfolio();
+  const [portfolioPickerOpen, setPortfolioPickerOpen] = useState(false);
   const { toggle: toggleCategory, isSelected: isCategorySelected } = useSelectedCategories();
   const [allocationOpen, setAllocationOpen] = useState(true);
   const [performanceOpen, setPerformanceOpen] = useState(true);
@@ -275,6 +278,12 @@ export default function PortfolioScreen() {
       }
     }, [portfolioId, fetchHoldings, fetchUsdRate])
   );
+
+  const currentPortfolioName = useMemo(() => {
+    const row = portfolios.find((p) => p.id === portfolioId);
+    if (row?.name) return row.name;
+    return portfoliosLoading ? t('portfolio.loading') : t('portfolio.headerTitle');
+  }, [portfolios, portfolioId, portfoliosLoading, t]);
 
   const sortOptions = useMemo(
     () =>
@@ -535,8 +544,49 @@ export default function PortfolioScreen() {
       <SafeAreaView style={styles.safe} edges={['top']}>
         {/* Header */}
         <View style={styles.header}>
-          <Text style={styles.headerTitle}>{t('portfolio.headerTitle')}</Text>
+          <Pressable
+            style={styles.headerPicker}
+            onPress={() => portfolios.length > 0 && setPortfolioPickerOpen(true)}
+            disabled={portfolios.length === 0}
+            accessibilityRole="button"
+            accessibilityLabel={t('portfolio.pickPortfolio')}>
+            <Text style={styles.headerTitle} numberOfLines={1}>
+              {currentPortfolioName}
+            </Text>
+            {portfolios.length > 0 ? (
+              <Ionicons name="chevron-down" size={22} color={MUTED} style={styles.headerChevron} />
+            ) : null}
+          </Pressable>
         </View>
+
+        <Modal
+          visible={portfolioPickerOpen}
+          transparent
+          animationType="fade"
+          onRequestClose={() => setPortfolioPickerOpen(false)}>
+          <Pressable style={styles.modalBackdrop} onPress={() => setPortfolioPickerOpen(false)}>
+            <Pressable style={styles.modalSheet} onPress={(e) => e.stopPropagation()}>
+              <Text style={styles.modalTitle}>{t('portfolio.pickPortfolio')}</Text>
+              {portfolios.map((p) => {
+                const selected = p.id === portfolioId;
+                return (
+                  <Pressable
+                    key={p.id}
+                    style={[styles.modalRow, selected && styles.modalRowSelected]}
+                    onPress={() => {
+                      void selectPortfolio(p.id);
+                      setPortfolioPickerOpen(false);
+                    }}>
+                    <Text style={[styles.modalRowText, selected && styles.modalRowTextSelected]} numberOfLines={1}>
+                      {p.name}
+                    </Text>
+                    {selected ? <Ionicons name="checkmark-circle" size={22} color={PRIMARY} /> : null}
+                  </Pressable>
+                );
+              })}
+            </Pressable>
+          </Pressable>
+        </Modal>
 
         <ScrollView
           ref={scrollRef}
@@ -796,6 +846,9 @@ export default function PortfolioScreen() {
           <View style={styles.assetList}>
             {filteredHoldings.length === 0 && !loading ? (
               <View style={styles.emptyWrap}>
+                <View style={styles.emptyIconCircle}>
+                  <Ionicons name="search" size={28} color="#fff" />
+                </View>
                 <Text style={styles.emptyText}>{t('portfolio.emptyHoldings')}</Text>
               </View>
             ) : (
@@ -833,6 +886,10 @@ export default function PortfolioScreen() {
                   ASSET_ICONS[asset.symbol] ??
                   ASSET_ICONS[asset.category_id] ??
                   ASSET_ICONS.default;
+                const assetDisplayName =
+                  asset.category_id === 'bist'
+                    ? resolveBistDisplayName(asset.symbol, asset.name)
+                    : asset.name;
                 return (
                   <Pressable
                     key={h.id}
@@ -844,7 +901,7 @@ export default function PortfolioScreen() {
                           returnTo: '/(tabs)/index',
                           holdingId: h.id,
                           assetId: asset.id,
-                          name: asset.name,
+                          name: assetDisplayName,
                           symbol: asset.symbol,
                           categoryId: asset.category_id,
                           price:
@@ -866,10 +923,12 @@ export default function PortfolioScreen() {
                           <Ionicons name={iconStyle.icon as any} size={24} color={iconStyle.color} />
                         )}
                       </View>
-                      <View style={{ flex: 1 }}>
-                        <Text style={styles.assetName}>{asset.symbol}</Text>
+                      <View style={styles.assetTextCol}>
+                        <Text style={styles.assetName} numberOfLines={1}>
+                          {asset.symbol}
+                        </Text>
                         <Text style={styles.assetAmount} numberOfLines={1}>
-                          {quantityFormatted} · {asset.name}
+                          {quantityFormatted} · {assetDisplayName}
                         </Text>
                       </View>
                     </View>
@@ -898,7 +957,7 @@ export default function PortfolioScreen() {
                           ? `$${unitPrice.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
                           : `${unitPrice.toLocaleString(numberLocale, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} TL`;
                         return (
-                          <View style={styles.assetChangeRow}>
+                          <View style={styles.assetRightMeta}>
                             <Text style={styles.assetUnitPrice}>{priceFormatted}</Text>
                             <Text
                               style={[
@@ -939,15 +998,69 @@ const styles = StyleSheet.create({
     paddingHorizontal: 24,
     paddingVertical: 16,
   },
-  headerTitle: { fontSize: 18, fontWeight: '700', color: WHITE },
+  headerPicker: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    maxWidth: '100%',
+    gap: 6,
+    paddingVertical: 4,
+    paddingHorizontal: 12,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: BORDER,
+    backgroundColor: SURFACE,
+  },
+  headerChevron: { marginLeft: 2 },
+  headerTitle: { fontSize: 18, fontWeight: '700', color: WHITE, flexShrink: 1 },
+  modalBackdrop: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.65)',
+    justifyContent: 'center',
+    paddingHorizontal: 28,
+  },
+  modalSheet: {
+    backgroundColor: SURFACE,
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: BORDER,
+    paddingVertical: 12,
+    maxHeight: '70%',
+  },
+  modalTitle: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: MUTED,
+    paddingHorizontal: 16,
+    paddingBottom: 8,
+  },
+  modalRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingVertical: 14,
+    paddingHorizontal: 16,
+    gap: 12,
+  },
+  modalRowSelected: { backgroundColor: 'rgba(0,230,119,0.08)' },
+  modalRowText: { flex: 1, fontSize: 16, color: WHITE, fontWeight: '600' },
+  modalRowTextSelected: { color: PRIMARY },
   scroll: { flex: 1 },
   scrollContent: { paddingHorizontal: 16, paddingBottom: 24 },
   errorWrap: { padding: 16, marginBottom: 8, backgroundColor: 'rgba(239,68,68,0.15)', borderRadius: 12 },
   errorText: { color: '#fca5a5', fontSize: 14 },
   loadingWrap: { padding: 32, alignItems: 'center', gap: 12 },
   loadingText: { color: MUTED, fontSize: 14 },
-  emptyWrap: { padding: 24, alignItems: 'center' },
-  emptyText: { color: MUTED, fontSize: 14 },
+  emptyWrap: { padding: 24, alignItems: 'center', gap: 14 },
+  emptyIconCircle: {
+    width: 56,
+    height: 56,
+    borderRadius: 28,
+    backgroundColor: ACCENT_BLUE,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  emptyText: { color: MUTED, fontSize: 14, textAlign: 'center', lineHeight: 20, paddingHorizontal: 8 },
   accordion: {
     backgroundColor: SURFACE,
     borderRadius: 16,
@@ -1162,7 +1275,7 @@ const styles = StyleSheet.create({
   assetRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'space-between',
+    gap: 10,
     paddingVertical: 20,
     borderBottomWidth: StyleSheet.hairlineWidth,
     borderBottomColor: BORDER,
@@ -1170,14 +1283,27 @@ const styles = StyleSheet.create({
   assetRowPressed: {
     opacity: 0.7,
   },
-  assetLeft: { flexDirection: 'row', alignItems: 'center', gap: 16 },
+  /** flex:1 + minWidth:0 — uzun isim sağdaki tutarı ekran dışına itmesin */
+  assetLeft: { flex: 1, minWidth: 0, flexDirection: 'row', alignItems: 'center', gap: 12 },
   assetIcon: { width: 48, height: 48, borderRadius: 24, alignItems: 'center', justifyContent: 'center' },
   assetIconImage: { width: 32, height: 32, borderRadius: 16 },
+  assetTextCol: { flex: 1, minWidth: 0 },
   assetName: { fontSize: 16, fontWeight: '600', color: WHITE },
   assetAmount: { fontSize: 12, color: '#A1A1AA', marginTop: 2 },
-  assetRight: { alignItems: 'flex-end' },
-  assetValue: { fontSize: 16, fontWeight: '500', color: WHITE, fontVariant: ['tabular-nums'] },
-  assetChangeRow: { flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: 2 },
+  assetRight: { flexShrink: 0, alignItems: 'flex-end' },
+  assetValue: {
+    fontSize: 16,
+    fontWeight: '500',
+    color: WHITE,
+    fontVariant: ['tabular-nums'],
+    textAlign: 'right',
+  },
+  /** Her satırda aynı düzen: tutar → birim fiyat → yüzde (wrap yok) */
+  assetRightMeta: {
+    alignItems: 'flex-end',
+    marginTop: 4,
+    gap: 2,
+  },
   assetUnitPrice: { fontSize: 11, fontWeight: '500', color: MUTED, fontVariant: ['tabular-nums'] as any },
   assetChange: { fontSize: 12, fontWeight: '500' },
   assetChangePositive: { color: PRIMARY },

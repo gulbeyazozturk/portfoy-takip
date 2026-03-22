@@ -8,6 +8,7 @@ import { LanguageToggle } from '@/components/language-toggle';
 import { OmnifolioBrand } from '@/components/omnifolio-brand';
 import { ThemedText } from '@/components/themed-text';
 import { useAuth } from '@/context/auth';
+import { waitForSignedInAfterOAuth } from '@/lib/oauth-session-wait';
 import { supabase } from '@/lib/supabase';
 import { useTranslation } from 'react-i18next';
 
@@ -101,7 +102,17 @@ export default function AuthScreen() {
         setError(authError);
         return;
       }
-      const { data, error: sessionError } = await supabase.auth.getSession();
+      let { data, error: sessionError } = await supabase.auth.getSession();
+      if (sessionError) {
+        setError(sessionError.message);
+        return;
+      }
+      if (!data.session && provider === 'google') {
+        await waitForSignedInAfterOAuth();
+        const again = await supabase.auth.getSession();
+        data = again.data;
+        sessionError = again.error;
+      }
       if (sessionError) {
         setError(sessionError.message);
         return;

@@ -83,7 +83,20 @@ function parseBistRows(html) {
     const code = rawCode.replace(/[\[\]\s]/g, '').toUpperCase();
     if (!code) return;
 
-    const name = $(tds[1]).text().trim() || code;
+    const nameCell = $(tds[1]);
+    const anchor = nameCell.find('a').first();
+    const title = anchor.attr('title')?.trim();
+    const linkText = anchor.text().trim();
+    const cellText = nameCell.text().trim();
+    const sameAsCode = (s) => !s || s.replace(/\s/g, '').toUpperCase() === code;
+    // Önce title (genelde tam unvan), sonra link, sonra hücre metni
+    let name = code;
+    for (const c of [title, linkText, cellText]) {
+      if (c && !sameAsCode(c)) {
+        name = c.trim();
+        break;
+      }
+    }
     const lastText = $(tds[2]).text().trim();
     const changeText = $(tds[3]).text().trim();
     const updatedText = tds.length >= 7 ? $(tds[6]).text().trim() : null;

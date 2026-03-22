@@ -13,7 +13,11 @@ Ayrintilar: **`docs/EAS-ENV.md`**. Bunlar yoksa TestFlight surumu acilirken coke
 
 ## 0b) Uygulama ikonu
 
-`app.json` icindeki `./assets/images/icon.png` dosyasi **1024x1024** kare, markaniza ait PNG olmali. Su an varsayilan **Expo logosu** ise TestFlight / App Store’da da Expo ikonu gorunur — dosyayi degistirip yeni build alin.
+`app.json` icindeki `./assets/images/icon.png` ve Android adaptive PNG’ler **kare** olmali (Expo doctor: genelde **1024×1024**). Genis format (or. 1376×768) hata verir; repoda:
+
+`npm run icons:square`
+
+komutu `scripts/square-expo-icons.js` ile merkezden kırpıp 1024×1024 yapar.
 
 ## 1) Apple ve App Store Connect
 
