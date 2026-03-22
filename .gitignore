@@ -4,6 +4,7 @@
 node_modules/
 
 # Expo
+.eas-archive-inspect/
 .expo/
 dist/
 web-build/

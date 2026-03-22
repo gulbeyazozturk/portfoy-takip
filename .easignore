@@ -3,6 +3,7 @@
 # See: https://docs.expo.dev/build-reference/easignore/
 
 # --- from .gitignore (keep in sync) ---
+.eas-archive-inspect/
 node_modules/
 .expo/
 dist/
