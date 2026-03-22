@@ -41,9 +41,13 @@ Hata alırsanız (izin, garip dosya adı, symlink), bulutdaki `tar` hatasının 
 
 Windows’ta sırf `tar.exe` ile bazen farklı davranış olabilir; şüphede **WSL** kullanın.
 
-## `requireCommit` uyarısı
+## `requireCommit: true` (bu projede neden var?)
 
-`eas.json` içinde `"requireCommit": true` kullanıyorsanız, resmi dokümana göre **`.easignore` devre dışı** kalır. Bu projede şu an yok; eklerseniz `.easignore` stratejinizi buna göre gözden geçirin.
+Windows’ta `eas build` arşivi hazırlarken önce shallow clone üzerinde `.easignore` ile dosya siliyor, ardından **çalışma kopyasından tekrar kopyalıyor** (`makeShallowCopyAsync`). Bu ikinci adımda `fs.cp` filtresi bazen yolları yanlış eşleştirip **`scripts/` gibi `.easignore`’da olan klasörleri yeniden ekliyor**; bulutta `tar` açılırken hata riski artıyor.
+
+`eas.json` içinde **`"requireCommit": true`** ile ikinci “overlay” kopya **atlanır**; arşiv yalnızca clone + `.easignore` temizliğiyle kalır. **Commit’lenmemiş değişiklik varken `eas build` reddedilir** — kasıtlı; push ettiğiniz kod birebir derlenir.
+
+Expo FYI’deki “`.easignore` desteklenmez” ifadesi tam olarak şu anlama gelir: `requireCommit` ile sunucuya giden ağaç **Git’teki commit** ile hizalanır; yine de EAS CLI, clone sonrası **`.easignore` + `git ls-files --exclude-from`** ile izlenen dosyaları (ör. `scripts/`) silmeye devam eder.
 
 ## Özet
 
