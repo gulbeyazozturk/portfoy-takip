@@ -1,0 +1,37 @@
+diff --git a/node_modules/@expo/image-utils/build/Cache.js b/node_modules/@expo/image-utils/build/Cache.js
+index 85adb45..748a8ce 100644
+--- a/node_modules/@expo/image-utils/build/Cache.js
++++ b/node_modules/@expo/image-utils/build/Cache.js
+@@ -11,8 +11,13 @@ exports.cacheImageAsync = cacheImageAsync;
+ exports.clearUnusedCachesAsync = clearUnusedCachesAsync;
+ const crypto_1 = __importDefault(require("crypto"));
+ const fs_1 = __importDefault(require("fs"));
++const os_1 = require("os");
+ const path_1 = require("path");
+-const CACHE_LOCATION = '.expo/web/cache/production/images';
++/** EAS / CI: proje kökünde `.expo/web` oluşturulurken EACCES görülebiliyor; önbelleği tmp altına al. */
++function getImageCacheBase(projectRoot) {
++    const id = crypto_1.default.createHash('sha256').update(projectRoot).digest('hex').slice(0, 16);
++    return (0, path_1.join)(os_1.tmpdir(), 'expo-image-utils', id, 'web', 'cache', 'production', 'images');
++}
+ const cacheKeys = {};
+ // Calculate SHA256 Checksum value of a file based on its contents
+ function calculateHash(filePath) {
+@@ -36,7 +41,7 @@ async function createCacheKeyWithDirectoryAsync(projectRoot, type, icon) {
+     return cacheKey;
+ }
+ async function ensureCacheDirectory(projectRoot, type, cacheKey) {
+-    const cacheFolder = (0, path_1.join)(projectRoot, CACHE_LOCATION, type, cacheKey);
++    const cacheFolder = (0, path_1.join)(getImageCacheBase(projectRoot), type, cacheKey);
+     await fs_1.default.promises.mkdir(cacheFolder, { recursive: true });
+     return cacheFolder;
+ }
+@@ -58,7 +63,7 @@ async function cacheImageAsync(fileName, buffer, cacheKey) {
+ }
+ async function clearUnusedCachesAsync(projectRoot, type) {
+     // Clean up any old caches
+-    const cacheFolder = (0, path_1.join)(projectRoot, CACHE_LOCATION, type);
++    const cacheFolder = (0, path_1.join)(getImageCacheBase(projectRoot), type);
+     await fs_1.default.promises.mkdir(cacheFolder, { recursive: true });
+     const currentCaches = await fs_1.default.promises.readdir(cacheFolder);
+     if (!Array.isArray(currentCaches)) {

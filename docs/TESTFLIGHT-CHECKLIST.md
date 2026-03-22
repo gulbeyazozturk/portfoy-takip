@@ -10,21 +10,30 @@ Bu dosya, projeyi TestFlight'a gondermek icin minimum adimlari siralar.
 - App'in Apple ID'si (sayi) not edilmeli (`ascAppId`).
 - Team ID not edilmeli.
 
-## 2) Ortam Degiskenleri
+## 2) Apple kimlikleri (cok karisan yer)
 
-Asagidaki degiskenleri terminalde set et:
+| Degisken / soru | Dogru ornek | Yanlis |
+|-----------------|-------------|--------|
+| **Apple ID** (EAS/Apple girisi) | `sen@icloud.com` | `6760969435` (bu ASC App ID, Apple ID degil) |
+| **ascAppId** (App Store Connect) | Sadece rakam: `1234567890` | E-posta veya bos |
+| **Team ID** | Tam **10** karakter, harf/rakam: `AB12CD34EF` | Kisa/uzun veya kucuk harf (bazen kabul edilir; buyuk deneyin) |
 
-- `EXPO_APPLE_ID` (Apple gelistirici e-postasi)
-- `EXPO_ASC_APP_ID` (App Store Connect Apple ID - sayi)
-- `EXPO_APPLE_TEAM_ID` (Apple Team ID)
+- App Store Connect → **Uygulama** → **App Information** → **Apple ID** (sayi) = `ascAppId`.
+- [developer.apple.com/account](https://developer.apple.com/account) → Membership → **Team ID**.
 
-PowerShell ornek:
+## 2b) Submit: interaktif (onerilen)
+
+`eas.json` icinde bu alanlar bos birakildi; `eas submit` calistirinca CLI **sorarak** ister. Boylece `$EXPO_APPLE_ID` genislememesi yuzunden gelen "Invalid ..." hatalari olmaz.
+
+Istersen ayni oturumda PowerShell ile de verebilirsin (submit oncesi):
 
 ```powershell
-$env:EXPO_APPLE_ID="you@example.com"
-$env:EXPO_ASC_APP_ID="1234567890"
-$env:EXPO_APPLE_TEAM_ID="ABCDE12345"
+$env:EXPO_APPLE_ID = "you@example.com"
+$env:EXPO_ASC_APP_ID = "1234567890"
+$env:EXPO_APPLE_TEAM_ID = "AB12CD34EF"
 ```
+
+Kontrol: `echo $env:EXPO_APPLE_ID` gercekten e-posta mi gosteriyor?
 
 ## 3) Expo/EAS Giris
 
@@ -47,6 +56,8 @@ npx eas build --platform ios --profile testflight
 
 ## 5) TestFlight'a Submit
 
+**Once basarili bir iOS build olmali.** Build basarisizsa submit edilecek .ipa yoktur.
+
 ```powershell
 npm run ios:testflight:submit
 ```
@@ -57,7 +68,30 @@ Alternatif:
 npx eas submit --platform ios --profile testflight
 ```
 
-## 6) Kontrol
+## 6) Build "Prebuild" hatasi (Unknown error)
+
+EAS ciktisindaki **build logs** linkini ac; **Prebuild** asamasindaki ilk kirmizi satiri oku.
+
+### `EACCES: permission denied, mkdir '.expo/web'`
+
+Expo, iOS ikon önbelleğini proje kökünde `.expo/web/...` altına yazar; bazı EAS ortamlarında bu yol **yazılamıyor**. Bu repoda `@expo/image-utils` için **patch-package** yaması var (`patches/@expo+image-utils+0.8.12.patch`): önbellek `os.tmpdir()` altına alınır. `npm install` sonrası `postinstall` yamayı uygular; EAS build de `npm ci` ile aynı akışı kullanır.
+
+### Windows uyarısı
+
+**Windows’ta `npx expo prebuild --platform ios` iOS projesi üretmez** (Expo bilerek atlar). Çıkan
+`At least one platform must be enabled when syncing` hatası bu yüzdendir; **build’inizle ilgili gerçek bir hata göstermez.**
+
+Yerelde iOS prebuild denemek icin:
+
+- **macOS** veya **Linux** (WSL2 dahil) kullanın, veya
+- Sadece **EAS Build log**’una güvenin (`eas build` sunucuda prebuild yapar).
+
+```bash
+# macOS / Linux / WSL
+npx expo prebuild --platform ios --clean
+```
+
+## 7) Kontrol
 
 - Build durumu: `npx eas build:list --platform ios --limit 5`
 - Submit durumu: `npx eas submit:list --platform ios --limit 5`
