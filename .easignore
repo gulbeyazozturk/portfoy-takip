@@ -1,0 +1,3 @@
+# Node/DB maintenance — not part of the Expo bundle. Keeps EAS uploads smaller
+# and avoids rare "prepare project" tar extract failures under scripts/.
+scripts/
