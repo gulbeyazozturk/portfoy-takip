@@ -204,5 +204,10 @@ export default {
     oauthStart: 'Could not start OAuth.',
     appleToken: 'Could not get Apple credentials. Please try again.',
     signInIncomplete: 'Sign-in could not be completed. Please try again.',
+    missingSupabaseBuildConfigTitle: 'Configuration missing',
+    missingSupabaseBuildConfigBody:
+      'This build does not embed Supabase URL or anon key. For TestFlight / store builds, add EXPO_PUBLIC_SUPABASE_URL and EXPO_PUBLIC_SUPABASE_ANON_KEY as EAS environment variables, then create a new iOS build. See docs/EAS-ENV.md in the repo.',
+    missingSupabaseBuildConfigHint:
+      'If you use .env locally, it is not in Git; add the same keys under Expo Dashboard → Environment variables → production.',
   },
 } as const;

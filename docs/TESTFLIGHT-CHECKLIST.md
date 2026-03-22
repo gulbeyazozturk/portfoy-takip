@@ -2,6 +2,19 @@
 
 Bu dosya, projeyi TestFlight'a gondermek icin minimum adimlari siralar.
 
+## 0) EAS ortam degiskenleri (Supabase) — sart
+
+Yerel `.env` **EAS build'e gitmez**. Asagidakileri **Expo Dashboard → Environment variables** (production) veya `eas env:create` ile tanimlayin; sonra **yeni iOS build** alin:
+
+- `EXPO_PUBLIC_SUPABASE_URL`
+- `EXPO_PUBLIC_SUPABASE_ANON_KEY`
+
+Ayrintilar: **`docs/EAS-ENV.md`**. Bunlar yoksa TestFlight surumu acilirken coker veya oturum acilmaz.
+
+## 0b) Uygulama ikonu
+
+`app.json` icindeki `./assets/images/icon.png` dosyasi **1024x1024** kare, markaniza ait PNG olmali. Su an varsayilan **Expo logosu** ise TestFlight / App Store’da da Expo ikonu gorunur — dosyayi degistirip yeni build alin.
+
 ## 1) Apple ve App Store Connect
 
 - Apple Developer Program aktif olmali.

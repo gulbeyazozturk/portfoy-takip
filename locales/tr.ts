@@ -205,5 +205,10 @@ export default {
     oauthStart: 'OAuth başlatılamadı.',
     appleToken: 'Apple oturum bilgisi alınamadı. Lütfen tekrar dene.',
     signInIncomplete: 'Giriş tamamlanamadı. Lütfen tekrar dene.',
+    missingSupabaseBuildConfigTitle: 'Yapılandırma eksik',
+    missingSupabaseBuildConfigBody:
+      'Bu sürümde Supabase adresi veya anahtarı gömülü değil. TestFlight / mağaza build’leri için EXPO_PUBLIC_SUPABASE_URL ve EXPO_PUBLIC_SUPABASE_ANON_KEY değerlerini EAS ortam değişkeni olarak ekleyip yeni bir iOS build almanız gerekir. Ayrıntılar: repodaki docs/EAS-ENV.md',
+    missingSupabaseBuildConfigHint:
+      'Yerel geliştirmede .env kullanıyorsanız bu dosya Git’e gitmez; Expo Dashboard → Environment variables → production ortamına aynı anahtarları ekleyin.',
   },
 } as const;

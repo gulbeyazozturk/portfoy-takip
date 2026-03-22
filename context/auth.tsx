@@ -6,7 +6,7 @@ import React, { createContext, useCallback, useContext, useEffect, useMemo, useS
 import { Platform } from 'react-native';
 
 import i18n from '@/lib/i18n';
-import { supabase } from '@/lib/supabase';
+import { isSupabaseConfigured, supabase } from '@/lib/supabase';
 
 WebBrowser.maybeCompleteAuthSession();
 // app/oauth-callback.tsx ile aynı yol — Supabase Redirect URLs’e bu deep link’i ekleyin.
@@ -53,11 +53,23 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     let mounted = true;
 
-    supabase.auth.getSession().then(({ data }) => {
-      if (!mounted) return;
-      setSession(data.session ?? null);
+    if (!isSupabaseConfigured) {
       setLoading(false);
-    });
+      return;
+    }
+
+    supabase.auth
+      .getSession()
+      .then(({ data }) => {
+        if (!mounted) return;
+        setSession(data.session ?? null);
+        setLoading(false);
+      })
+      .catch(() => {
+        if (!mounted) return;
+        setSession(null);
+        setLoading(false);
+      });
 
     const { data: sub } = supabase.auth.onAuthStateChange((_event, nextSession) => {
       setSession(nextSession ?? null);

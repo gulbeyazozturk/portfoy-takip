@@ -8,10 +8,12 @@ import { ActivityIndicator, View } from 'react-native';
 import { useTranslation } from 'react-i18next';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 
+import { MissingSupabaseConfigScreen } from '@/components/missing-supabase-config';
 import { AuthProvider, useAuth } from '@/context/auth';
 import { useColorScheme } from '@/hooks/use-color-scheme';
 import { PortfolioProvider } from '@/context/portfolio';
 import { SelectedCategoriesProvider } from '@/context/selected-categories';
+import { isSupabaseConfigured } from '@/lib/supabase';
 
 export const unstable_settings = {
   anchor: '(tabs)',
@@ -19,6 +21,17 @@ export const unstable_settings = {
 
 export default function RootLayout() {
   const colorScheme = useColorScheme();
+
+  if (!isSupabaseConfigured) {
+    return (
+      <SafeAreaProvider>
+        <ThemeProvider value={colorScheme === 'dark' ? DarkTheme : DefaultTheme}>
+          <MissingSupabaseConfigScreen />
+          <StatusBar style="light" />
+        </ThemeProvider>
+      </SafeAreaProvider>
+    );
+  }
 
   return (
     <SafeAreaProvider>

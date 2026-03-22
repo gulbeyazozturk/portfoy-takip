@@ -3,8 +3,16 @@ import { Platform } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { createClient } from '@supabase/supabase-js';
 
-const supabaseUrl = process.env.EXPO_PUBLIC_SUPABASE_URL ?? '';
-const supabaseAnonKey = process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY ?? '';
+const supabaseUrl = (process.env.EXPO_PUBLIC_SUPABASE_URL ?? '').trim();
+const supabaseAnonKey = (process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY ?? '').trim();
+
+/** EAS/mağaza build'de .env gitmediği için boş kalabilir; UI'da ayrı ekran gösterilir. */
+export const isSupabaseConfigured = Boolean(supabaseUrl && supabaseAnonKey);
+
+/** createClient boş URL ile senkron hata verebilir; yalnızca yapılandırma ekranı dışında kullanılmaz. */
+const PLACEHOLDER_URL = 'https://configuration-required.supabase.co';
+const PLACEHOLDER_KEY =
+  'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJyb2xlIjoiYW5vbiJ9.placeholder-not-used';
 
 const isWeb = Platform.OS === 'web';
 const hasLocalStorage =
@@ -43,14 +51,16 @@ const safeStorage = {
   },
 };
 
-export const supabase = createClient(supabaseUrl, supabaseAnonKey, {
-  auth: {
-    storage: safeStorage,
-    // PKCE code_verifier bellekte tutulursa (persistSession: false) tarayıcı dönüşünde sık kaybolur; AsyncStorage şart.
-    persistSession: true,
-    autoRefreshToken: true,
-    detectSessionInUrl: isWeb,
-    // Mobil / Expo: implicit (#access_token) hash'i deep link ile sık kaybolur; PKCE ?code= güvenilir.
-    flowType: 'pkce',
+export const supabase = createClient(
+  isSupabaseConfigured ? supabaseUrl : PLACEHOLDER_URL,
+  isSupabaseConfigured ? supabaseAnonKey : PLACEHOLDER_KEY,
+  {
+    auth: {
+      storage: safeStorage,
+      persistSession: isSupabaseConfigured,
+      autoRefreshToken: isSupabaseConfigured,
+      detectSessionInUrl: isWeb && isSupabaseConfigured,
+      flowType: 'pkce',
+    },
   },
-});
+);
