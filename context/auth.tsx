@@ -1,5 +1,4 @@
 import * as AppleAuthentication from 'expo-apple-authentication';
-import Constants, { ExecutionEnvironment } from 'expo-constants';
 import * as Linking from 'expo-linking';
 import * as WebBrowser from 'expo-web-browser';
 import { Session, User } from '@supabase/supabase-js';
@@ -11,9 +10,6 @@ import { waitForSupabaseSessionAfterBrowser } from '@/lib/oauth-session-wait';
 import { isSupabaseConfigured, supabase } from '@/lib/supabase';
 
 WebBrowser.maybeCompleteAuthSession();
-
-/** Expo Go LAN: exp://192.168.x.x/... — Supabase sunucusu özel IP içeren redirect’leri reddedebilir (auth#2039). */
-const EXPO_REDIRECT_HAS_PRIVATE_HOST = /\/\/(?:192\.168\.|10\.|172\.(?:1[6-9]|2\d|3[01])\.|127\.0\.0\.1)(?::|\/)/;
 
 /**
  * OAuth redirect — asla modül yüklemede sabitleme: Expo Go’da Metro IP/port sonradan gelir;
@@ -29,21 +25,10 @@ function getOAuthRedirectUrl(): string {
   }
   const devOverride = __DEV__ ? (process.env.EXPO_PUBLIC_OAUTH_REDIRECT_URL ?? '').trim() : '';
   if (devOverride && Platform.OS !== 'web') {
-    console.log('[Omnifolio OAuth] redirectTo (EXPO_PUBLIC_OAUTH_REDIRECT_URL):', devOverride);
     return devOverride;
   }
 
-  const url = Linking.createURL('oauth-callback');
-  if (
-    __DEV__ &&
-    Constants.executionEnvironment === ExecutionEnvironment.StoreClient &&
-    EXPO_REDIRECT_HAS_PRIVATE_HOST.test(url)
-  ) {
-    console.warn(
-      '[Omnifolio OAuth] Expo Go (LAN) redirect’inde yerel ağ IP’si var; Supabase bu adresi sunucuda reddedebilir. Çözüm: `.env` içinde `EXPO_PUBLIC_OAUTH_REDIRECT_URL` = Metro’daki tünel/exp adresi (aynısını Supabase Redirect URLs’e ekleyin), veya `npx expo start --tunnel`, veya TestFlight/dev build. Ref: https://github.com/supabase/auth/issues/2039',
-    );
-  }
-  return url;
+  return Linking.createURL('oauth-callback');
 }
 
 type AuthContextValue = {
@@ -162,10 +147,6 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   const signInWithOAuth = useCallback(async (provider: 'google' | 'apple') => {
     const redirectTo = getOAuthRedirectUrl();
-    if (__DEV__) {
-      // Metro konsolunda gerçek string — Supabase Redirect URLs ile karşılaştır.
-      console.log('[Omnifolio OAuth] redirectTo:', redirectTo);
-    }
 
     if (Platform.OS === 'web') {
       const { error } = await supabase.auth.signInWithOAuth({
@@ -198,9 +179,6 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           afterDismiss = (await supabase.auth.getSession()).data;
         }
       }
-      // #region agent log
-      fetch('http://127.0.0.1:7329/ingest/53538a73-b612-479d-b80d-75820501e1ab',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'d02655'},body:JSON.stringify({sessionId:'d02655',runId:'google-oauth2',hypothesisId:'G4',location:'auth.tsx:dismiss',message:'auth session after dismiss',data:{provider,hasSession:!!afterDismiss.session},timestamp:Date.now()})}).catch(()=>{});
-      // #endregion
       if (afterDismiss.session) return { error: null };
       return { error: i18n.t('errors.oauthCancelled') };
     }
@@ -210,16 +188,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         const waited = await waitForSupabaseSessionAfterBrowser();
         if (waited) afterBad = (await supabase.auth.getSession()).data;
       }
-      // #region agent log
-      fetch('http://127.0.0.1:7329/ingest/53538a73-b612-479d-b80d-75820501e1ab',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'d02655'},body:JSON.stringify({sessionId:'d02655',runId:'google-oauth2',hypothesisId:'G4',location:'auth.tsx:noResultUrl',message:'non-success but check session',data:{provider,type:result.type,hasSession:!!afterBad.session},timestamp:Date.now()})}).catch(()=>{});
-      // #endregion
       if (afterBad.session) return { error: null };
       return { error: i18n.t('errors.oauthIncomplete') };
     }
-
-    // #region agent log
-    fetch('http://127.0.0.1:7329/ingest/53538a73-b612-479d-b80d-75820501e1ab',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'d02655'},body:JSON.stringify({sessionId:'d02655',runId:'pre-fix',hypothesisId:'H3',location:'auth.tsx:openAuthSession',message:'browser session success',data:{provider,urlLen:result.url.length,hasHash:result.url.includes('#'),hasQueryCode:result.url.includes('code=')},timestamp:Date.now()})}).catch(()=>{});
-    // #endregion
 
     let params: Record<string, string>;
     try {
@@ -237,9 +208,6 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       // PKCE (önerilen): ?code=...
       if (params.code) {
         const { error: exchangeError } = await supabase.auth.exchangeCodeForSession(params.code);
-        // #region agent log
-        fetch('http://127.0.0.1:7329/ingest/53538a73-b612-479d-b80d-75820501e1ab',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'d02655'},body:JSON.stringify({sessionId:'d02655',runId:'google-oauth2',hypothesisId:'H3',location:'auth.tsx:afterExchange',message:'in-app exchange result',data:{provider,hasErr:!!exchangeError},timestamp:Date.now()})}).catch(()=>{});
-        // #endregion
         if (!exchangeError) {
           return { error: null };
         }

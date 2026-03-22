@@ -35,7 +35,7 @@ Yerelde: `npx expo prebuild` öncesi `echo %EXPO_PUBLIC_SUPABASE_URL%` yalnızca
 
 Supabase **Authentication → URL Configuration → Redirect URLs** listesine, uygulamanın kullandığı adres **aynı metinle** eklenmeli. Kodda bu adres `Linking.createURL('oauth-callback')` ile üretilir (`app.json` içindeki `scheme` ve çalışma moduna bağlıdır).
 
-- **Expo Go / LAN:** genelde `exp://<IP>:<port>/--/oauth-callback`. Uygulama bu adresi **OAuth tuşuna her basıldığında** üretir; Metro’da `[Omnifolio OAuth] redirectTo:` ile kontrol edin.
+- **Expo Go / LAN:** genelde `exp://<IP>:<port>/--/oauth-callback`. Bu string’i Supabase Redirect URLs ile **birebir** eşleştirin; tünel kullanıyorsanız Metro’nun gösterdiği güncel `exp://…` adresini alın.
 - **Dev / mağaza / TestFlight build:** `omnifolio://oauth-callback` — **özel IP yok**; Supabase ile uyum genelde sorunsuz.
 
 ### Neden TestFlight’ta Google çalışır, Expo Go (LAN) çalışmaz?

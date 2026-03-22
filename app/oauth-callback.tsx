@@ -55,35 +55,20 @@ export default function OAuthCallbackScreen() {
       const { data: existing } = await supabase.auth.getSession();
       if (cancelled) return;
       if (existing.session) {
-        // #region agent log
-        fetch('http://127.0.0.1:7329/ingest/53538a73-b612-479d-b80d-75820501e1ab',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'d02655'},body:JSON.stringify({sessionId:'d02655',runId:'google-oauth',hypothesisId:'G1',location:'oauth-callback.tsx:existingSession',message:'already signed in',data:{},timestamp:Date.now()})}).catch(()=>{});
-        // #endregion
         navigateOnce('/(tabs)');
         return;
       }
 
-      // #region agent log
-      fetch('http://127.0.0.1:7329/ingest/53538a73-b612-479d-b80d-75820501e1ab',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'d02655'},body:JSON.stringify({sessionId:'d02655',runId:'google-oauth',hypothesisId:'G2',location:'oauth-callback.tsx:exchange',message:'oauth callback path',data:{hasCode:!!effectiveCode,linkingUrlLen:linkingUrl?.length??0},timestamp:Date.now()})}).catch(()=>{});
-      // #endregion
-
       if (effectiveCode) {
         try {
           await supabase.auth.exchangeCodeForSession(effectiveCode);
-          // #region agent log
-          fetch('http://127.0.0.1:7329/ingest/53538a73-b612-479d-b80d-75820501e1ab',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'d02655'},body:JSON.stringify({sessionId:'d02655',runId:'google-oauth',hypothesisId:'G2',location:'oauth-callback.tsx:afterExchange',message:'exchange ok',data:{},timestamp:Date.now()})}).catch(()=>{});
-          // #endregion
-        } catch (e) {
-          // #region agent log
-          fetch('http://127.0.0.1:7329/ingest/53538a73-b612-479d-b80d-75820501e1ab',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'d02655'},body:JSON.stringify({sessionId:'d02655',runId:'google-oauth',hypothesisId:'G2',location:'oauth-callback.tsx:exchangeErr',message:'exchange failed (may be duplicate)',data:{err:String(e instanceof Error?e.message:e)},timestamp:Date.now()})}).catch(()=>{});
-          // #endregion
+        } catch {
+          /* duplicate code / race — session may already exist */
         }
       }
 
       const { data } = await supabase.auth.getSession();
       if (cancelled) return;
-      // #region agent log
-      fetch('http://127.0.0.1:7329/ingest/53538a73-b612-479d-b80d-75820501e1ab',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'d02655'},body:JSON.stringify({sessionId:'d02655',runId:'google-oauth',hypothesisId:'G1',location:'oauth-callback.tsx:nav',message:'replace route',data:{hasSession:!!data.session,target:data.session?'/(tabs)':'/auth'},timestamp:Date.now()})}).catch(()=>{});
-      // #endregion
       navigateOnce(data.session ? '/(tabs)' : '/auth');
     }
 
