@@ -1,3 +1,32 @@
-# Node/DB maintenance — not part of the Expo bundle. Keeps EAS uploads smaller
-# and avoids rare "prepare project" tar extract failures under scripts/.
+# EAS: when this file exists, Expo uses it like .gitignore for the upload archive.
+# You MUST include your .gitignore rules here, then add EAS-only extras.
+# See: https://docs.expo.dev/build-reference/easignore/
+
+# --- from .gitignore (keep in sync) ---
+node_modules/
+.expo/
+dist/
+web-build/
+expo-env.d.ts
+.kotlin/
+*.orig.*
+*.jks
+*.p8
+*.p12
+*.key
+*.mobileprovision
+.metro-health-check*
+npm-debug.*
+yarn-debug.*
+yarn-error.*
+.DS_Store
+*.pem
+.env
+.env*.local
+*.tsbuildinfo
+app-example
+/ios
+/android
+
+# --- EAS-only: not needed for the mobile bundle (still in Git for local/CI use) ---
 scripts/
