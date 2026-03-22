@@ -13,7 +13,9 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
+import { categoryDisplayLabel } from '@/lib/category-display';
 import { supabase } from '@/lib/supabase';
+import { useTranslation } from 'react-i18next';
 
 const BG_DARK = '#000000';
 const SURFACE = '#1A1C24';
@@ -41,6 +43,8 @@ const CATEGORY_ICON_COLOR: Record<string, { icon: keyof typeof Ionicons.glyphMap
 };
 
 export default function AddScreen() {
+  const { t, i18n } = useTranslation();
+  const searchLocale = i18n.language?.toLowerCase().startsWith('en') ? 'en-US' : 'tr-TR';
   const router = useRouter();
   const [query, setQuery] = useState('');
   const [categories, setCategories] = useState<CategoryRow[]>([]);
@@ -70,15 +74,18 @@ export default function AddScreen() {
   }, []);
 
   const filteredList = useMemo(() => {
-    const q = query.trim().toLocaleLowerCase('tr-TR');
+    const q = query.trim().toLocaleLowerCase(searchLocale);
     if (!q) return categories;
 
-    return categories.filter(
-      (c) =>
-        c.name.toLocaleLowerCase('tr-TR').includes(q) ||
-        (c.subtitle && c.subtitle.toLocaleLowerCase('tr-TR').includes(q)),
-    );
-  }, [categories, query]);
+    return categories.filter((c) => {
+      const ui = categoryDisplayLabel(c.id, c.name, t);
+      return (
+        ui.toLocaleLowerCase(searchLocale).includes(q) ||
+        c.name.toLocaleLowerCase(searchLocale).includes(q) ||
+        (c.subtitle && c.subtitle.toLocaleLowerCase(searchLocale).includes(q))
+      );
+    });
+  }, [categories, query, searchLocale, t]);
 
   // Ekran her odaklandığında arama kutusunu temizle
   useFocusEffect(
@@ -98,7 +105,7 @@ export default function AddScreen() {
             <Ionicons name="arrow-back" size={22} color={WHITE} />
           </TouchableOpacity>
           <View style={styles.headerTitleWrap}>
-            <Text style={styles.headerTitle}>Hangi varlık türünü arıyorsunuz?</Text>
+            <Text style={styles.headerTitle}>{t('add.title')}</Text>
           </View>
           <View style={styles.headerRight} />
         </View>
@@ -109,7 +116,7 @@ export default function AddScreen() {
             <TextInput
               value={query}
               onChangeText={setQuery}
-              placeholder="Varlık ara..."
+              placeholder={t('add.searchPlaceholder')}
               placeholderTextColor="#64748B"
               style={styles.searchInput}
               autoCapitalize="none"
@@ -139,7 +146,10 @@ export default function AddScreen() {
                 onPress={() =>
                   router.push({
                     pathname: '/(tabs)/asset-list',
-                    params: { categoryId: item.id, label: item.name },
+                    params: {
+                      categoryId: item.id,
+                      label: categoryDisplayLabel(item.id, item.name, t),
+                    },
                   })
                 }>
                 <View style={styles.rowLeft}>
@@ -147,7 +157,7 @@ export default function AddScreen() {
                     <Ionicons name={item.icon as any} size={24} color={item.color} />
                   </View>
                   <View style={{ flex: 1 }}>
-                    <Text style={styles.rowTitle}>{item.name}</Text>
+                    <Text style={styles.rowTitle}>{categoryDisplayLabel(item.id, item.name, t)}</Text>
                     <Text style={styles.rowSubtitle}>{item.subtitle || ''}</Text>
                   </View>
                 </View>
@@ -158,14 +168,14 @@ export default function AddScreen() {
               <View style={styles.footerWrap}>
                 <View style={styles.helpCard}>
                   <Text style={styles.helpTitle} numberOfLines={2}>
-                    Portföyünüzü dosya ile toplu olarak yüklemek ister misiniz?
+                    {t('add.bulkPrompt')}
                   </Text>
                   <TouchableOpacity
                     style={styles.helpButton}
                     activeOpacity={0.8}
                     onPress={() => router.push('/bulk-upload')}
                   >
-                    <Text style={styles.helpButtonText}>Devam et</Text>
+                    <Text style={styles.helpButtonText}>{t('add.continue')}</Text>
                   </TouchableOpacity>
                 </View>
               </View>

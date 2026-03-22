@@ -1,15 +1,17 @@
 import React from 'react';
 import { StyleSheet, Text, View } from 'react-native';
+import { useTranslation } from 'react-i18next';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 const BG = '#000000';
 
 export default function HomeScreen() {
+  const { t } = useTranslation();
   return (
     <View style={styles.root}>
       <SafeAreaView style={styles.safe} edges={['top']}>
-        <Text style={styles.title}>Home</Text>
-        <Text style={styles.subtitle}>Dashboard</Text>
+        <Text style={styles.title}>{t('home.title')}</Text>
+        <Text style={styles.subtitle}>{t('home.subtitle')}</Text>
       </SafeAreaView>
     </View>
   );

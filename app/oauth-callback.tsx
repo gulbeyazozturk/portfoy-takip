@@ -1,7 +1,8 @@
 import * as WebBrowser from 'expo-web-browser';
 import { useRouter } from 'expo-router';
 import { useEffect } from 'react';
-import { ActivityIndicator, View } from 'react-native';
+import { ActivityIndicator, Text, View } from 'react-native';
+import { useTranslation } from 'react-i18next';
 
 import { supabase } from '@/lib/supabase';
 
@@ -10,6 +11,7 @@ import { supabase } from '@/lib/supabase';
  * web tarafta ise URL'deki code güvenli şekilde session'a çevrilir.
  */
 export default function OAuthCallbackScreen() {
+  const { t } = useTranslation();
   const router = useRouter();
 
   useEffect(() => {
@@ -36,8 +38,9 @@ export default function OAuthCallbackScreen() {
   }, [router]);
 
   return (
-    <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: '#000' }}>
+    <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: '#000', gap: 12 }}>
       <ActivityIndicator color="#60a5fa" />
+      <Text style={{ color: '#9ca3af', fontSize: 14 }}>{t('oauth.loading')}</Text>
     </View>
   );
 }

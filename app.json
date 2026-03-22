@@ -1,18 +1,26 @@
 {
   "expo": {
-    "name": "portfoy-takip",
-    "slug": "portfoy-takip",
+    "name": "Omnifolio",
+    "slug": "omnifolio",
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/images/icon.png",
-    "scheme": "portfoytakip",
+    "scheme": "omnifolio",
     "userInterfaceStyle": "automatic",
     "newArchEnabled": true,
     "ios": {
       "supportsTablet": true,
-      "bundleIdentifier": "com.portfoytakip.app"
+      "bundleIdentifier": "com.omnifolio.app",
+      "usesAppleSignIn": true,
+      "config": {
+        "usesNonExemptEncryption": false
+      },
+      "infoPlist": {
+        "ITSAppUsesNonExemptEncryption": false
+      }
     },
     "android": {
+      "package": "com.omnifolio.app",
       "adaptiveIcon": {
         "backgroundColor": "#E6F4FE",
         "foregroundImage": "./assets/images/android-icon-foreground.png",
@@ -27,6 +35,7 @@
       "favicon": "./assets/images/favicon.png"
     },
     "plugins": [
+      "expo-apple-authentication",
       "expo-router",
       [
         "expo-splash-screen",
@@ -39,11 +48,19 @@
             "backgroundColor": "#000000"
           }
         }
-      ]
+      ],
+      "expo-localization"
     ],
     "experiments": {
       "typedRoutes": true,
       "reactCompiler": true
-    }
+    },
+    "extra": {
+      "router": {},
+      "eas": {
+        "projectId": "266f3dcd-2372-490d-83a1-300fe27fbff3"
+      }
+    },
+    "owner": "hozturk907"
   }
 }

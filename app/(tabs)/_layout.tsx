@@ -5,12 +5,14 @@ import { Ionicons } from '@expo/vector-icons';
 import { FABTabButton } from '@/components/fab-tab-button';
 import { HapticTab } from '@/components/haptic-tab';
 import { useAuth } from '@/context/auth';
+import { useTranslation } from 'react-i18next';
 
 const TAB_BG = '#000000';
 const PASSIVE = '#888A96';
 const ACTIVE = '#2979FF';
 
 export default function TabLayout() {
+  const { t } = useTranslation();
   const { session, loading } = useAuth();
   if (!loading && !session) {
     return <Redirect href="/auth" />;
@@ -33,7 +35,7 @@ export default function TabLayout() {
       <Tabs.Screen
         name="index"
         options={{
-          title: 'Portföy',
+          title: t('tabs.portfolio'),
           tabBarButton: HapticTab,
           tabBarIcon: ({ color }) => <Ionicons name="pie-chart-outline" size={24} color={color} />,
         }}
@@ -41,7 +43,7 @@ export default function TabLayout() {
       <Tabs.Screen
         name="add"
         options={{
-          title: 'Ara',
+          title: t('tabs.search'),
           tabBarButton: FABTabButton,
           tabBarIcon: () => null,
         }}
@@ -49,7 +51,7 @@ export default function TabLayout() {
       <Tabs.Screen
         name="settings"
         options={{
-          title: 'Ayarlar',
+          title: t('tabs.settings'),
           tabBarButton: HapticTab,
           tabBarIcon: ({ color }) => <Ionicons name="settings-outline" size={24} color={color} />,
         }}

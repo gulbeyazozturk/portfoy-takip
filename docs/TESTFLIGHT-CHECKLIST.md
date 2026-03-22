@@ -6,7 +6,7 @@ Bu dosya, projeyi TestFlight'a gondermek icin minimum adimlari siralar.
 
 - Apple Developer Program aktif olmali.
 - App Store Connect'te uygulama olusturulmus olmali.
-- Bundle Identifier `app.json` ile birebir ayni olmali (`com.portfoytakip.app`).
+- Bundle Identifier `app.json` ile birebir ayni olmali (`com.omnifolio.app`).
 - App'in Apple ID'si (sayi) not edilmeli (`ascAppId`).
 - Team ID not edilmeli.
 

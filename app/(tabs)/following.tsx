@@ -1,16 +1,18 @@
 import React from 'react';
 import { StyleSheet, Text, View } from 'react-native';
+import { useTranslation } from 'react-i18next';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 const BG = '#000000';
 const TEXT = '#AAB0C4';
 
 export default function FollowingScreen() {
+  const { t } = useTranslation();
   return (
     <View style={styles.root}>
       <SafeAreaView style={styles.safe} edges={['top']}>
-        <Text style={styles.title}>Following</Text>
-        <Text style={styles.subtitle}>Coming soon</Text>
+        <Text style={styles.title}>{t('following.title')}</Text>
+        <Text style={styles.subtitle}>{t('following.comingSoon')}</Text>
       </SafeAreaView>
     </View>
   );

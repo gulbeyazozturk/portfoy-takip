@@ -67,7 +67,7 @@ npx eas build --platform ios --profile production
 2. **Platform:** iOS.  
 3. **Name:** Portföy Takip (veya istediğin isim).  
 4. **Primary Language:** Turkish.  
-5. **Bundle ID:** Projede `app.json` içinde yazdığımız değer: **com.portfoytakip.app**.  
+5. **Bundle ID:** Projede `app.json` içinde yazdığımız değer: **com.omnifolio.app**.  
    - Eğer bu Bundle ID’yi hiç kullanmadıysan, Apple Developer sayfasında bir “App ID” oluşturup bu bundle ID’yi orada da tanımlaman gerekir.
 6. **SKU:** Örn. `portfoy-takip-1`.  
 7. **Privacy Policy URL:** Yukarıdaki GitHub Pages adresini yapıştır:  
@@ -122,7 +122,7 @@ Submit başarılı olursa build **App Store Connect**’e yüklenir; birkaç dak
 
 Farklı bir bundle ID (örn. kendi domain’in) kullanmak istersen:
 
-1. `app.json` içinde `expo.ios.bundleIdentifier` değerini değiştir (örn. `com.adiniz.portfoytakip`).  
+1. `app.json` içinde `expo.ios.bundleIdentifier` değerini değiştir (örn. `com.adiniz.omnifolio`).  
 2. Apple Developer’da bu bundle ID ile bir **App ID** oluştur.  
 3. EAS build’i bu bundle ID ile alıp, App Store Connect’te de aynı bundle ID ile uygulama oluştur.
 

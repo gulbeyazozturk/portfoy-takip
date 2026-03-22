@@ -21,6 +21,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { usePortfolio } from '@/context/portfolio';
 import { useAuth } from '@/context/auth';
 import { supabase } from '@/lib/supabase';
+import { useTranslation } from 'react-i18next';
 
 const BG_DARK = '#000000';
 const SURFACE = '#1A1C24';
@@ -59,7 +60,16 @@ const normalize = (value: string | null | undefined) =>
 const normalizeLoose = (value: string | null | undefined) =>
   normalize(value).replace(/\s+/g, '');
 
+function mapChangeTypeToken(raw: string | undefined): ParsedRow['changeType'] | null {
+  const n = normalize(raw);
+  if (n === 'ekleme' || n === 'add') return 'Ekleme';
+  if (n === 'güncelleme' || n === 'guncelleme' || n === 'update') return 'Güncelleme';
+  return null;
+}
+
 export default function BulkUploadScreen() {
+  const { t, i18n } = useTranslation();
+  const dateLocale = i18n.language?.toLowerCase().startsWith('en') ? 'en-US' : 'tr-TR';
   const router = useRouter();
   const { portfolioId } = usePortfolio();
   const { user } = useAuth();
@@ -100,12 +110,12 @@ export default function BulkUploadScreen() {
       const res = await fetch(uri);
       return await res.text();
     }
-    return await FileSystem.readAsStringAsync(uri, { encoding: FileSystem.EncodingType.UTF8 });
+    return await FileSystem.readAsStringAsync(uri, { encoding: 'utf8' });
   };
 
   const ensureWebDownload = () => {
     if (Platform.OS !== 'web') {
-      showAlert('Sadece web', 'Örnek CSV dosyalarını şu anda sadece web tarayıcısından indirebilirsiniz.');
+      showAlert(t('bulk.webOnlyTitle'), t('bulk.webOnlyBody'));
       return false;
     }
     return true;
@@ -125,18 +135,24 @@ export default function BulkUploadScreen() {
   };
 
   const handleDownloadSampleCsv = () => {
+    const isEn = i18n.language?.toLowerCase().startsWith('en');
+    const header = isEn
+      ? ['Asset Type', 'Asset', 'Quantity', 'Change Type']
+      : ['Varlık Tipi', 'Varlık', 'Miktar', 'Değişiklik Tipi'];
+    const u = isEn ? 'Update' : 'Güncelleme';
+    const a = isEn ? 'Add' : 'Ekleme';
     const sample = [
-      ['Varlık Tipi', 'Varlık', 'Miktar', 'Değişiklik Tipi'],
-      ['Yurt Dışı', 'TSLA', '1', 'Güncelleme'],
-      ['Bist', 'TUPRS', '2', 'Ekleme'],
-      ['Döviz', 'GBP', '2', 'Güncelleme'],
-      ['Emtia', 'Cumhuriyet Altını', '3', 'Ekleme'],
-      ['Fon', 'YAS', '5', 'Ekleme'],
-      ['Kripto', 'BTC', '0,001', 'Güncelleme'],
+      header,
+      ['Yurt Dışı', 'TSLA', '1', u],
+      ['Bist', 'TUPRS', '2', a],
+      ['Döviz', 'GBP', '2', u],
+      ['Emtia', 'Cumhuriyet Altını', '3', a],
+      ['Fon', 'YAS', '5', a],
+      ['Kripto', 'BTC', '0,001', u],
     ]
       .map((row) => row.join(','))
       .join('\n');
-    triggerCsvDownload('ornek-portfoy-yukleme.csv', sample);
+    triggerCsvDownload(t('bulk.sampleFilename'), sample);
   };
 
 
@@ -163,7 +179,7 @@ export default function BulkUploadScreen() {
       const catList = (categories ?? []) as Array<{ id: string; name: string; subtitle: string | null }>;
       const assetList = allAssets;
 
-      const header = ['Varlık Tipi', 'Varlık (Sembol)', 'Varlık (Adı)'];
+      const header = [t('bulk.exportHeaderCategory'), t('bulk.exportHeaderSymbol'), t('bulk.exportHeaderName')];
       const rows: string[][] = [header];
 
       for (const c of catList) {
@@ -178,10 +194,10 @@ export default function BulkUploadScreen() {
       }
 
       const csv = rows.map((r) => r.join(',')).join('\n');
-      triggerCsvDownload('tum-varlik-degerleri.csv', csv);
+      triggerCsvDownload(t('bulk.exportFilename'), csv);
     } catch (e) {
       console.error(e);
-      showAlert('Hata', 'Değerler listesi oluşturulurken bir hata oluştu.');
+      showAlert(t('bulk.errorTitle'), t('bulk.valuesListError'));
     }
   };
 
@@ -227,7 +243,13 @@ export default function BulkUploadScreen() {
 
     // Fallback: if more than 4 fields, try smart merge for unquoted decimal commas
     const last = normalize(fields[fields.length - 1]);
-    if (last === 'ekleme' || last === 'güncelleme' || last === 'g\u00fcncelleme') {
+    if (
+      last === 'ekleme' ||
+      last === 'güncelleme' ||
+      last === 'g\u00fcncelleme' ||
+      last === 'add' ||
+      last === 'update'
+    ) {
       const colA = fields[0];
       const colB = fields[1];
       const colD = fields[fields.length - 1];
@@ -253,12 +275,7 @@ export default function BulkUploadScreen() {
 
       if (!colA && !colB && !colC && !colD) continue;
 
-      const changeType =
-        normalize(colD) === 'ekleme'
-          ? 'Ekleme'
-          : normalize(colD) === 'güncelleme' || normalize(colD) === 'g\u00fcncelleme'
-          ? 'Güncelleme'
-          : null;
+      const changeType = mapChangeTypeToken(colD);
 
       let quantityRaw = stripQuotes(colC ?? '').trim();
       if (quantityRaw.includes(',') && !quantityRaw.includes('.')) {
@@ -317,10 +334,22 @@ export default function BulkUploadScreen() {
     const updates: { holdingId: string; quantity: number }[] = [];
 
     for (const row of rows) {
+      const typeDisp =
+        row.changeType === 'Ekleme'
+          ? t('bulk.changeAdd')
+          : row.changeType === 'Güncelleme'
+            ? t('bulk.changeUpdate')
+            : t('bulk.emptyTypeLabel');
+
       if (!row.changeType || !Number.isFinite(row.quantity) || row.quantity <= 0) {
         errors.push(
-          `Satır ${row.rowNumber}: Geçersiz miktar (${row.quantity}) veya tip ("${row.changeType ?? 'boş'}"). ` +
-          `[kategori="${row.categoryName}", varlık="${row.assetValue}"]`
+          t('bulk.rowInvalidQty', {
+            row: row.rowNumber,
+            qty: row.quantity,
+            type: typeDisp,
+            cat: row.categoryName,
+            asset: row.assetValue,
+          })
         );
         continue;
       }
@@ -331,9 +360,7 @@ export default function BulkUploadScreen() {
           normalizeLoose(c.id) === normalizeLoose(row.categoryName)
       );
       if (!category) {
-        errors.push(
-          `Satır ${row.rowNumber}: Varlık tipi \"${row.categoryName}\" bulunamadı.`
-        );
+        errors.push(t('bulk.rowCategoryNotFound', { row: row.rowNumber, name: row.categoryName }));
         continue;
       }
 
@@ -344,9 +371,7 @@ export default function BulkUploadScreen() {
             normalize(a.name) === normalize(row.assetValue))
       );
       if (!asset) {
-        errors.push(
-          `Satır ${row.rowNumber}: \"${row.assetValue}\" bu varlık tipinde bulunamadı.`
-        );
+        errors.push(t('bulk.rowAssetNotFound', { row: row.rowNumber, asset: row.assetValue }));
         continue;
       }
 
@@ -354,17 +379,13 @@ export default function BulkUploadScreen() {
 
       if (row.changeType === 'Ekleme') {
         if (holding) {
-          errors.push(
-            `Satır ${row.rowNumber}: \"${row.assetValue}\" zaten portföyde var, Ekleme yerine Güncelleme seçin.`
-          );
+          errors.push(t('bulk.rowAlreadyHolding', { row: row.rowNumber, asset: row.assetValue }));
           continue;
         }
         inserts.push({ assetId: asset.id, quantity: row.quantity });
       } else {
         if (!holding) {
-          errors.push(
-            `Satır ${row.rowNumber}: \"${row.assetValue}\" için portföyde kayıt bulunamadı, Güncelleme yapılamaz.`
-          );
+          errors.push(t('bulk.rowNoHoldingForUpdate', { row: row.rowNumber, asset: row.assetValue }));
           continue;
         }
         updates.push({ holdingId: holding.id, quantity: row.quantity });
@@ -372,7 +393,7 @@ export default function BulkUploadScreen() {
     }
 
     if (errors.length > 0) {
-      showAlert('Dosya yüklenemedi', errors.join('\n'));
+      showAlert(t('bulk.uploadFailedTitle'), errors.join('\n'));
       return;
     }
 
@@ -386,7 +407,7 @@ export default function BulkUploadScreen() {
         }))
       );
       if (error) {
-        showAlert('Hata', `Yeni kayıtlar eklenirken hata:\n${error.message}`);
+        showAlert(t('bulk.errorTitle'), t('bulk.insertError', { message: error.message }));
         return;
       }
     }
@@ -397,14 +418,14 @@ export default function BulkUploadScreen() {
         .update({ quantity: u.quantity })
         .eq('id', u.holdingId);
       if (error) {
-        showAlert('Hata', `Güncelleme hatası:\n${error.message}`);
+        showAlert(t('bulk.errorTitle'), t('bulk.updateError', { message: error.message }));
         return;
       }
     }
 
     showAlert(
-      'Başarılı',
-      `Dosyadaki kayıtlar işlendi.\n${inserts.length} ekleme, ${updates.length} güncelleme.`
+      t('bulk.successTitle'),
+      t('bulk.successBody', { adds: inserts.length, updates: updates.length })
     );
   };
 
@@ -422,7 +443,7 @@ export default function BulkUploadScreen() {
       try {
         rawContent = await readFileContent(file.uri);
       } catch (readErr: any) {
-        showAlert('Dosya okunamadı', `Dosya okunurken hata: ${readErr?.message ?? readErr}`);
+        showAlert(t('bulk.readFailedTitle'), t('bulk.readFailedBody', { message: String(readErr?.message ?? readErr) }));
         return;
       }
 
@@ -432,26 +453,14 @@ export default function BulkUploadScreen() {
       const rows = parseCsv(rawContent);
       if (rows.length === 0) {
         showAlert(
-          'Hata',
-          'Dosya boş veya satır bulunamadı.\n\n' +
-            `Algılanan ayraç: "${detectedDelim}"\n` +
-            'İlk 3 satır:\n' +
-            firstLines.map((l, i) => `[${i}] ${l}`).join('\n')
+          t('bulk.errorTitle'),
+          t('bulk.emptyFileBody', {
+            delim: detectedDelim,
+            lines: firstLines.map((l, i) => `[${i}] ${l}`).join('\n'),
+          })
         );
         return;
       }
-
-      // Debug: ilk satırın parse sonucunu göster
-      const debugRow = rows[0];
-      console.log(
-        'DEBUG parse:',
-        `delim="${detectedDelim}"`,
-        `cat="${debugRow.categoryName}"`,
-        `asset="${debugRow.assetValue}"`,
-        `qty=${debugRow.quantity}`,
-        `type="${debugRow.changeType}"`,
-        `raw line: ${firstLines[1]}`
-      );
 
       // portfolio_uploads kaydı opsiyonel; tablo yoksa bile devam et
       try {
@@ -470,7 +479,7 @@ export default function BulkUploadScreen() {
     } catch (e: any) {
       console.error(e);
       const msg = e?.message ?? JSON.stringify(e);
-      showAlert('Hata', `Dosya işlenirken bir hata oluştu:\n\n${msg}`);
+      showAlert(t('bulk.errorTitle'), t('bulk.processError', { message: msg }));
     } finally {
       setUploading(false);
     }
@@ -480,11 +489,11 @@ export default function BulkUploadScreen() {
     <View style={styles.root}>
       <SafeAreaView style={styles.safe} edges={['top']}>
         <View style={styles.header}>
-          <TouchableOpacity style={styles.backBtn} onPress={() => router.back()} accessibilityLabel="Geri">
+          <TouchableOpacity style={styles.backBtn} onPress={() => router.back()} accessibilityLabel={t('bulk.backA11y')}>
             <Ionicons name="arrow-back" size={24} color={WHITE} />
           </TouchableOpacity>
           <View style={styles.headerTitleWrap}>
-            <Text style={styles.headerTitle}>Toplu dosya yükleme</Text>
+            <Text style={styles.headerTitle}>{t('bulk.screenTitle')}</Text>
           </View>
           <View style={styles.headerRight} />
         </View>
@@ -501,28 +510,23 @@ export default function BulkUploadScreen() {
               ) : (
                 <>
                   <Ionicons name="cloud-upload-outline" size={24} color={BG_DARK} />
-                  <Text style={styles.uploadButtonText}>Dosya seç ve yükle</Text>
+                  <Text style={styles.uploadButtonText}>{t('bulk.pickUpload')}</Text>
                 </>
               )}
             </TouchableOpacity>
-            <Text style={styles.helperTitle}>Format kuralları</Text>
-            <Text style={styles.helperText}>
-              - Dosyayı Excel'den **CSV** olarak dışa aktarın.{'\n'}
-              - İlk satır başlık olmalı: Varlık Tipi, Varlık, Miktar, Değişiklik Tipi.{'\n'}
-              - Değişiklik Tipi: \"Ekleme\" veya \"Güncelleme\" olmalı.{'\n'}
-              - Varlık Tipi ve Varlık değerleri sistemde tanımlı olmalı; aksi halde satır satır hata gösterilir.
-            </Text>
+            <Text style={styles.helperTitle}>{t('bulk.formatTitle')}</Text>
+            <Text style={styles.helperText}>{t('bulk.formatBody')}</Text>
             <View style={styles.downloadRow}>
               <TouchableOpacity style={styles.secondaryButton} onPress={handleDownloadSampleCsv}>
-                <Text style={styles.secondaryButtonText}>Örnek CSV indir</Text>
+                <Text style={styles.secondaryButtonText}>{t('bulk.sampleCsv')}</Text>
               </TouchableOpacity>
               <TouchableOpacity style={styles.secondaryButton} onPress={handleDownloadAllValuesCsv}>
-                <Text style={styles.secondaryButtonText}>Tüm değerleri CSV indir</Text>
+                <Text style={styles.secondaryButtonText}>{t('bulk.allValuesCsv')}</Text>
               </TouchableOpacity>
             </View>
           </View>
 
-          <Text style={styles.tableTitle}>Yüklenen dosyalar</Text>
+          <Text style={styles.tableTitle}>{t('bulk.uploadsTitle')}</Text>
           {loading ? (
             <View style={styles.loadingWrap}>
               <ActivityIndicator size="small" color={PRIMARY} />
@@ -534,7 +538,7 @@ export default function BulkUploadScreen() {
               contentContainerStyle={styles.listContent}
               ListEmptyComponent={
                 <View style={styles.emptyWrap}>
-                  <Text style={styles.emptyText}>Henüz dosya yok</Text>
+                  <Text style={styles.emptyText}>{t('bulk.noFiles')}</Text>
                 </View>
               }
               scrollEnabled={false}
@@ -546,7 +550,7 @@ export default function BulkUploadScreen() {
                   </View>
                   <Text style={styles.rowMeta}>
                     {item.file_size != null ? `${(item.file_size / 1024).toFixed(1)} KB` : '—'} •{' '}
-                    {new Date(item.created_at).toLocaleDateString('tr-TR')}
+                    {new Date(item.created_at).toLocaleDateString(dateLocale)}
                   </Text>
                 </View>
               )}
@@ -571,7 +575,7 @@ export default function BulkUploadScreen() {
               style={styles.modalButton}
               onPress={() => setModalVisible(false)}
             >
-              <Text style={styles.modalButtonText}>Tamam</Text>
+              <Text style={styles.modalButtonText}>{t('bulk.ok')}</Text>
             </TouchableOpacity>
           </Pressable>
         </Pressable>

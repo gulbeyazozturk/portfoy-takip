@@ -21,7 +21,9 @@ import Svg, { Defs, LinearGradient, Path, Stop } from 'react-native-svg';
 import { usePortfolio } from '@/context/portfolio';
 import { useSelectedCategories } from '@/context/selected-categories';
 import { UltraDarkDonutChart } from '@/components/ultra-dark-donut-chart';
+import { categoryDisplayLabel } from '@/lib/category-display';
 import { supabase } from '@/lib/supabase';
+import { useTranslation } from 'react-i18next';
 
 if (Platform.OS === 'android' && UIManager.setLayoutAnimationEnabledExperimental) {
   UIManager.setLayoutAnimationEnabledExperimental(true);
@@ -86,15 +88,6 @@ const ASSET_ICONS: Record<string, { icon: string; bg: string; color: string }> =
 const TIMEFRAMES = ['1D', '1W', '1M', '1Y', '5Y'] as const;
 
 type SortMode = 'todayTopGainers' | 'todayTopLosers' | 'highestValue' | 'lowestValue' | 'alphaAZ' | 'alphaZA';
-
-const SORT_OPTIONS: { id: SortMode; label: string }[] = [
-  { id: 'todayTopGainers', label: 'Bugün En Çok Artanlar' },
-  { id: 'todayTopLosers', label: 'Bugün En Çok Düşenler' },
-  { id: 'highestValue', label: 'En Yüksek Değere Sahipler' },
-  { id: 'lowestValue', label: 'En Düşük Değere Sahipler' },
-  { id: 'alphaAZ', label: 'Alfabetik A-Z' },
-  { id: 'alphaZA', label: 'Alfabetik Z-A' },
-];
 
 function Accordion({
   title,
@@ -193,6 +186,10 @@ function normalizeAsset(asset: HoldingRow['asset']): AssetRow | null {
 }
 
 export default function PortfolioScreen() {
+  const { t, i18n } = useTranslation();
+  const numberLocale = i18n.language?.toLowerCase().startsWith('en') ? 'en-US' : 'tr-TR';
+  const sortCollator = i18n.language?.toLowerCase().startsWith('en') ? 'en' : 'tr';
+
   const scrollRef = useRef<ScrollView>(null);
   useScrollToTop(scrollRef);
 
@@ -279,9 +276,22 @@ export default function PortfolioScreen() {
     }, [portfolioId, fetchHoldings, fetchUsdRate])
   );
 
+  const sortOptions = useMemo(
+    () =>
+      [
+        { id: 'todayTopGainers' as const, label: t('portfolio.sortTodayGainers') },
+        { id: 'todayTopLosers' as const, label: t('portfolio.sortTodayLosers') },
+        { id: 'highestValue' as const, label: t('portfolio.sortHighestValue') },
+        { id: 'lowestValue' as const, label: t('portfolio.sortLowestValue') },
+        { id: 'alphaAZ' as const, label: t('portfolio.sortAlphaAZ') },
+        { id: 'alphaZA' as const, label: t('portfolio.sortAlphaZA') },
+      ] satisfies { id: SortMode; label: string }[],
+    [t],
+  );
+
   const sortLabel = useMemo(
-    () => SORT_OPTIONS.find((o) => o.id === sortMode)?.label ?? SORT_OPTIONS[0].label,
-    [sortMode],
+    () => sortOptions.find((o) => o.id === sortMode)?.label ?? sortOptions[0].label,
+    [sortOptions, sortMode],
   );
 
   const allocationData = useMemo(() => {
@@ -300,7 +310,9 @@ export default function PortfolioScreen() {
     }
     if (total === 0 || !Number.isFinite(total)) return [];
     const catNames: Record<string, string> = {};
-    categories.forEach((c) => { catNames[c.id] = c.name; });
+    categories.forEach((c) => {
+      catNames[c.id] = categoryDisplayLabel(c.id, c.name, t);
+    });
     const out = Object.entries(byCategory)
       .map(([id, value]) => ({
         label: catNames[id] ?? id,
@@ -309,7 +321,7 @@ export default function PortfolioScreen() {
       }))
       .filter((d) => d.value > 0);
     return out;
-  }, [holdings, categories, usdTry]);
+  }, [holdings, categories, usdTry, t]);
 
   const filteredHoldings = useMemo(() => {
     const selected = categories.filter((c) => isCategorySelected(c.id)).map((c) => c.id);
@@ -351,16 +363,16 @@ export default function PortfolioScreen() {
         case 'lowestValue':
           return (valueA || 0) - (valueB || 0);
         case 'alphaAZ':
-          return (assetA?.symbol ?? '').localeCompare(assetB?.symbol ?? '', 'tr');
+          return (assetA?.symbol ?? '').localeCompare(assetB?.symbol ?? '', sortCollator);
         case 'alphaZA':
-          return (assetB?.symbol ?? '').localeCompare(assetA?.symbol ?? '', 'tr');
+          return (assetB?.symbol ?? '').localeCompare(assetA?.symbol ?? '', sortCollator);
         default:
           return 0;
       }
     });
 
     return sorted;
-  }, [holdings, categories, isCategorySelected, sortMode]);
+  }, [holdings, categories, isCategorySelected, sortMode, sortCollator]);
 
   const summaryData = useMemo(() => {
     let totalUSD = 0;
@@ -523,7 +535,7 @@ export default function PortfolioScreen() {
       <SafeAreaView style={styles.safe} edges={['top']}>
         {/* Header */}
         <View style={styles.header}>
-          <Text style={styles.headerTitle}>Portfolio</Text>
+          <Text style={styles.headerTitle}>{t('portfolio.headerTitle')}</Text>
         </View>
 
         <ScrollView
@@ -540,11 +552,11 @@ export default function PortfolioScreen() {
           {loading && !holdings.length ? (
             <View style={styles.loadingWrap}>
               <ActivityIndicator size="large" color={ACCENT_BLUE} />
-              <Text style={styles.loadingText}>Portföy yükleniyor…</Text>
+              <Text style={styles.loadingText}>{t('portfolio.loading')}</Text>
             </View>
           ) : null}
           {/* Accordion 1: Asset Allocation */}
-          <Accordion title="Varlık dağılımı" open={allocationOpen} onToggle={toggleAllocation}>
+          <Accordion title={t('portfolio.allocation')} open={allocationOpen} onToggle={toggleAllocation}>
             <View style={styles.allocationBody}>
               <View style={styles.donutWrap}>
                 <UltraDarkDonutChart
@@ -558,17 +570,20 @@ export default function PortfolioScreen() {
           </Accordion>
 
           {/* Accordion 2: Performance Trend */}
-          <Accordion title="Performance Trend" open={performanceOpen} onToggle={togglePerformance}>
+          <Accordion title={t('portfolio.performance')} open={performanceOpen} onToggle={togglePerformance}>
             <View style={styles.performanceBody}>
               <View style={styles.performanceTop}>
                 <View>
-                  <Text style={styles.totalLabel}>Total Value</Text>
+                  <Text style={styles.totalLabel}>{t('portfolio.totalValueLabel')}</Text>
                   <View style={styles.totalRow}>
                     <Text style={styles.totalValue}>
-                      {(perfCurrency === 'TL' ? performanceValues.totalValueTL : performanceValues.totalValueUSD).toLocaleString('tr-TR', {
-                        minimumFractionDigits: 0,
-                        maximumFractionDigits: perfCurrency === 'USD' ? 2 : 0,
-                      })}
+                      {(perfCurrency === 'TL' ? performanceValues.totalValueTL : performanceValues.totalValueUSD).toLocaleString(
+                        perfCurrency === 'USD' ? 'en-US' : numberLocale,
+                        {
+                          minimumFractionDigits: 0,
+                          maximumFractionDigits: perfCurrency === 'USD' ? 2 : 0,
+                        },
+                      )}
                     </Text>
                     <View style={styles.currencyToggle}>
                       <Pressable onPress={() => setPerfCurrency('TL')} style={[styles.currencyBtn, perfCurrency === 'TL' && styles.currencyBtnActive]}>
@@ -592,11 +607,12 @@ export default function PortfolioScreen() {
                       <View style={styles.trendRow}>
                         <Text style={amt >= 0 ? styles.trendPositive : styles.trendNegative}>
                           {amt >= 0 ? '+' : ''}
-                          {amt.toLocaleString('tr-TR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                          {amt.toLocaleString(numberLocale, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                         </Text>
                         <View style={[styles.trendBadge, amt >= 0 && styles.trendBadgePositive]}>
                           <Text style={[styles.trendBadgeText, amt >= 0 && styles.trendBadgeTextPositive]}>
-                            {amt >= 0 ? '+' : ''}{pct.toFixed(2).replace('.', ',')}%
+                            {amt >= 0 ? '+' : ''}
+                            {pct.toLocaleString(numberLocale, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}%
                           </Text>
                         </View>
                       </View>
@@ -643,7 +659,7 @@ export default function PortfolioScreen() {
               </TouchableOpacity>
               {isSortMenuOpen && (
                 <View style={styles.filterMenu}>
-                  {SORT_OPTIONS.map((opt) => (
+                  {sortOptions.map((opt) => (
                     <TouchableOpacity
                       key={opt.id}
                       style={styles.filterMenuItem}
@@ -679,7 +695,7 @@ export default function PortfolioScreen() {
                     onPress={() => toggleCategory(c.id)}
                     style={[styles.categoryPill, isActive && styles.categoryPillActive]}>
                     <Text style={[styles.categoryPillText, isActive && styles.categoryPillTextActive]}>
-                      {c.name}
+                      {categoryDisplayLabel(c.id, c.name, t)}
                     </Text>
                   </TouchableOpacity>
                 );
@@ -696,7 +712,7 @@ export default function PortfolioScreen() {
                     onPress={() => toggleCategory(c.id)}
                     style={[styles.categoryPill, isActive && styles.categoryPillActive]}>
                     <Text style={[styles.categoryPillText, isActive && styles.categoryPillTextActive]}>
-                      {c.name}
+                      {categoryDisplayLabel(c.id, c.name, t)}
                     </Text>
                   </TouchableOpacity>
                 );
@@ -708,7 +724,7 @@ export default function PortfolioScreen() {
                 onPress={() => setIsSummaryMenuOpen((o) => !o)}
                 activeOpacity={0.85}>
                 <Text style={styles.summaryComboText}>
-                  {summaryMode === 'daily' ? 'Günlük' : 'Toplam'}
+                  {summaryMode === 'daily' ? t('portfolio.daily') : t('portfolio.total')}
                 </Text>
                 <Ionicons
                   name={isSummaryMenuOpen ? 'chevron-up' : 'chevron-down'}
@@ -722,14 +738,14 @@ export default function PortfolioScreen() {
                     style={styles.summaryMenuItem}
                     onPress={() => { setSummaryMode('daily'); setIsSummaryMenuOpen(false); }}>
                     <Text style={[styles.summaryMenuItemText, summaryMode === 'daily' && styles.summaryMenuItemTextActive]}>
-                      Günlük
+                      {t('portfolio.daily')}
                     </Text>
                   </TouchableOpacity>
                   <TouchableOpacity
                     style={styles.summaryMenuItem}
                     onPress={() => { setSummaryMode('total'); setIsSummaryMenuOpen(false); }}>
                     <Text style={[styles.summaryMenuItemText, summaryMode === 'total' && styles.summaryMenuItemTextActive]}>
-                      Toplam
+                      {t('portfolio.total')}
                     </Text>
                   </TouchableOpacity>
                 </View>
@@ -752,18 +768,23 @@ export default function PortfolioScreen() {
                     </Text>
                     <Text style={[styles.summaryChange, amtUSD >= 0 ? styles.summaryChangePositive : styles.summaryChangeNegative]}>
                       {amtUSD >= 0 ? '+' : '-'}${Math.abs(amtUSD).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-                      {' '}({pctUSD >= 0 ? '+' : ''}{pctUSD.toFixed(2).replace('.', ',')}%)
+                      {' '}(
+                      {pctUSD >= 0 ? '+' : ''}
+                      {pctUSD.toLocaleString(numberLocale, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}%)
                     </Text>
                   </View>
                 )}
                 {summaryData.hasTL && (
                   <View style={styles.summaryRow}>
                     <Text style={styles.summaryValue}>
-                      {summaryData.totalTL.toLocaleString('tr-TR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} TL
+                      {summaryData.totalTL.toLocaleString(numberLocale, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} TL
                     </Text>
                     <Text style={[styles.summaryChange, amtTL >= 0 ? styles.summaryChangePositive : styles.summaryChangeNegative]}>
-                      {amtTL >= 0 ? '+' : ''}{amtTL.toLocaleString('tr-TR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} TL
-                      {' '}({pctTL >= 0 ? '+' : ''}{pctTL.toFixed(2).replace('.', ',')}%)
+                      {amtTL >= 0 ? '+' : ''}
+                      {amtTL.toLocaleString(numberLocale, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} TL
+                      {' '}(
+                      {pctTL >= 0 ? '+' : ''}
+                      {pctTL.toLocaleString(numberLocale, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}%)
                     </Text>
                   </View>
                 )}
@@ -775,7 +796,7 @@ export default function PortfolioScreen() {
           <View style={styles.assetList}>
             {filteredHoldings.length === 0 && !loading ? (
               <View style={styles.emptyWrap}>
-                <Text style={styles.emptyText}>Henüz varlık yok. + ile ekleyebilirsiniz.</Text>
+                <Text style={styles.emptyText}>{t('portfolio.emptyHoldings')}</Text>
               </View>
             ) : (
               filteredHoldings.map((h) => {
@@ -800,11 +821,11 @@ export default function PortfolioScreen() {
                           : (() => {
                               const s = (asset.symbol ?? '').toUpperCase();
                               if ((s.includes('22_AYAR') && s.includes('BILEZIK')) || s.includes('14_AYAR') || s.includes('18_AYAR'))
-                                return 'Gram';
-                              return 'Adet';
+                                return t('portfolio.unitGram');
+                              return t('portfolio.unitPiece');
                             })()
                         : asset.symbol;
-                const quantityFormatted = Number(h.quantity).toLocaleString('tr-TR', {
+                const quantityFormatted = Number(h.quantity).toLocaleString(numberLocale, {
                   minimumFractionDigits: 0,
                   maximumFractionDigits: 4,
                 });
@@ -854,7 +875,7 @@ export default function PortfolioScreen() {
                     </View>
                     <View style={styles.assetRight}>
                       <Text style={styles.assetValue}>
-                        {value.toLocaleString('tr-TR', {
+                        {value.toLocaleString(valueCurrency === 'USD' ? 'en-US' : numberLocale, {
                           minimumFractionDigits: 2,
                           maximumFractionDigits: 2,
                         })}{' '}
@@ -875,7 +896,7 @@ export default function PortfolioScreen() {
                         const unitPrice = currentPrice;
                         const priceFormatted = valueCurrency === 'USD'
                           ? `$${unitPrice.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
-                          : `${unitPrice.toLocaleString('tr-TR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} TL`;
+                          : `${unitPrice.toLocaleString(numberLocale, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} TL`;
                         return (
                           <View style={styles.assetChangeRow}>
                             <Text style={styles.assetUnitPrice}>{priceFormatted}</Text>
@@ -888,7 +909,9 @@ export default function PortfolioScreen() {
                                     ? styles.assetChangePositive
                                     : styles.assetChangeNegative,
                               ]}>
-                              {displayPct == null ? '—' : `${displayPct >= 0 ? '+' : ''}${displayPct.toFixed(2).replace('.', ',')}%`}
+                              {displayPct == null
+                                ? '—'
+                                : `${displayPct >= 0 ? '+' : ''}${displayPct.toLocaleString(numberLocale, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}%`}
                             </Text>
                           </View>
                         );
@@ -946,8 +969,10 @@ const styles = StyleSheet.create({
     position: 'relative',
     alignItems: 'center',
     justifyContent: 'center',
-    minWidth: 336,
-    minHeight: 336,
+    /** UltraDarkDonutChart canvas ~ size+160 (etiket payı); 336 kesiyordu. */
+    minWidth: 392,
+    minHeight: 392,
+    overflow: 'visible',
   },
   donutCenterBtn: {
     position: 'absolute',

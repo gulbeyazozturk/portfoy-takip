@@ -21,22 +21,13 @@ import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
 import { usePortfolio } from '@/context/portfolio';
 import { supabase } from '@/lib/supabase';
+import { useTranslation } from 'react-i18next';
 
 const CHART_W = 400;
 const CHART_H = 140;
 const ACCENT_BLUE = '#3b82f6';
 const TIMEFRAMES = ['1D', '1W', '1M', '1Y', '5Y'] as const;
 type Timeframe = (typeof TIMEFRAMES)[number];
-
-const CATEGORY_LABELS: Record<string, string> = {
-  yurtdisi: 'Yurtdışı',
-  bist: 'BIST',
-  doviz: 'Döviz',
-  emtia: 'Emtia',
-  fon: 'Fon',
-  kripto: 'Kripto',
-  mevduat: 'Mevduat',
-};
 
 function timeframeMs(tf: Timeframe): number {
   switch (tf) {
@@ -55,6 +46,7 @@ function PriceChart({
   currSuf,
   selectedIdx,
   onSelect,
+  numberLocale,
 }: {
   series: number[];
   isPositive: boolean;
@@ -62,6 +54,7 @@ function PriceChart({
   currSuf: string;
   selectedIdx: number | null;
   onSelect: (idx: number | null) => void;
+  numberLocale: string;
 }) {
   const [chartWidth, setChartWidth] = useState(0);
 
@@ -94,8 +87,8 @@ function PriceChart({
     if (abs > 0 && abs < 0.01) maxDec = 10;
     else if (abs >= 0.01 && abs < 1) maxDec = 6;
     else if (abs >= 1 && abs < 10) maxDec = 4;
-    const formatted = abs.toLocaleString('tr-TR', { minimumFractionDigits: 2, maximumFractionDigits: maxDec });
-    const trimmed = formatted.replace(/0+$/, '').replace(/,$/, '');
+    const formatted = abs.toLocaleString(numberLocale, { minimumFractionDigits: 2, maximumFractionDigits: maxDec });
+    const trimmed = formatted.replace(/0+$/, '').replace(/[,.]$/, '');
     return `${currPre}${v < 0 ? `-${trimmed}` : trimmed}${currSuf}`;
   };
 
@@ -206,6 +199,9 @@ const chartStyles = StyleSheet.create({
 });
 
 export default function AssetEntryScreen() {
+  const { t, i18n } = useTranslation();
+  const numberLocale = i18n.language?.toLowerCase().startsWith('en') ? 'en-US' : 'tr-TR';
+
   const router = useRouter();
   const { portfolioId } = usePortfolio();
   const params = useLocalSearchParams<{
@@ -224,7 +220,7 @@ export default function AssetEntryScreen() {
 
   const [holdingId, setHoldingId] = useState<string | undefined>(params.holdingId as string | undefined);
   const assetId = params.assetId as string | undefined;
-  const name = params.name ?? 'Varlık';
+  const name = params.name ?? t('assetList.defaultLabel');
   const symbol = params.symbol ?? '';
   const categoryId = params.categoryId as string | undefined;
   const returnTo = params.returnTo as string | undefined;
@@ -253,12 +249,25 @@ export default function AssetEntryScreen() {
     if (categoryId === 'emtia') {
       if (['XAU', 'XAG', 'XPT', 'XPD'].includes(symbol)) return symbol;
       const s = (symbol ?? '').toUpperCase();
-      if (s.includes('22_AYAR') && s.includes('BILEZIK')) return 'Gram';
-      if (s.includes('14_AYAR') || s.includes('18_AYAR')) return 'Gram';
-      return 'Adet';
+      if (s.includes('22_AYAR') && s.includes('BILEZIK')) return t('portfolio.unitGram');
+      if (s.includes('14_AYAR') || s.includes('18_AYAR')) return t('portfolio.unitGram');
+      return t('portfolio.unitPiece');
     }
-    return symbol || 'Adet';
-  }, [categoryId, symbol]);
+    return symbol || t('portfolio.unitPiece');
+  }, [categoryId, symbol, t]);
+
+  const catLabel = useMemo(() => {
+    const m: Record<string, string> = {
+      yurtdisi: t('categories.yurtdisi'),
+      bist: t('categories.bist'),
+      doviz: t('categories.doviz'),
+      emtia: t('categories.emtia'),
+      fon: t('categories.fon'),
+      kripto: t('categories.kripto'),
+      mevduat: t('categories.mevduat'),
+    };
+    return (cid: string) => m[cid] ?? cid;
+  }, [t]);
 
   const [amount, setAmount] = useState(() => (params.quantity as string | undefined) ?? '');
   const [unitPrice, setUnitPrice] = useState(() => (params.avgPrice as string | undefined) ?? '');
@@ -426,11 +435,11 @@ export default function AssetEntryScreen() {
 
   const handleAdd = async () => {
     if (!assetId || !portfolioId) {
-      Alert.alert('Hata', 'Portföy veya varlık bilgisi eksik.');
+      Alert.alert(t('assetEntry.errorTitle'), t('assetEntry.missingInfo'));
       return;
     }
     if (inputQty <= 0) {
-      Alert.alert('Hata', 'Geçerli bir miktar girin.');
+      Alert.alert(t('assetEntry.errorTitle'), t('assetEntry.invalidQty'));
       return;
     }
     const cost = inputCost ? parseFloat(inputCost.replace(',', '.')) : null;
@@ -449,7 +458,7 @@ export default function AssetEntryScreen() {
         .update({ quantity: newQty, avg_price: newAvg })
         .eq('id', holdingId);
       setSaving(false);
-      if (error) { Alert.alert('Hata', error.message); return; }
+      if (error) { Alert.alert(t('assetEntry.errorTitle'), error.message); return; }
       setAmount(String(newQty));
       setUnitPrice(newAvg != null ? String(newAvg) : '');
     } else {
@@ -460,7 +469,7 @@ export default function AssetEntryScreen() {
         avg_price: cost,
       }).select('id').single();
       setSaving(false);
-      if (error) { Alert.alert('Hata', error.message); return; }
+      if (error) { Alert.alert(t('assetEntry.errorTitle'), error.message); return; }
       if (data) setHoldingId(data.id);
       setAmount(String(inputQty));
       setUnitPrice(cost != null ? String(cost) : '');
@@ -473,11 +482,14 @@ export default function AssetEntryScreen() {
   const handleReduce = async () => {
     if (!holdingId) return;
     if (inputQty <= 0) {
-      Alert.alert('Hata', 'Geçerli bir miktar girin.');
+      Alert.alert(t('assetEntry.errorTitle'), t('assetEntry.invalidQty'));
       return;
     }
     if (inputQty > qty) {
-      Alert.alert('Hata', `Mevcut adetten (${qty.toLocaleString('tr-TR')}) fazla çıkaramazsınız.`);
+      Alert.alert(
+        t('assetEntry.errorTitle'),
+        t('assetEntry.reduceTooMuch', { qty: qty.toLocaleString(numberLocale, { maximumFractionDigits: 10 }) }),
+      );
       return;
     }
     const newQty = qty - inputQty;
@@ -485,7 +497,7 @@ export default function AssetEntryScreen() {
     if (newQty <= 0) {
       const { error } = await supabase.from('holdings').delete().eq('id', holdingId);
       setSaving(false);
-      if (error) { Alert.alert('Hata', error.message); return; }
+      if (error) { Alert.alert(t('assetEntry.errorTitle'), error.message); return; }
       navigateBack();
     } else {
       const { error } = await supabase
@@ -493,7 +505,7 @@ export default function AssetEntryScreen() {
         .update({ quantity: newQty })
         .eq('id', holdingId);
       setSaving(false);
-      if (error) { Alert.alert('Hata', error.message); return; }
+      if (error) { Alert.alert(t('assetEntry.errorTitle'), error.message); return; }
       setAmount(String(newQty));
       setInputWhole('');
       setInputDecimal('');
@@ -512,9 +524,9 @@ export default function AssetEntryScreen() {
     setSaving(false);
     if (error) {
       if (Platform.OS === 'web') {
-        window.alert('Silme hatası: ' + error.message);
+        window.alert(t('assetEntry.deleteErrorWeb', { message: error.message }));
       } else {
-        Alert.alert('Silme hatası', error.message);
+        Alert.alert(t('assetEntry.deleteErrorTitle'), error.message);
       }
       return;
     }
@@ -535,8 +547,8 @@ export default function AssetEntryScreen() {
     if (abs > 0 && abs < 0.01) maxDec = 10;
     else if (abs >= 0.01 && abs < 1) maxDec = 6;
     else if (abs >= 1 && abs < 10) maxDec = 4;
-    const formatted = abs.toLocaleString('tr-TR', { minimumFractionDigits: 2, maximumFractionDigits: maxDec });
-    const trimmed = formatted.replace(/0+$/, '').replace(/,$/, '');
+    const formatted = abs.toLocaleString(numberLocale, { minimumFractionDigits: 2, maximumFractionDigits: maxDec });
+    const trimmed = formatted.replace(/0+$/, '').replace(/[,.]$/, '');
     return v < 0 ? `-${trimmed}` : trimmed;
   };
 
@@ -572,14 +584,14 @@ export default function AssetEntryScreen() {
 
   const selectedDate = useMemo(() => {
     if (selectedIdx != null && chartDates[selectedIdx]) {
-      return chartDates[selectedIdx]!.toLocaleDateString('tr-TR', {
+      return chartDates[selectedIdx]!.toLocaleDateString(numberLocale, {
         day: 'numeric',
         month: 'short',
         year: 'numeric',
       });
     }
     return null;
-  }, [selectedIdx, chartDates]);
+  }, [selectedIdx, chartDates, numberLocale]);
 
   const isChartPositive = chartChange ? chartChange.amount >= 0 : true;
 
@@ -606,17 +618,21 @@ export default function AssetEntryScreen() {
           {/* Stats row */}
           <View style={styles.statsRow}>
             <View style={styles.statItem}>
-              <ThemedText style={styles.statLabel}>Sahip olunan</ThemedText>
-              <ThemedText type="defaultSemiBold" style={styles.statValue}>{qty > 0 ? qty.toLocaleString('tr-TR', { minimumFractionDigits: 0, maximumFractionDigits: 10 }) : '—'}</ThemedText>
+              <ThemedText style={styles.statLabel}>{t('assetEntry.owned')}</ThemedText>
+              <ThemedText type="defaultSemiBold" style={styles.statValue}>
+                {qty > 0 ? qty.toLocaleString(numberLocale, { minimumFractionDigits: 0, maximumFractionDigits: 10 }) : '—'}
+              </ThemedText>
             </View>
             <View style={[styles.statItem, styles.statItemCenter]}>
-              <ThemedText style={styles.statLabel}>Piyasa Değeri</ThemedText>
+              <ThemedText style={styles.statLabel}>{t('assetEntry.marketValue')}</ThemedText>
               <ThemedText type="defaultSemiBold" style={styles.statValue}>
                 {qty > 0 ? `${curr}${fmtVal(marketValue)}${currSuffix}` : '—'}
               </ThemedText>
             </View>
             <View style={styles.statItem}>
-              <ThemedText style={styles.statLabel}>{isPositive ? 'Toplam Kazanç' : 'Toplam Kayıp'}</ThemedText>
+              <ThemedText style={styles.statLabel}>
+                {isPositive ? t('assetEntry.totalGain') : t('assetEntry.totalLoss')}
+              </ThemedText>
               <ThemedText type="defaultSemiBold" style={[styles.statValue, avgCost > 0 && (isPositive ? styles.statPositive : styles.statNegative)]}>
                 {avgCost > 0 ? `${totalGainLoss >= 0 ? '+' : ''}${curr}${fmtVal(totalGainLoss)}${currSuffix}` : '—'}
               </ThemedText>
@@ -625,7 +641,7 @@ export default function AssetEntryScreen() {
 
           {/* Maliyet satırı */}
           <View style={styles.costRow}>
-            <ThemedText style={styles.costLabel}>Maliyet Toplamı</ThemedText>
+            <ThemedText style={styles.costLabel}>{t('assetEntry.costTotal')}</ThemedText>
             <ThemedText type="defaultSemiBold" style={styles.costValue}>
               {avgCost > 0 ? `${curr}${fmtVal(totalCost)}${currSuffix}` : '—'}
             </ThemedText>
@@ -645,7 +661,12 @@ export default function AssetEntryScreen() {
                     </ThemedText>
                     <View style={[styles.changeBadge, isChartPositive ? styles.changeBadgePos : styles.changeBadgeNeg]}>
                       <ThemedText style={isChartPositive ? styles.changeBadgeTextPos : styles.changeBadgeTextNeg}>
-                        {isChartPositive ? '+' : ''}{chartChange.percentage.toFixed(2).replace('.', ',')}%
+                        {isChartPositive ? '+' : ''}
+                        {chartChange.percentage.toLocaleString(numberLocale, {
+                          minimumFractionDigits: 2,
+                          maximumFractionDigits: 2,
+                        })}
+                        %
                       </ThemedText>
                     </View>
                   </View>
@@ -654,7 +675,7 @@ export default function AssetEntryScreen() {
                   <ThemedText style={styles.pointDate}>{selectedDate}</ThemedText>
                 ) : (
                   <ThemedText style={styles.categoryBadge}>
-                    {CATEGORY_LABELS[categoryId ?? ''] ?? categoryId}
+                    {catLabel(categoryId ?? '')}
                   </ThemedText>
                 )}
               </View>
@@ -684,6 +705,7 @@ export default function AssetEntryScreen() {
                   currSuf={currSuffix}
                   selectedIdx={selectedIdx}
                   onSelect={setSelectedIdx}
+                  numberLocale={numberLocale}
                 />
               )}
             </>
@@ -694,7 +716,8 @@ export default function AssetEntryScreen() {
           {/* Mode buttons */}
           <View style={styles.modeRow}>
             {(['add', 'reduce', 'delete'] as FormMode[]).map((m) => {
-              const label = m === 'add' ? 'EKLEME' : m === 'reduce' ? 'AZALTMA' : 'SİLME';
+              const label =
+                m === 'add' ? t('assetEntry.modeAddCaps') : m === 'reduce' ? t('assetEntry.modeReduceCaps') : t('assetEntry.modeDeleteCaps');
               const active = formMode === m;
               return (
                 <TouchableOpacity
@@ -723,7 +746,7 @@ export default function AssetEntryScreen() {
                     placeholder="0"
                     placeholderTextColor="#6b7280"
                     value={inputWhole}
-                    onChangeText={(t) => setInputWhole(t.replace(/[^0-9]/g, ''))}
+                    onChangeText={(txt) => setInputWhole(txt.replace(/[^0-9]/g, ''))}
                   />
                   <ThemedText style={styles.splitComma}>,</ThemedText>
                   <TextInput
@@ -733,11 +756,11 @@ export default function AssetEntryScreen() {
                     placeholderTextColor="#6b7280"
                     maxLength={10}
                     value={inputDecimal}
-                    onChangeText={(t) => setInputDecimal(t.replace(/[^0-9]/g, ''))}
+                    onChangeText={(txt) => setInputDecimal(txt.replace(/[^0-9]/g, ''))}
                   />
                 </View>
 
-                <ThemedText style={[styles.splitLabel, { marginTop: 12 }]}>BİRİM MALİYET (Opsiyonel)</ThemedText>
+                <ThemedText style={[styles.splitLabel, { marginTop: 12 }]}>{t('assetEntry.labelUnitCostCaps')}</ThemedText>
                 <View style={styles.costInputWrapper}>
                   <TextInput
                     style={styles.costInput}
@@ -757,7 +780,7 @@ export default function AssetEntryScreen() {
                   {saving ? (
                     <ActivityIndicator size="small" color="#fff" />
                   ) : (
-                    <ThemedText style={styles.actionBtnText}>EKLE</ThemedText>
+                    <ThemedText style={styles.actionBtnText}>{t('assetEntry.btnAdd')}</ThemedText>
                   )}
                 </TouchableOpacity>
               </>
@@ -765,7 +788,7 @@ export default function AssetEntryScreen() {
 
             {formMode === 'reduce' && (
               <>
-                <ThemedText style={styles.splitLabel}>ÇIKARILACAK ADET</ThemedText>
+                <ThemedText style={styles.splitLabel}>{t('assetEntry.labelQtyReduceCaps')}</ThemedText>
                 <View style={styles.splitRow}>
                   <TextInput
                     style={styles.splitInputLeft}
@@ -773,7 +796,7 @@ export default function AssetEntryScreen() {
                     placeholder="0"
                     placeholderTextColor="#6b7280"
                     value={inputWhole}
-                    onChangeText={(t) => setInputWhole(t.replace(/[^0-9]/g, ''))}
+                    onChangeText={(txt) => setInputWhole(txt.replace(/[^0-9]/g, ''))}
                   />
                   <ThemedText style={styles.splitComma}>,</ThemedText>
                   <TextInput
@@ -783,7 +806,7 @@ export default function AssetEntryScreen() {
                     placeholderTextColor="#6b7280"
                     maxLength={10}
                     value={inputDecimal}
-                    onChangeText={(t) => setInputDecimal(t.replace(/[^0-9]/g, ''))}
+                    onChangeText={(txt) => setInputDecimal(txt.replace(/[^0-9]/g, ''))}
                   />
                 </View>
 
@@ -795,7 +818,7 @@ export default function AssetEntryScreen() {
                   {saving ? (
                     <ActivityIndicator size="small" color="#fff" />
                   ) : (
-                    <ThemedText style={styles.actionBtnText}>AZALT</ThemedText>
+                    <ThemedText style={styles.actionBtnText}>{t('assetEntry.btnReduce')}</ThemedText>
                   )}
                 </TouchableOpacity>
               </>
@@ -803,14 +826,16 @@ export default function AssetEntryScreen() {
 
             {formMode === 'delete' && holdingId && (
               <View style={styles.deleteSection}>
-                <ThemedText style={styles.deleteWarning}>
-                  Bu varlık portföyünüzden tamamen silinecektir.
+                <ThemedText style={styles.deleteWarning}>{t('assetEntry.deleteWarn')}</ThemedText>
+                <ThemedText style={styles.deleteInfo}>
+                  {t('assetEntry.deleteCurrent', {
+                    qty: qty.toLocaleString(numberLocale, { maximumFractionDigits: 10 }),
+                  })}
                 </ThemedText>
                 <ThemedText style={styles.deleteInfo}>
-                  Mevcut: {qty.toLocaleString('tr-TR', { maximumFractionDigits: 10 })} adet
-                </ThemedText>
-                <ThemedText style={styles.deleteInfo}>
-                  Değer: {curr}{(qty * currentPrice).toLocaleString('tr-TR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}{currSuffix}
+                  {t('assetEntry.deleteValue', {
+                    value: `${curr}${(qty * currentPrice).toLocaleString(numberLocale, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}${currSuffix}`,
+                  })}
                 </ThemedText>
 
                 <TouchableOpacity
@@ -821,16 +846,14 @@ export default function AssetEntryScreen() {
                   {saving ? (
                     <ActivityIndicator size="small" color="#fff" />
                   ) : (
-                    <ThemedText style={styles.actionBtnText}>SİL</ThemedText>
+                    <ThemedText style={styles.actionBtnText}>{t('assetEntry.btnDelete')}</ThemedText>
                   )}
                 </TouchableOpacity>
               </View>
             )}
 
             {formMode === 'delete' && !holdingId && (
-              <ThemedText style={styles.deleteWarning}>
-                Bu varlık portföyünüze henüz eklenmemiş.
-              </ThemedText>
+              <ThemedText style={styles.deleteWarning}>{t('assetEntry.notInPortfolio')}</ThemedText>
             )}
           </View>
         </ScrollView>
@@ -847,11 +870,12 @@ export default function AssetEntryScreen() {
             <View style={styles.modalIconWrap}>
               <Ionicons name="warning" size={32} color="#ef4444" />
             </View>
-            <ThemedText style={styles.modalTitle}>Varlığı Sil</ThemedText>
+            <ThemedText style={styles.modalTitle}>{t('assetEntry.modalTitle')}</ThemedText>
             <ThemedText style={styles.modalMessage}>
-              {qty.toLocaleString('tr-TR', { maximumFractionDigits: 10 })} adet{' '}
-              <ThemedText style={styles.modalBold}>{symbol || name}</ThemedText>{' '}
-              silinecek. Onaylıyor musun?
+              {t('assetEntry.modalMessage', {
+                qty: qty.toLocaleString(numberLocale, { maximumFractionDigits: 10 }),
+                symbol: symbol || name,
+              })}
             </ThemedText>
             <View style={styles.modalBtnRow}>
               <TouchableOpacity
@@ -864,7 +888,7 @@ export default function AssetEntryScreen() {
                 style={styles.modalBtnConfirm}
                 activeOpacity={0.8}
                 onPress={() => { setShowDeleteModal(false); performDelete(); }}>
-                <ThemedText style={styles.modalBtnConfirmText}>Evet, Sil</ThemedText>
+                <ThemedText style={styles.modalBtnConfirmText}>{t('assetEntry.modalYes')}</ThemedText>
               </TouchableOpacity>
             </View>
           </View>

@@ -1,14 +1,16 @@
 import { StyleSheet, View } from 'react-native';
+import { useTranslation } from 'react-i18next';
 
 import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
 
 export default function ExploreScreen() {
+  const { t } = useTranslation();
   return (
     <ThemedView style={styles.container}>
       <View style={styles.center}>
-        <ThemedText type="subtitle">Portföy Takip</ThemedText>
-        <ThemedText style={styles.muted}>Varlıklarınızı tek yerden takip edin.</ThemedText>
+        <ThemedText type="subtitle">{t('explore.heading')}</ThemedText>
+        <ThemedText style={styles.muted}>{t('explore.subtitle')}</ThemedText>
       </View>
     </ThemedView>
   );

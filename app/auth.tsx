@@ -2,14 +2,24 @@ import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import React, { useMemo, useState } from 'react';
 import { ActivityIndicator, Platform, StyleSheet, TextInput, TouchableOpacity, View } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 
+import { LanguageToggle } from '@/components/language-toggle';
+import { OmnifolioBrand } from '@/components/omnifolio-brand';
 import { ThemedText } from '@/components/themed-text';
 import { useAuth } from '@/context/auth';
+import { supabase } from '@/lib/supabase';
+import { useTranslation } from 'react-i18next';
 
 type Mode = 'signin' | 'signup';
 
+/** Tagline / alt başlık satır yüksekliği — “3 satır boşluk” için çarpan. */
+const AUTH_LINE_HEIGHT = 20;
+const AUTH_THREE_LINES = AUTH_LINE_HEIGHT * 3;
+
 export default function AuthScreen() {
+  const { t } = useTranslation();
+  const insets = useSafeAreaInsets();
   const router = useRouter();
   const { signInWithEmail, signUpWithEmail, signInWithGoogle, signInWithApple } = useAuth();
   const [mode, setMode] = useState<Mode>('signin');
@@ -28,7 +38,7 @@ export default function AuthScreen() {
     return await Promise.race([
       promise,
       new Promise<T>((_, reject) => {
-        setTimeout(() => reject(new Error('İstek zaman aşımına uğradı. Lütfen tekrar dene.')), ms);
+        setTimeout(() => reject(new Error(t('auth.timeout'))), ms);
       }),
     ]);
   };
@@ -36,11 +46,11 @@ export default function AuthScreen() {
   const submit = async () => {
     if (busy) return;
     if (!isEmailValid) {
-      setError('Geçerli bir e-posta adresi gir.');
+      setError(t('auth.invalidEmail'));
       return;
     }
     if (!isPasswordValid) {
-      setError('Şifre en az 6 karakter olmalı.');
+      setError(t('auth.passwordShort'));
       return;
     }
 
@@ -67,14 +77,14 @@ export default function AuthScreen() {
       // Confirm-email kapalı akışta kullanıcıyı direkt girişe al.
       const { error: signInError, hasSession } = await withTimeout(signInWithEmail(email.trim(), password.trim()), 10000);
       if (signInError) {
-        setInfo('Kaydın oluşturuldu. Giriş için "Giriş Yap" sekmesinden devam et.');
+        setInfo(t('auth.signupThenSignIn'));
         setMode('signin');
         return;
       }
-      setInfo('Kaydın oluşturuldu ve giriş yapıldı.');
+      setInfo(t('auth.signupSuccess'));
       if (hasSession) router.replace('/(tabs)');
     } catch (e: any) {
-      setError(e?.message ?? 'İşlem sırasında bir hata oluştu.');
+      setError(e?.message ?? t('auth.genericError'));
     } finally {
       setBusy(false);
     }
@@ -84,20 +94,38 @@ export default function AuthScreen() {
     setBusy(true);
     setError(null);
     setInfo(null);
-    const fn = provider === 'google' ? signInWithGoogle : signInWithApple;
-    const { error: authError } = await fn();
-    setBusy(false);
-    if (authError) setError(authError);
+    try {
+      const fn = provider === 'google' ? signInWithGoogle : signInWithApple;
+      const { error: authError } = await withTimeout(fn(), 60000);
+      if (authError) {
+        setError(authError);
+        return;
+      }
+      const { data, error: sessionError } = await supabase.auth.getSession();
+      if (sessionError) {
+        setError(sessionError.message);
+        return;
+      }
+      if (data.session) {
+        router.replace('/(tabs)');
+        return;
+      }
+      setError(t('auth.sessionFailed'));
+    } catch (e: unknown) {
+      setError(e instanceof Error ? e.message : t('auth.socialError'));
+    } finally {
+      setBusy(false);
+    }
   };
 
   return (
     <SafeAreaView style={styles.safe}>
+      <View style={[styles.langCorner, { top: insets.top + 8 }]}>
+        <LanguageToggle />
+      </View>
       <View style={styles.container}>
-        <View style={styles.logoWrap}>
-          <Ionicons name="pie-chart" size={28} color="#3b82f6" />
-        </View>
-        <ThemedText style={styles.title}>Portfoy Takip</ThemedText>
-        <ThemedText style={styles.subtitle}>Hesabina giris yap veya yeni bir hesap olustur.</ThemedText>
+        <OmnifolioBrand />
+        <ThemedText style={styles.subtitle}>{t('auth.subtitle')}</ThemedText>
 
         <View style={styles.modeRow}>
           <TouchableOpacity
@@ -105,33 +133,33 @@ export default function AuthScreen() {
             style={[styles.modeBtn, mode === 'signin' && styles.modeBtnActive]}
             onPress={() => setMode('signin')}
           >
-            <ThemedText style={[styles.modeText, mode === 'signin' && styles.modeTextActive]}>Giris Yap</ThemedText>
+            <ThemedText style={[styles.modeText, mode === 'signin' && styles.modeTextActive]}>{t('auth.signIn')}</ThemedText>
           </TouchableOpacity>
           <TouchableOpacity
             activeOpacity={0.85}
             style={[styles.modeBtn, mode === 'signup' && styles.modeBtnActive]}
             onPress={() => setMode('signup')}
           >
-            <ThemedText style={[styles.modeText, mode === 'signup' && styles.modeTextActive]}>Uye Ol</ThemedText>
+            <ThemedText style={[styles.modeText, mode === 'signup' && styles.modeTextActive]}>{t('auth.signUp')}</ThemedText>
           </TouchableOpacity>
         </View>
 
         <View style={styles.card}>
-          <ThemedText style={styles.label}>E-posta</ThemedText>
+          <ThemedText style={styles.label}>{t('auth.email')}</ThemedText>
           <TextInput
             autoCapitalize="none"
             keyboardType="email-address"
-            placeholder="ornek@mail.com"
+            placeholder={t('auth.emailPlaceholder')}
             placeholderTextColor="#6b7280"
             value={email}
             onChangeText={setEmail}
             style={styles.input}
           />
 
-          <ThemedText style={[styles.label, { marginTop: 10 }]}>Sifre</ThemedText>
+          <ThemedText style={[styles.label, { marginTop: 10 }]}>{t('auth.password')}</ThemedText>
           <TextInput
             secureTextEntry
-            placeholder="En az 6 karakter"
+            placeholder={t('auth.passwordPlaceholder')}
             placeholderTextColor="#6b7280"
             value={password}
             onChangeText={setPassword}
@@ -147,22 +175,24 @@ export default function AuthScreen() {
             {busy ? (
               <ActivityIndicator color="#fff" />
             ) : (
-              <ThemedText style={styles.primaryBtnText}>{mode === 'signin' ? 'Giris Yap' : 'Uye Ol'}</ThemedText>
+              <ThemedText style={styles.primaryBtnText}>
+                {mode === 'signin' ? t('auth.signIn') : t('auth.signUp')}
+              </ThemedText>
             )}
           </TouchableOpacity>
         </View>
 
-        <ThemedText style={styles.orText}>veya</ThemedText>
+        <ThemedText style={styles.orText}>{t('auth.or')}</ThemedText>
 
         <TouchableOpacity activeOpacity={0.85} style={styles.socialBtn} onPress={() => social('google')} disabled={busy}>
           <Ionicons name="logo-google" size={18} color="#e5e7eb" />
-          <ThemedText style={styles.socialText}>Google ile devam et</ThemedText>
+          <ThemedText style={styles.socialText}>{t('auth.googleContinue')}</ThemedText>
         </TouchableOpacity>
 
         {showAppleButton ? (
           <TouchableOpacity activeOpacity={0.85} style={styles.socialBtn} onPress={() => social('apple')} disabled={busy}>
             <Ionicons name="logo-apple" size={18} color="#e5e7eb" />
-            <ThemedText style={styles.socialText}>Apple ile devam et</ThemedText>
+            <ThemedText style={styles.socialText}>{t('auth.appleContinue')}</ThemedText>
           </TouchableOpacity>
         ) : null}
 
@@ -175,18 +205,20 @@ export default function AuthScreen() {
 
 const styles = StyleSheet.create({
   safe: { flex: 1, backgroundColor: '#000' },
-  container: { flex: 1, paddingHorizontal: 20, paddingTop: 24 },
-  logoWrap: {
-    width: 52,
-    height: 52,
-    borderRadius: 26,
-    backgroundColor: 'rgba(59,130,246,0.16)',
-    alignItems: 'center',
-    justifyContent: 'center',
-    alignSelf: 'center',
+  langCorner: {
+    position: 'absolute',
+    right: 16,
+    zIndex: 10,
   },
-  title: { marginTop: 10, textAlign: 'center', color: '#f9fafb', fontWeight: '700', fontSize: 24 },
-  subtitle: { marginTop: 6, textAlign: 'center', color: '#9ca3af', fontSize: 13, marginBottom: 18 },
+  container: { flex: 1, paddingHorizontal: 20, paddingTop: 24 + AUTH_THREE_LINES },
+  subtitle: {
+    marginTop: 4 + AUTH_THREE_LINES,
+    textAlign: 'center',
+    color: '#9ca3af',
+    fontSize: 14,
+    marginBottom: 20,
+    lineHeight: AUTH_LINE_HEIGHT,
+  },
   modeRow: { flexDirection: 'row', gap: 8, marginBottom: 12 },
   modeBtn: {
     flex: 1,
@@ -197,7 +229,7 @@ const styles = StyleSheet.create({
     paddingVertical: 10,
     alignItems: 'center',
   },
-  modeBtnActive: { borderColor: '#3b82f6', backgroundColor: 'rgba(59,130,246,0.18)' },
+  modeBtnActive: { borderColor: '#00e677', backgroundColor: 'rgba(0,230,119,0.12)' },
   modeText: { color: '#9ca3af', fontWeight: '600' },
   modeTextActive: { color: '#fff' },
   card: {
@@ -219,10 +251,12 @@ const styles = StyleSheet.create({
   },
   primaryBtn: {
     marginTop: 14,
-    backgroundColor: '#3b82f6',
+    backgroundColor: '#00b863',
     borderRadius: 10,
     alignItems: 'center',
     paddingVertical: 12,
+    borderWidth: 1,
+    borderColor: 'rgba(0,230,119,0.45)',
   },
   disabledBtn: { opacity: 0.5 },
   primaryBtnText: { color: '#fff', fontWeight: '700' },

@@ -13,10 +13,12 @@ import {
   TouchableOpacity,
   Image,
   View,
+  type TextStyle,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { supabase } from '@/lib/supabase';
+import { useTranslation } from 'react-i18next';
 
 const BG = '#000000';
 const SURFACE = '#1C1C1E';
@@ -38,11 +40,12 @@ function Radio({ selected }: { selected: boolean }) {
 }
 
 export default function AssetListScreen() {
+  const { t } = useTranslation();
   const router = useRouter();
   const params = useLocalSearchParams<{ categoryId?: string; label?: string; _t?: string }>();
 
   const categoryId = params.categoryId ?? 'default';
-  const label = params.label ?? 'Varlık';
+  const label = params.label ?? t('assetList.defaultLabel');
 
   const [query, setQuery] = useState('');
   const [selectedId, setSelectedId] = useState<string | null>(null);
@@ -172,15 +175,15 @@ export default function AssetListScreen() {
     });
   };
 
-  const title = `${label} varlıklarını arayın.`;
-  const searchPlaceholder = `${label} Ara...`;
+  const title = t('assetList.title', { label });
+  const searchPlaceholder = t('assetList.searchPlaceholder', { label });
 
   const countLabel = useMemo(() => {
     if (totalCount == null) return '';
     const showing = assets.length;
-    if (query.trim()) return `${showing} sonuç`;
-    return `${showing} / ${totalCount}`;
-  }, [totalCount, assets.length, query]);
+    if (query.trim()) return t('assetList.countResults', { n: showing });
+    return t('assetList.countShowing', { showing, total: totalCount });
+  }, [totalCount, assets.length, query, t]);
 
   return (
     <View style={styles.root}>
@@ -222,7 +225,7 @@ export default function AssetListScreen() {
 
           <View style={styles.sectionHeader}>
             <Text style={styles.sectionTitle}>
-              {query.trim() ? 'ARAMA SONUÇLARI' : 'TÜM VARLIKLAR'}
+              {query.trim() ? t('assetList.sectionSearch') : t('assetList.sectionAll')}
             </Text>
             {countLabel ? <Text style={styles.countLabel}>{countLabel}</Text> : null}
           </View>
@@ -237,7 +240,7 @@ export default function AssetListScreen() {
             </View>
           ) : assets.length === 0 ? (
             <View style={styles.centered}>
-              <Text style={styles.emptyText}>Sonuç bulunamadı</Text>
+              <Text style={styles.emptyText}>{t('assetList.empty')}</Text>
             </View>
           ) : (
             <FlatList
@@ -287,7 +290,7 @@ export default function AssetListScreen() {
                 loadingMore ? (
                   <View style={styles.footerLoader}>
                     <ActivityIndicator size="small" color={PRIMARY} />
-                    <Text style={styles.footerText}>Daha fazla yükleniyor...</Text>
+                    <Text style={styles.footerText}>{t('assetList.loadMore')}</Text>
                   </View>
                 ) : null
               }
@@ -300,7 +303,7 @@ export default function AssetListScreen() {
               onPress={handleAdd}
               disabled={!selectedAsset}
               activeOpacity={0.85}>
-              <Text style={styles.addButtonText}>Detaya Git</Text>
+              <Text style={styles.addButtonText}>{t('assetList.goToDetail')}</Text>
             </TouchableOpacity>
           </View>
           <View style={styles.bottomSpacer} />
@@ -343,7 +346,7 @@ const styles = StyleSheet.create({
     color: WHITE,
     fontSize: 16,
     paddingVertical: 0,
-    ...(Platform.OS === 'web' ? { outlineStyle: 'none' } : {}),
+    ...(Platform.OS === 'web' ? ({ outlineStyle: 'none' } as unknown as TextStyle) : {}),
   },
   sectionHeader: {
     paddingHorizontal: 24,

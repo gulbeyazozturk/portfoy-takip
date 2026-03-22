@@ -1,16 +1,18 @@
 import React from 'react';
 import { StyleSheet, Text, View } from 'react-native';
+import { useTranslation } from 'react-i18next';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 const BG = '#000000';
 const TEXT = '#AAB0C4';
 
 export default function InsightsScreen() {
+  const { t } = useTranslation();
   return (
     <View style={styles.root}>
       <SafeAreaView style={styles.safe} edges={['top']}>
-        <Text style={styles.title}>Insights</Text>
-        <Text style={styles.subtitle}>Coming soon</Text>
+        <Text style={styles.title}>{t('insights.title')}</Text>
+        <Text style={styles.subtitle}>{t('insights.comingSoon')}</Text>
       </SafeAreaView>
     </View>
   );

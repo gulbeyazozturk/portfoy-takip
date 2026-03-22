@@ -1,13 +1,15 @@
+import * as AppleAuthentication from 'expo-apple-authentication';
 import * as Linking from 'expo-linking';
 import * as WebBrowser from 'expo-web-browser';
 import { Session, User } from '@supabase/supabase-js';
 import React, { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react';
 import { Platform } from 'react-native';
 
+import i18n from '@/lib/i18n';
 import { supabase } from '@/lib/supabase';
 
 WebBrowser.maybeCompleteAuthSession();
-// app/oauth-callback.tsx ile aynı yol — Supabase Redirect URLs’e Metro’da log’lanan tam adresi ekleyin.
+// app/oauth-callback.tsx ile aynı yol — Supabase Redirect URLs’e bu deep link’i ekleyin.
 const APP_REDIRECT_URL = Linking.createURL('oauth-callback');
 
 function getOAuthRedirectUrl() {
@@ -15,11 +17,6 @@ function getOAuthRedirectUrl() {
     return `${window.location.origin}/oauth-callback`;
   }
   return APP_REDIRECT_URL;
-}
-
-if (__DEV__) {
-  // Supabase Dashboard → Authentication → URL Configuration → Redirect URLs içine bu adresi aynen ekleyin.
-  console.log('[auth] OAuth redirectTo (Expo/Supabase):', APP_REDIRECT_URL);
 }
 
 type AuthContextValue = {
@@ -89,7 +86,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     const { data } = await supabase.auth.getSession();
     const hasSession = !!data.session;
     return {
-      error: hasSession ? null : 'Giriş tamamlanamadı. Lütfen tekrar dene.',
+      error: hasSession ? null : i18n.t('errors.signInIncomplete'),
       hasSession,
     };
   }, []);
@@ -109,16 +106,15 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       provider,
       options: { redirectTo, skipBrowserRedirect: true },
     });
-    if (error || !data?.url) return { error: error?.message ?? 'OAuth başlatılamadı.' };
+    if (error || !data?.url) return { error: error?.message ?? i18n.t('errors.oauthStart') };
 
     const result = await WebBrowser.openAuthSessionAsync(data.url, APP_REDIRECT_URL);
 
     if (result.type === 'cancel' || result.type === 'dismiss') {
-      return { error: 'Giriş iptal edildi.' };
+      return { error: i18n.t('errors.oauthCancelled') };
     }
     if (result.type !== 'success' || !result.url) {
-      if (__DEV__) console.warn('[auth] openAuthSessionAsync:', result.type, result);
-      return { error: 'Giriş tamamlanamadı. Metro konsoldaki redirect URL’yi Supabase’e ekleyip tekrar deneyin.' };
+      return { error: i18n.t('errors.oauthIncomplete') };
     }
 
     const params = parseUrlParams(result.url);
@@ -131,11 +127,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     // PKCE (önerilen): ?code=...
     if (params.code) {
       const { error: exchangeError } = await supabase.auth.exchangeCodeForSession(params.code);
-      if (exchangeError && __DEV__) console.warn('[auth] exchangeCodeForSession:', exchangeError);
       if (exchangeError?.message?.toLowerCase().includes('code verifier')) {
         return {
-          error:
-            'Oturum anahtarı eşleşmedi. Uygulamayı tam kapatıp tekrar açın, sonra Google’ı yeniden deneyin.',
+          error: i18n.t('errors.pkceMismatch'),
         };
       }
       return { error: exchangeError?.message ?? null };
@@ -146,8 +140,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     const refresh_token = params.refresh_token;
     if (!access_token || !refresh_token) {
       return {
-        error:
-          'Oturum bilgisi alınamadı. Supabase’te Redirect URLs listesinde bu adres olmalı: ' + redirectTo,
+        error: i18n.t('errors.sessionParams', { url: redirectTo }),
       };
     }
 
@@ -156,7 +149,44 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   const signInWithGoogle = useCallback(() => signInWithOAuth('google'), [signInWithOAuth]);
-  const signInWithApple = useCallback(() => signInWithOAuth('apple'), [signInWithOAuth]);
+
+  /**
+   * iOS: Native Sign in with Apple + Supabase signInWithIdToken (OAuth deep link/PKCE sorunlarını önler).
+   * Diğer platformlar veya native kullanılamıyorsa web OAuth’a düşer.
+   */
+  const signInWithApple = useCallback(async () => {
+    if (Platform.OS === 'ios') {
+      try {
+        const available = await AppleAuthentication.isAvailableAsync();
+        if (available) {
+          const credential = await AppleAuthentication.signInAsync({
+            requestedScopes: [
+              AppleAuthentication.AppleAuthenticationScope.FULL_NAME,
+              AppleAuthentication.AppleAuthenticationScope.EMAIL,
+            ],
+          });
+
+          if (!credential.identityToken) {
+            return { error: i18n.t('errors.appleToken') };
+          }
+
+          const { error } = await supabase.auth.signInWithIdToken({
+            provider: 'apple',
+            token: credential.identityToken,
+          });
+
+          return { error: error?.message ?? null };
+        }
+      } catch (e: unknown) {
+        const code = e && typeof e === 'object' && 'code' in e ? String((e as { code?: string }).code) : '';
+        if (code === 'ERR_REQUEST_CANCELED' || code === 'ERR_CANCELED') {
+          return { error: i18n.t('errors.oauthCancelled') };
+        }
+      }
+    }
+
+    return signInWithOAuth('apple');
+  }, [signInWithOAuth]);
 
   const signOut = useCallback(async () => {
     setSession(null);
