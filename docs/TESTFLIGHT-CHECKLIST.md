@@ -38,9 +38,11 @@ Kontrol: `echo $env:EXPO_APPLE_ID` gercekten e-posta mi gosteriyor?
 ## 3) Expo/EAS Giris
 
 ```powershell
-npx eas login
-npx eas whoami
+npx eas-cli login
+npx eas-cli whoami
 ```
+
+(`eas-cli` projede dependency olarak tutulmaz; `npx` ile çağırın — `expo doctor` uyarısını böylece görmezsiniz.)
 
 ## 4) TestFlight Build
 
@@ -65,7 +67,7 @@ npm run ios:testflight:submit
 Alternatif:
 
 ```powershell
-npx eas submit --platform ios --profile testflight
+npx eas-cli submit --platform ios --profile testflight
 ```
 
 ## 6) Build "Prebuild" hatasi (Unknown error)
@@ -93,6 +95,6 @@ npx expo prebuild --platform ios --clean
 
 ## 7) Kontrol
 
-- Build durumu: `npx eas build:list --platform ios --limit 5`
-- Submit durumu: `npx eas submit:list --platform ios --limit 5`
+- Build durumu: `npx eas-cli build:list --platform ios --limit 5`
+- Submit durumu: `npx eas-cli submit:list --platform ios --limit 5`
 - App Store Connect -> TestFlight sekmesinde build gorunmeli.
