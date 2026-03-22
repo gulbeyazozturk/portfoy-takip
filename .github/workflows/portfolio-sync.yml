@@ -16,6 +16,9 @@ concurrency:
 jobs:
   sync:
     runs-on: ubuntu-latest
+    # checkout/setup-node gibi JS action'ların Node 24 runtime kullanması (GitHub deprecation / 2026 geçişi)
+    env:
+      FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
 
     steps:
       - name: Checkout repo
