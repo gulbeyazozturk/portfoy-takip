@@ -165,6 +165,51 @@ function normSymbol(symbol: string): string {
   return symbol.replace(/^M\d+_/, '').trim().toUpperCase();
 }
 
+function trLoose(s: string): string {
+  return s
+    .replace(/İ/g, 'i')
+    .replace(/I/g, 'ı')
+    .replace(/Ş/g, 'ş')
+    .replace(/Ğ/g, 'ğ')
+    .replace(/Ü/g, 'ü')
+    .replace(/Ö/g, 'ö')
+    .replace(/Ç/g, 'ç')
+    .toLowerCase()
+    .replace(/\s+/g, '');
+}
+
+/** Excel’de sık yazılan yanlış kod -> gerçek BIST sembolü */
+const BIST_CSV_SYMBOL_ALIASES: Readonly<Record<string, string>> = {
+  MIGROS: 'MGROS',
+};
+
+let labelLooseToSymbolCache: Record<string, string> | null = null;
+
+function labelLooseToSymbolMap(): Record<string, string> {
+  if (labelLooseToSymbolCache) return labelLooseToSymbolCache;
+  const m: Record<string, string> = {};
+  for (const [sym, label] of Object.entries(BIST_NAMES)) {
+    m[trLoose(label)] = sym;
+  }
+  labelLooseToSymbolCache = m;
+  return m;
+}
+
+/**
+ * Toplu CSV: BIST varlık hücresini DB’deki `symbol` ile eşleşecek metne çevirir.
+ * Örn. MIGROS → MGROS; "Migros" → MGROS (BIST_NAMES üzerinden).
+ */
+export function resolveBistCsvToCanonicalSymbol(raw: string): string {
+  const trimmed = raw.trim();
+  if (!trimmed) return trimmed;
+  const compact = trimmed.replace(/\s/g, '').toUpperCase();
+  const alias = BIST_CSV_SYMBOL_ALIASES[compact];
+  if (alias) return alias;
+  const fromLabel = labelLooseToSymbolMap()[trLoose(trimmed)];
+  if (fromLabel) return fromLabel;
+  return trimmed;
+}
+
 /** BIST için liste / detay başlığında gösterilecek şirket adı */
 export function resolveBistDisplayName(symbol: string, nameFromDb: string | null | undefined): string {
   const sym = normSymbol(symbol);

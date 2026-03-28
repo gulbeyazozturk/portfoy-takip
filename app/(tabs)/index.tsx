@@ -75,6 +75,8 @@ const ASSET_ICONS: Record<string, { icon: string; bg: string; color: string }> =
   XAG: { icon: 'cube', bg: 'rgba(148,163,184,0.4)', color: '#e5e7eb' }, // gümüş
   XPT: { icon: 'cube', bg: 'rgba(156,163,175,0.4)', color: '#d1d5db' }, // platin
   XPD: { icon: 'cube', bg: 'rgba(129,140,248,0.4)', color: '#a5b4fc' }, // paladyum
+  XAUT: { icon: 'cube', bg: 'rgba(250,204,21,0.45)', color: '#facc15' },
+  PAXG: { icon: 'cube', bg: 'rgba(234,179,8,0.4)', color: '#fbbf24' },
   // Diğer emtia / kategoriler için fallback
   emtia: { icon: 'cube-outline', bg: 'rgba(250,204,21,0.28)', color: '#facc15' },
   // BIST: basit grafik ikonu
@@ -869,8 +871,10 @@ export default function PortfolioScreen() {
                     : asset.category_id === 'doviz'
                       ? asset.symbol
                       : asset.category_id === 'emtia'
-                        ? ['XAU', 'XAG', 'XPT', 'XPD'].includes(asset.symbol)
-                          ? asset.symbol
+                        ? ['XAU', 'XAG', 'XPT', 'XPD', 'XAUT', 'PAXG'].includes(
+                            (asset.symbol ?? '').toUpperCase(),
+                          )
+                          ? (asset.symbol ?? '').toUpperCase()
                           : (() => {
                               const s = (asset.symbol ?? '').toUpperCase();
                               if ((s.includes('22_AYAR') && s.includes('BILEZIK')) || s.includes('14_AYAR') || s.includes('18_AYAR'))

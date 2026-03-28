@@ -24,6 +24,7 @@
     "ios": "expo start --ios",
     "web": "expo start --web",
     "lint": "expo lint",
+    "verify:csv-decode": "npx tsx scripts/verify-decode-csv-bytes.ts",
     "apple:client-secret": "node ./scripts/generate-apple-client-secret.js",
     "icons:square": "node ./scripts/square-expo-icons.js"
   },

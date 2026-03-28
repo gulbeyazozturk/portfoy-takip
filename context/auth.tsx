@@ -149,11 +149,18 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     const redirectTo = getOAuthRedirectUrl();
 
     if (Platform.OS === 'web') {
-      const { error } = await supabase.auth.signInWithOAuth({
+      // Supabase yalnızca isBrowser() (window + document) true ise yönlendirir; RN Web’de
+      // document bazen yok sayıldığı için sessizce kalabiliyor — URL’yi kendimiz açıyoruz.
+      const { data, error } = await supabase.auth.signInWithOAuth({
         provider,
-        options: { redirectTo },
+        options: { redirectTo, skipBrowserRedirect: true },
       });
-      return { error: error?.message ?? null };
+      if (error) return { error: error.message ?? null };
+      if (data?.url && typeof window !== 'undefined') {
+        window.location.assign(data.url);
+        return { error: null };
+      }
+      return { error: i18n.t('errors.oauthStart') };
     }
 
     const { data, error } = await supabase.auth.signInWithOAuth({

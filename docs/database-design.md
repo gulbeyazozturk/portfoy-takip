@@ -8,7 +8,7 @@ Supabase (PostgreSQL) kullanıyorsunuz. Aşağıdaki şema, portföy + varlık t
 
 | Tablo | Açıklama |
 |-------|----------|
-| `categories` | Varlık türleri (Yurtdışı, Bist, Döviz, Emtia, Fon, Kripto) |
+| `categories` | Varlık türleri (ABD / yurtdisi, Bist, Döviz, Emtia, Fon, Kripto) |
 | `assets` | Master varlık listesi (Bitcoin, Ethereum, Gram Altın, USD, vb.) |
 | `portfolios` | Kullanıcıya ait portföy (tek veya çoklu) |
 | `holdings` | Portföydeki pozisyonlar (hangi varlık, miktar, ortalama fiyat) |
@@ -32,7 +32,7 @@ create table public.categories (
 );
 
 insert into public.categories (id, name, subtitle, sort_order) values
-  ('yurtdisi', 'Yurtdışı', 'Global Hisse Senetleri', 1),
+  ('yurtdisi', 'ABD', 'Global Hisse Senetleri', 1),
   ('bist', 'Bist', 'Borsa İstanbul', 2),
   ('doviz', 'Döviz', 'Yabancı Para Birimleri', 3),
   ('emtia', 'Emtia', 'Altın, Petrol ve Değerli Metaller', 4),

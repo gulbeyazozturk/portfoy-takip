@@ -1,7 +1,7 @@
 import { Ionicons } from '@expo/vector-icons';
 import { useFocusEffect } from '@react-navigation/native';
 import { useLocalSearchParams, useRouter } from 'expo-router';
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
@@ -28,6 +28,28 @@ import { useTranslation } from 'react-i18next';
 function firstParam(v: string | string[] | undefined): string | undefined {
   if (v == null) return undefined;
   return Array.isArray(v) ? v[0] : v;
+}
+
+/** amount state: DB noktalı; kullanıcı TR virgülü yapıştırabilir */
+function parseHoldingQtyString(raw: string | undefined): number {
+  const s = (raw ?? '').trim().replace(/\s/g, '');
+  if (!s) return 0;
+  if (!s.includes(',') && !s.includes('.')) {
+    const n = Number(s);
+    return Number.isFinite(n) ? n : 0;
+  }
+  const lastComma = s.lastIndexOf(',');
+  const lastDot = s.lastIndexOf('.');
+  let t = s;
+  if (lastComma > lastDot) {
+    t = s.replace(/\./g, '').replace(',', '.');
+  } else if (lastDot > lastComma) {
+    t = s.replace(/,/g, '');
+  } else if (s.includes(',')) {
+    t = s.replace(',', '.');
+  }
+  const n = Number(t);
+  return Number.isFinite(n) ? n : 0;
 }
 
 const CHART_W = 400;
@@ -260,7 +282,8 @@ export default function AssetEntryScreen() {
     if (categoryId === 'mevduat') return 'TL';
     if (categoryId === 'doviz') return symbol || '—';
     if (categoryId === 'emtia') {
-      if (['XAU', 'XAG', 'XPT', 'XPD'].includes(symbol)) return symbol;
+      const su = (symbol || '').toUpperCase();
+      if (['XAU', 'XAG', 'XPT', 'XPD', 'XAUT', 'PAXG'].includes(su)) return su;
       const s = (symbol ?? '').toUpperCase();
       if (s.includes('22_AYAR') && s.includes('BILEZIK')) return t('portfolio.unitGram');
       if (s.includes('14_AYAR') || s.includes('18_AYAR')) return t('portfolio.unitGram');
@@ -282,12 +305,19 @@ export default function AssetEntryScreen() {
     return (cid: string) => m[cid] ?? cid;
   }, [t]);
 
-  const [amount, setAmount] = useState(() => (params.quantity as string | undefined) ?? '');
+  const [amount, setAmount] = useState(
+    () => (firstParam(params.holdingId) ? '' : (params.quantity as string | undefined)) ?? '',
+  );
   const [unitPrice, setUnitPrice] = useState(() => (params.avgPrice as string | undefined) ?? '');
   const [saving, setSaving] = useState(false);
 
   type FormMode = 'add' | 'reduce' | 'delete';
   const [formMode, setFormMode] = useState<FormMode>('add');
+  const [inputWhole, setInputWhole] = useState('');
+  const [inputDecimal, setInputDecimal] = useState('');
+  const [inputCost, setInputCost] = useState('');
+  const [showDeleteModal, setShowDeleteModal] = useState(false);
+  const qtyDecimalInputRef = useRef<TextInput>(null);
 
   useFocusEffect(
     useCallback(() => {
@@ -295,12 +325,8 @@ export default function AssetEntryScreen() {
       setInputWhole('');
       setInputDecimal('');
       setInputCost('');
-    }, [])
+    }, []),
   );
-  const [inputWhole, setInputWhole] = useState('');
-  const [inputDecimal, setInputDecimal] = useState('');
-  const [inputCost, setInputCost] = useState('');
-  const [showDeleteModal, setShowDeleteModal] = useState(false);
 
   const [activeTimeframe, setActiveTimeframe] = useState<Timeframe>('1D');
   const [priceHistory, setPriceHistory] = useState<number[]>([]);
@@ -310,19 +336,40 @@ export default function AssetEntryScreen() {
   const [holdingCreatedAt, setHoldingCreatedAt] = useState<string | null>(null);
   const [selectedIdx, setSelectedIdx] = useState<number | null>(null);
 
-  const qty = parseFloat(amount?.replace(',', '.') || '0') || 0;
+  const qty = parseHoldingQtyString(amount);
   const avgCost = unitPrice ? parseFloat(unitPrice.replace(',', '.')) || 0 : 0;
 
+  /** Route params ile miktarı ezme: holdingId ile açıldıysa sunucudan gelen değer geçerli. */
   useEffect(() => {
+    if (routeHoldingId) return;
     setAmount((params.quantity as string | undefined) ?? '');
     setUnitPrice((params.avgPrice as string | undefined) ?? '');
-  }, [params.quantity, params.avgPrice, assetId]);
+  }, [params.quantity, params.avgPrice, assetId, routeHoldingId]);
 
-  /** Portföy listesinden veya aramadan gelindiğinde: yalnızca seçili portföydeki pozisyonu yükle. */
+  /** holdingId ile liste detayından gelince miktarı DB'den al; params eski kalabiliyordu. */
   useEffect(() => {
-    if (routeHoldingId || !assetId || !portfolioId) return;
+    if (!assetId || !portfolioId) return;
     let cancelled = false;
     (async () => {
+      if (routeHoldingId) {
+        const { data, error } = await supabase
+          .from('holdings')
+          .select('id, quantity, avg_price, portfolio_id')
+          .eq('id', routeHoldingId)
+          .maybeSingle();
+        if (cancelled) return;
+        if (error || !data) {
+          setHoldingId(undefined);
+          setAmount('');
+          setUnitPrice('');
+          return;
+        }
+        setHoldingId(data.id);
+        setAmount(String(data.quantity ?? ''));
+        setUnitPrice(data.avg_price != null ? String(data.avg_price) : '');
+        return;
+      }
+
       const { data, error } = await supabase
         .from('holdings')
         .select('id, quantity, avg_price')
@@ -452,6 +499,24 @@ export default function AssetEntryScreen() {
     return w + d;
   }, [inputWhole, inputDecimal]);
 
+  /**
+   * Sol kutu: sistem decimal-pad (TR’de çoğunlukla virgül, iOS’ta bazen nokta).
+   * Ayırıcı girilince tam kısım / ondalık bölünür ve odak sağa geçer.
+   */
+  const onQtyWholeChange = useCallback((txt: string) => {
+    const t = txt.replace(/,/g, '.');
+    const dot = t.indexOf('.');
+    if (dot >= 0) {
+      const w = t.slice(0, dot).replace(/[^0-9]/g, '');
+      const d = t.slice(dot + 1).replace(/[^0-9]/g, '').slice(0, 10);
+      setInputWhole(w);
+      setInputDecimal(d);
+      requestAnimationFrame(() => qtyDecimalInputRef.current?.focus());
+      return;
+    }
+    setInputWhole(t.replace(/[^0-9]/g, '').slice(0, 14));
+  }, []);
+
   const navigateBack = () => {
     if (returnTo === '/(tabs)/asset-list' && returnCategoryId != null) {
       router.replace({
@@ -483,17 +548,23 @@ export default function AssetEntryScreen() {
             : cost;
         }
         const newQty = qty + inputQty;
-        const { error } = await supabase
+        const { data: updated, error } = await supabase
           .from('holdings')
           .update({ quantity: newQty, avg_price: newAvg })
           .eq('id', holdingId)
-          .eq('portfolio_id', portfolioId);
+          .eq('portfolio_id', portfolioId)
+          .select('quantity, avg_price')
+          .maybeSingle();
         if (error) {
           Alert.alert(t('assetEntry.errorTitle'), error.message);
           return;
         }
-        setAmount(String(newQty));
-        setUnitPrice(newAvg != null ? String(newAvg) : '');
+        if (!updated) {
+          Alert.alert(t('assetEntry.errorTitle'), t('assetEntry.updateNoRow'));
+          return;
+        }
+        setAmount(String(updated.quantity ?? newQty));
+        setUnitPrice(updated.avg_price != null ? String(updated.avg_price) : '');
       } else {
         const { data, error } = await supabase.from('holdings').insert({
           portfolio_id: portfolioId,
@@ -520,7 +591,7 @@ export default function AssetEntryScreen() {
   };
 
   const handleReduce = async () => {
-    if (!holdingId) return;
+    if (!holdingId || !portfolioId) return;
     if (inputQty <= 0) {
       Alert.alert(t('assetEntry.errorTitle'), t('assetEntry.invalidQty'));
       return;
@@ -540,13 +611,20 @@ export default function AssetEntryScreen() {
       if (error) { Alert.alert(t('assetEntry.errorTitle'), error.message); return; }
       navigateBack();
     } else {
-      const { error } = await supabase
+      const { data: updated, error } = await supabase
         .from('holdings')
         .update({ quantity: newQty })
-        .eq('id', holdingId);
+        .eq('id', holdingId)
+        .eq('portfolio_id', portfolioId)
+        .select('quantity')
+        .maybeSingle();
       setSaving(false);
       if (error) { Alert.alert(t('assetEntry.errorTitle'), error.message); return; }
-      setAmount(String(newQty));
+      if (!updated) {
+        Alert.alert(t('assetEntry.errorTitle'), t('assetEntry.updateNoRow'));
+        return;
+      }
+      setAmount(String(updated.quantity ?? newQty));
       setInputWhole('');
       setInputDecimal('');
     }
@@ -771,7 +849,12 @@ export default function AssetEntryScreen() {
                     active && (m === 'add' ? styles.modeBtnAdd : m === 'reduce' ? styles.modeBtnReduce : styles.modeBtnDelete),
                   ]}
                   activeOpacity={0.8}
-                  onPress={() => { setFormMode(m); setInputWhole(''); setInputDecimal(''); setInputCost(''); }}>
+                  onPress={() => {
+                    setFormMode(m);
+                    setInputWhole('');
+                    setInputDecimal('');
+                    setInputCost('');
+                  }}>
                   <ThemedText style={[styles.modeBtnText, active && styles.modeBtnTextActive]}>{label}</ThemedText>
                 </TouchableOpacity>
               );
@@ -780,30 +863,38 @@ export default function AssetEntryScreen() {
 
           {/* Form content per mode */}
           <View style={styles.formContainer}>
-            {formMode === 'add' && (
+            {(formMode === 'add' || formMode === 'reduce') && (
               <>
-                <ThemedText style={styles.splitLabel}>EKLENECEK ADET</ThemedText>
+                <ThemedText style={styles.splitLabel}>
+                  {formMode === 'add' ? 'EKLENECEK ADET' : t('assetEntry.labelQtyReduceCaps')}
+                </ThemedText>
                 <View style={styles.splitRow}>
                   <TextInput
                     style={styles.splitInputLeft}
-                    keyboardType="number-pad"
+                    keyboardType="decimal-pad"
                     placeholder="0"
                     placeholderTextColor="#6b7280"
                     value={inputWhole}
-                    onChangeText={(txt) => setInputWhole(txt.replace(/[^0-9]/g, ''))}
+                    onChangeText={onQtyWholeChange}
+                    maxLength={20}
                   />
                   <ThemedText style={styles.splitComma}>,</ThemedText>
                   <TextInput
+                    ref={qtyDecimalInputRef}
                     style={styles.splitInputRight}
                     keyboardType="number-pad"
                     placeholder="0000000000"
                     placeholderTextColor="#6b7280"
                     maxLength={10}
                     value={inputDecimal}
-                    onChangeText={(txt) => setInputDecimal(txt.replace(/[^0-9]/g, ''))}
+                    onChangeText={(txt) => setInputDecimal(txt.replace(/[^0-9]/g, '').slice(0, 10))}
                   />
                 </View>
+              </>
+            )}
 
+            {formMode === 'add' && (
+              <>
                 <ThemedText style={[styles.splitLabel, { marginTop: 12 }]}>{t('assetEntry.labelUnitCostCaps')}</ThemedText>
                 <View style={styles.costInputWrapper}>
                   <TextInput
@@ -831,41 +922,17 @@ export default function AssetEntryScreen() {
             )}
 
             {formMode === 'reduce' && (
-              <>
-                <ThemedText style={styles.splitLabel}>{t('assetEntry.labelQtyReduceCaps')}</ThemedText>
-                <View style={styles.splitRow}>
-                  <TextInput
-                    style={styles.splitInputLeft}
-                    keyboardType="number-pad"
-                    placeholder="0"
-                    placeholderTextColor="#6b7280"
-                    value={inputWhole}
-                    onChangeText={(txt) => setInputWhole(txt.replace(/[^0-9]/g, ''))}
-                  />
-                  <ThemedText style={styles.splitComma}>,</ThemedText>
-                  <TextInput
-                    style={styles.splitInputRight}
-                    keyboardType="number-pad"
-                    placeholder="0000000000"
-                    placeholderTextColor="#6b7280"
-                    maxLength={10}
-                    value={inputDecimal}
-                    onChangeText={(txt) => setInputDecimal(txt.replace(/[^0-9]/g, ''))}
-                  />
-                </View>
-
-                <TouchableOpacity
-                  style={[styles.actionBtn, styles.actionBtnReduce, saving && styles.actionBtnDisabled]}
-                  activeOpacity={0.85}
-                  onPress={handleReduce}
-                  disabled={saving}>
-                  {saving ? (
-                    <ActivityIndicator size="small" color="#fff" />
-                  ) : (
-                    <ThemedText style={styles.actionBtnText}>{t('assetEntry.btnReduce')}</ThemedText>
-                  )}
-                </TouchableOpacity>
-              </>
+              <TouchableOpacity
+                style={[styles.actionBtn, styles.actionBtnReduce, saving && styles.actionBtnDisabled]}
+                activeOpacity={0.85}
+                onPress={handleReduce}
+                disabled={saving}>
+                {saving ? (
+                  <ActivityIndicator size="small" color="#fff" />
+                ) : (
+                  <ThemedText style={styles.actionBtnText}>{t('assetEntry.btnReduce')}</ThemedText>
+                )}
+              </TouchableOpacity>
             )}
 
             {formMode === 'delete' && holdingId && (

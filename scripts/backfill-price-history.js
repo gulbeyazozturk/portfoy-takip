@@ -6,7 +6,7 @@
  *   - yurtdisi : Yahoo Finance (direkt sembol)
  *   - bist     : Yahoo Finance (sembol + '.IS')
  *   - doviz    : Yahoo Finance (sembol + 'TRY=X')
- *   - emtia    : Yahoo Finance (XAU→GC=F, XAG→SI=F, XPT→PL=F, XPD→PA=F) + USDTRY dönüşüm
+ *   - emtia    : Yahoo (XAU…XPD) + USDTRY; XAUT/PAXG CoinGecko market_chart (TRY)
  *   - kripto   : CoinGecko market_chart (vs_currency=try, days=1825)
  *   - fon      : TEFAS BindHistoryInfo API
  *   - mevduat  : atlanır
@@ -49,6 +49,9 @@ const EMTIA_YAHOO_MAP = {
   XPT: 'PL=F',
   XPD: 'PA=F',
 };
+
+/** Emtia kategorisinde olup fiyat geçmişi CoinGecko’dan (external_id) çekilen semboller */
+const EMTIA_COINGECKO_SYMBOLS = new Set(['XAUT', 'PAXG']);
 
 const TEFAS_BASE = 'https://www.tefas.gov.tr';
 const TEFAS_ENDPOINT = `${TEFAS_BASE}/api/DB/BindHistoryInfo`;
@@ -178,8 +181,8 @@ async function fetchUsdTryHistory(yf) {
 }
 
 // ─── CoinGecko ─────────────────────────────────────────────────
-async function backfillCoinGecko(sb, assets) {
-  console.log(`\n=== Kripto (CoinGecko) — ${assets.length} varlık ===`);
+async function backfillCoinGecko(sb, assets, sectionTitle = 'Kripto (CoinGecko)') {
+  console.log(`\n=== ${sectionTitle} — ${assets.length} varlık ===`);
   let done = 0, skipped = 0, failed = 0;
 
   for (let i = 0; i < assets.length; i++) {
@@ -351,15 +354,25 @@ async function main() {
     await backfillYahoo(sb, yf, byCategory.doviz, (sym) => `${sym}TRY=X`, 'Döviz');
   }
 
-  // 5) Emtia (sadece uluslararası metaller)
+  // 5) Emtia: Yahoo metaller + XAUT/PAXG (CoinGecko)
   if (byCategory.emtia?.length) {
     const intlMetals = byCategory.emtia.filter((a) => EMTIA_YAHOO_MAP[a.symbol]);
-    const otherEmtia = byCategory.emtia.filter((a) => !EMTIA_YAHOO_MAP[a.symbol]);
+    const tokenizedGold = byCategory.emtia.filter((a) =>
+      EMTIA_COINGECKO_SYMBOLS.has((a.symbol || '').toUpperCase()),
+    );
+    const otherEmtia = byCategory.emtia.filter(
+      (a) =>
+        !EMTIA_YAHOO_MAP[a.symbol] &&
+        !EMTIA_COINGECKO_SYMBOLS.has((a.symbol || '').toUpperCase()),
+    );
     if (intlMetals.length) {
       await backfillYahoo(sb, yf, intlMetals, (sym) => EMTIA_YAHOO_MAP[sym], 'Emtia (Metal)', usdTryMap);
     }
+    if (tokenizedGold.length) {
+      await backfillCoinGecko(sb, tokenizedGold, 'Emtia — XAUT/PAXG (CoinGecko)');
+    }
     if (otherEmtia.length) {
-      console.log(`\n  Emtia (yerel): ${otherEmtia.length} varlık — geçmiş veri kaynağı yok, atlanıyor`);
+      console.log(`\n  Emtia (yerel / diğer): ${otherEmtia.length} varlık — geçmiş veri kaynağı yok, atlanıyor`);
     }
   }
 

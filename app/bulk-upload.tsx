@@ -1,6 +1,6 @@
 import { Ionicons } from '@expo/vector-icons';
 import * as DocumentPicker from 'expo-document-picker';
-import * as FileSystem from 'expo-file-system';
+import { File as ExpoFile } from 'expo-file-system';
 import { useRouter } from 'expo-router';
 import React, { useCallback, useEffect, useState } from 'react';
 import {
@@ -20,6 +20,8 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { usePortfolio } from '@/context/portfolio';
 import { useAuth } from '@/context/auth';
+import { decodeCsvFileBytes } from '@/lib/decode-csv-file-bytes';
+import { resolveBistCsvToCanonicalSymbol } from '@/lib/bist-display-name';
 import { supabase } from '@/lib/supabase';
 import { useTranslation } from 'react-i18next';
 
@@ -38,17 +40,64 @@ type UploadRow = {
 
 type CategoryRow = { id: string; name: string };
 type AssetRow = { id: string; category_id: string; symbol: string; name: string };
-type HoldingRow = { id: string; asset_id: string; quantity: number };
+type HoldingRow = {
+  id: string;
+  asset_id: string;
+  quantity: number;
+  avg_price: number | null;
+  portfolio_id: string;
+};
 
-type ParsedRow = {
+type PortfolioRowDb = { id: string; name: string };
+
+type ChangeKind = 'add' | 'update' | 'auto';
+
+/** Çözülmüş satır — aynı portföy+varlık gruplanır, tek holding satırına yazılır */
+type ResolvedBulkLine = {
   rowNumber: number;
+  portfolioId: string;
+  assetId: string;
+  quantity: number;
+  /** Geçerli ortalama maliyet hücresi; yoksa undefined (birleştirmede maliyet atanmaz) */
+  unitCost?: number;
+  changeKind: ChangeKind;
+};
+
+function holdingAggregateKey(portfolioId: string, assetId: string): string {
+  return `${portfolioId}\t${assetId}`;
+}
+
+/** Tüm satırlarda birim maliyet varsa ağırlıklı ortalama; aksi halde undefined (güncellemede sütun dokunulmaz, eklemede null) */
+function mergeAvgFromLines(lines: ResolvedBulkLine[], sumQty: number): number | undefined {
+  if (lines.length === 0 || sumQty <= 0) return undefined;
+  const priced = lines.filter((l) => l.unitCost !== undefined);
+  if (priced.length !== lines.length) return undefined;
+  const costSum = priced.reduce((s, l) => s + l.quantity * (l.unitCost as number), 0);
+  return costSum / sumQty;
+}
+
+/** Upsert: portföy + varlık; yoksa ekle, varsa adet / ortalama maliyet güncelle */
+type UnifiedRow = {
+  rowNumber: number;
+  portfolioName: string | null;
   categoryName: string;
   assetValue: string;
   quantity: number;
-  changeType: 'Ekleme' | 'Güncelleme';
+  /** undefined = hücre boş (güncellemede avg_price değişmez; eklemede null) */
+  avgPrice?: number | null;
+  avgPriceInvalid?: boolean;
+  changeKind?: ChangeKind;
+  changeKindInvalid?: boolean;
 };
 
-const stripQuotes = (value: string) => value.replace(/^["']+|["']+$/g, '').trim();
+type ColKey = 'portfolio' | 'category' | 'asset' | 'quantity' | 'avgCost' | 'changeType';
+type ColMap = Partial<Record<ColKey, number>>;
+
+const stripQuotes = (value: string) =>
+  (value ?? '')
+    .replace(/^\uFEFF/, '')
+    .replace(/^["']+|["']+$/g, '')
+    .trim();
 
 const turkishLower = (s: string) =>
   s.replace(/İ/g, 'i').replace(/I/g, 'ı').replace(/Ş/g, 'ş').replace(/Ğ/g, 'ğ')
@@ -60,18 +109,162 @@ const normalize = (value: string | null | undefined) =>
 const normalizeLoose = (value: string | null | undefined) =>
   normalize(value).replace(/\s+/g, '');
 
-function mapChangeTypeToken(raw: string | undefined): ParsedRow['changeType'] | null {
-  const n = normalize(raw);
-  if (n === 'ekleme' || n === 'add') return 'Ekleme';
-  if (n === 'güncelleme' || n === 'guncelleme' || n === 'update') return 'Güncelleme';
-  return null;
+/** Sütun varsa: boş → auto; EKLE/EKLEME/ADD → add; GÜNCELLE/…/UPDATE → update */
+function parseChangeKindCell(raw: string | undefined): ChangeKind | 'invalid' {
+  const lo = normalizeLoose(raw ?? '');
+  if (!lo) return 'auto';
+  if (lo === 'ekle' || lo === 'ekleme' || lo === 'add') return 'add';
+  if (
+    lo === 'güncelle' ||
+    lo === 'guncelle' ||
+    lo === 'güncelleme' ||
+    lo === 'guncelleme' ||
+    lo === 'update'
+  )
+    return 'update';
+  return 'invalid';
+}
+
+/** ADD: DB adedine dosya toplamı eklenir; maliyet bilinen taraflarla ağırlıklı ortalama */
+function blendAvgForAddToHolding(
+  dbQty: number,
+  dbAvg: number | null,
+  fileSumQty: number,
+  fileAvg: number | undefined
+): number | undefined {
+  const newQ = dbQty + fileSumQty;
+  if (newQ <= 0) return undefined;
+  if (fileAvg === undefined) return undefined;
+  if (dbAvg != null && Number.isFinite(dbAvg)) {
+    return (dbQty * dbAvg + fileSumQty * fileAvg) / newQ;
+  }
+  return fileAvg;
+}
+
+/** Toplu yüklemede varlık tipi hücresi -> categories.id / name ile kıyaslanacak anahtarlar */
+function categoryCsvLookupKeys(label: string): Set<string> {
+  const loose = normalizeLoose(label);
+  const keys = new Set<string>([loose]);
+
+  const yurtdisiLike =
+    loose === 'abd' ||
+    loose === 'usa' ||
+    loose === 'us' ||
+    loose === 'yurtdisi' ||
+    loose === 'yurtdışı';
+  if (yurtdisiLike) {
+    keys.add(normalizeLoose('yurtdisi'));
+    keys.add(normalizeLoose('ABD'));
+    keys.add(normalizeLoose('Yurtdışı'));
+    keys.add(normalizeLoose('USA'));
+  }
+
+  const bistLike = loose === 'bist' || loose === 'bıst';
+  if (bistLike) {
+    keys.add(normalizeLoose('bist'));
+    keys.add(normalizeLoose('Bist'));
+    keys.add(normalizeLoose('BIST'));
+    keys.add(normalizeLoose('BİST'));
+  }
+
+  return keys;
+}
+
+/** TR: 1.234,56 veya 9,186005115 — EN: 1,234.56 */
+function parseLocaleNumber(raw: string | null | undefined): number | null {
+  const s = stripQuotes(raw ?? '').trim();
+  if (s === '') return null;
+  let t = s.replace(/\s/g, '');
+  if (t.includes(',') && t.includes('.')) {
+    const lastComma = t.lastIndexOf(',');
+    const lastDot = t.lastIndexOf('.');
+    if (lastComma > lastDot) {
+      t = t.replace(/\./g, '').replace(',', '.');
+    } else {
+      t = t.replace(/,/g, '');
+    }
+  } else if (t.includes(',') && !t.includes('.')) {
+    t = t.replace(',', '.');
+  }
+  const n = Number(t);
+  return Number.isFinite(n) ? n : null;
+}
+
+const HEADER_TO_COL: Record<string, ColKey> = {
+  portföy: 'portfolio',
+  portfolio: 'portfolio',
+  portfoy: 'portfolio',
+  varlıktipi: 'category',
+  varliktipi: 'category',
+  assettype: 'category',
+  kategori: 'category',
+  category: 'category',
+  varlık: 'asset',
+  varlik: 'asset',
+  'varlık(adı)': 'asset',
+  'varlik(adi)': 'asset',
+  'varlık(sembol)': 'asset',
+  'varlik(sembol)': 'asset',
+  asset: 'asset',
+  sembol: 'asset',
+  symbol: 'asset',
+  ticker: 'asset',
+  adet: 'quantity',
+  miktar: 'quantity',
+  quantity: 'quantity',
+  qty: 'quantity',
+  amount: 'quantity',
+  miktaradet: 'quantity',
+  ortalamamaliyet: 'avgCost',
+  'ortalamamaliyet(tl)': 'avgCost',
+  'ortalamamaliyet(usd)': 'avgCost',
+  ortalamamaliyettl: 'avgCost',
+  ortalamamaliyetusd: 'avgCost',
+  averagecost: 'avgCost',
+  avgcost: 'avgCost',
+  birimmaliyet: 'avgCost',
+  unitprice: 'avgCost',
+  unitcost: 'avgCost',
+  varlıktürü: 'category',
+  varlikturu: 'category',
+  classtype: 'category',
+  değişikliktipi: 'changeType',
+  degisikliktipi: 'changeType',
+  değişiklik: 'changeType',
+  degisiklik: 'changeType',
+  changetype: 'changeType',
+  işlem: 'changeType',
+  islem: 'changeType',
+  operation: 'changeType',
+};
+
+/** Başlık hücresi: NFC, sıfır genişlik, kenar noktalama. */
+function normalizeHeaderKeyForMap(cell: string): string {
+  let s = stripQuotes(cell).normalize('NFC');
+  s = s.replace(/[\u200B-\u200D\uFEFF]/g, '');
+  s = s.replace(/^[\s.:;,\-*–—_]+|[\s.:;,\-*–—_]+$/g, '');
+  return normalizeLoose(s);
+}
+
+function buildColMap(headerCells: string[]): ColMap {
+  const map: ColMap = {};
+  headerCells.forEach((cell, i) => {
+    const key = HEADER_TO_COL[normalizeHeaderKeyForMap(cell)];
+    if (key && map[key] === undefined) map[key] = i;
+  });
+  return map;
+}
+
+/** Zorunlu: Varlık Tipi, Varlık, Adet. Portföy / Ortalama Maliyet isteğe bağlı sütun. */
+function isValidCsvHeader(map: ColMap): boolean {
+  return map.category !== undefined && map.asset !== undefined && map.quantity !== undefined;
 }
 
 export default function BulkUploadScreen() {
   const { t, i18n } = useTranslation();
   const dateLocale = i18n.language?.toLowerCase().startsWith('en') ? 'en-US' : 'tr-TR';
   const router = useRouter();
-  const { portfolioId } = usePortfolio();
+  const { portfolioId, refresh: refreshPortfolios } = usePortfolio();
   const { user } = useAuth();
 
   const [uploads, setUploads] = useState<UploadRow[]>([]);
@@ -110,7 +303,13 @@ export default function BulkUploadScreen() {
       const res = await fetch(uri);
       return await res.text();
     }
-    return await FileSystem.readAsStringAsync(uri, { encoding: 'utf8' });
+    try {
+      const buf = await new ExpoFile(uri).arrayBuffer();
+      return decodeCsvFileBytes(new Uint8Array(buf));
+    } catch {
+      const FileSystem = await import('expo-file-system/legacy');
+      return FileSystem.readAsStringAsync(uri, { encoding: 'utf8' });
+    }
   };
 
   const ensureWebDownload = () => {
@@ -136,22 +335,28 @@ export default function BulkUploadScreen() {
 
   const handleDownloadSampleCsv = () => {
     const isEn = i18n.language?.toLowerCase().startsWith('en');
+    // Semicolon: TR Excel; adet/maliyet ondalığı virgülle güvenli
+    const delim = isEn ? ',' : ';';
     const header = isEn
-      ? ['Asset Type', 'Asset', 'Quantity', 'Change Type']
-      : ['Varlık Tipi', 'Varlık', 'Miktar', 'Değişiklik Tipi'];
-    const u = isEn ? 'Update' : 'Güncelleme';
-    const a = isEn ? 'Add' : 'Ekleme';
-    const sample = [
-      header,
-      ['Yurt Dışı', 'TSLA', '1', u],
-      ['Bist', 'TUPRS', '2', a],
-      ['Döviz', 'GBP', '2', u],
-      ['Emtia', 'Cumhuriyet Altını', '3', a],
-      ['Fon', 'YAS', '5', a],
-      ['Kripto', 'BTC', '0,001', u],
-    ]
-      .map((row) => row.join(','))
-      .join('\n');
+      ? ['Portfolio', 'Asset Type', 'Asset', 'Quantity', 'Average Cost', 'Change type']
+      : ['Portföy', 'Varlık Tipi', 'Varlık', 'Adet', 'Ortalama Maliyet', 'Değişiklik Tipi'];
+    const pf = isEn ? 'Main portfolio' : 'Ana Portföy';
+    const rows = isEn
+      ? [
+          header,
+          [pf, 'USA', 'TSLA', '1.5', '250.25', ''],
+          [pf, 'BIST', 'TUPRS', '10', '145.50', ''],
+          [pf, 'Forex', 'GBP', '2', '38.90', ''],
+          [pf, 'Kripto', 'BTC', '0.001', '95000', ''],
+        ]
+      : [
+          header,
+          [pf, 'ABD', 'TSLA', '1,5', '250,25', ''],
+          [pf, 'BIST', 'TUPRS', '10', '145,50', ''],
+          [pf, 'Döviz', 'GBP', '2', '38,90', ''],
+          [pf, 'Kripto', 'BTC', '0,001', '95000', ''],
+        ];
+    const sample = rows.map((row) => row.join(delim)).join('\n');
     triggerCsvDownload(t('bulk.sampleFilename'), sample);
   };
 
@@ -203,9 +408,10 @@ export default function BulkUploadScreen() {
 
   const detectDelimiter = (headerLine: string): string => {
     const tabCount = (headerLine.match(/\t/g) || []).length;
-    if (tabCount >= 3) return '\t';
+    if (tabCount >= 2) return '\t';
     const semiCount = (headerLine.match(/;/g) || []).length;
-    if (semiCount >= 3) return ';';
+    // TR Excel: Varlık Tipi;Varlık;Adet → 2 adet ; (3 sütun)
+    if (semiCount >= 2) return ';';
     return ',';
   };
 
@@ -239,71 +445,173 @@ export default function BulkUploadScreen() {
     }
     fields.push(current.trim());
 
-    if (fields.length <= 4) return fields;
-
-    // Fallback: if more than 4 fields, try smart merge for unquoted decimal commas
-    const last = normalize(fields[fields.length - 1]);
-    if (
-      last === 'ekleme' ||
-      last === 'güncelleme' ||
-      last === 'g\u00fcncelleme' ||
-      last === 'add' ||
-      last === 'update'
-    ) {
-      const colA = fields[0];
-      const colB = fields[1];
-      const colD = fields[fields.length - 1];
-      const colC = fields.slice(2, fields.length - 1).join(',');
-      return [colA, colB, colC, colD];
-    }
     return fields;
   };
 
-  const parseCsv = (raw: string): ParsedRow[] => {
-    const lines = raw.split(/\r?\n/);
-    const rows: ParsedRow[] = [];
-    if (lines.length === 0) return rows;
+  const parseCsv = (raw: string): { rows: UnifiedRow[]; invalidHeader: boolean } => {
+    const out: UnifiedRow[] = [];
+    if (!raw.trim()) return { rows: out, invalidHeader: false };
 
-    const delimiter = detectDelimiter(lines[0]);
+    const text = raw.replace(/\u0000/g, '');
+    const lines = text.split(/\r\n|\n|\r/);
+    const scanLimit = Math.min(12, lines.length);
 
-    for (let i = 1; i < lines.length; i++) {
+    let headerLineIndex = -1;
+    let delimiter = ',';
+    let colMap: ColMap = {};
+
+    for (let h = 0; h < scanLimit; h++) {
+      const candidate = lines[h];
+      if (!candidate?.trim()) continue;
+      const d = detectDelimiter(candidate);
+      const cells = parseCsvLine(candidate, d).map(stripQuotes);
+      const map = buildColMap(cells);
+      if (isValidCsvHeader(map)) {
+        headerLineIndex = h;
+        delimiter = d;
+        colMap = map;
+        break;
+      }
+    }
+
+    if (headerLineIndex < 0) {
+      return { rows: [], invalidHeader: true };
+    }
+
+    if (lines.length < headerLineIndex + 2) {
+      return { rows: out, invalidHeader: false };
+    }
+
+    for (let i = headerLineIndex + 1; i < lines.length; i++) {
       const line = lines[i];
       if (!line || !line.trim()) continue;
 
       const parts = parseCsvLine(line, delimiter).map(stripQuotes);
-      const [colA, colB, colC, colD] = parts;
+      if (parts.every((p) => !stripQuotes(p))) continue;
 
-      if (!colA && !colB && !colC && !colD) continue;
+      const portfolioName =
+        colMap.portfolio !== undefined
+          ? stripQuotes(parts[colMap.portfolio] ?? '').trim() || null
+          : null;
+      const categoryName = stripQuotes(parts[colMap.category!] ?? '');
+      const assetValue = stripQuotes(parts[colMap.asset!] ?? '');
+      const qtyRaw = stripQuotes(parts[colMap.quantity!] ?? '');
+      const avgRaw =
+        colMap.avgCost !== undefined ? stripQuotes(parts[colMap.avgCost] ?? '') : '';
 
-      const changeType = mapChangeTypeToken(colD);
-
-      let quantityRaw = stripQuotes(colC ?? '').trim();
-      if (quantityRaw.includes(',') && !quantityRaw.includes('.')) {
-        quantityRaw = quantityRaw.replace(',', '.');
-      } else if (quantityRaw.includes('.') && quantityRaw.includes(',')) {
-        quantityRaw = quantityRaw.replace(/\./g, '').replace(',', '.');
+      let changeKind: ChangeKind | undefined;
+      let changeKindInvalid = false;
+      if (colMap.changeType !== undefined) {
+        const ckRaw = stripQuotes(parts[colMap.changeType] ?? '');
+        const parsed = parseChangeKindCell(ckRaw);
+        if (parsed === 'invalid') changeKindInvalid = true;
+        else changeKind = parsed;
       }
-      const quantity = Number(quantityRaw);
 
-      rows.push({
+      const quantity = parseLocaleNumber(qtyRaw) ?? NaN;
+      let avgPrice: number | null | undefined;
+      let avgPriceInvalid = false;
+      if (avgRaw.trim() !== '') {
+        const p = parseLocaleNumber(avgRaw);
+        if (p === null || !Number.isFinite(p) || p < 0) {
+          avgPriceInvalid = true;
+        } else {
+          avgPrice = p;
+        }
+      }
+
+      out.push({
         rowNumber: i + 1,
-        categoryName: stripQuotes(colA ?? ''),
-        assetValue: stripQuotes(colB ?? ''),
+        portfolioName,
+        categoryName,
+        assetValue,
         quantity,
-        changeType: changeType as ParsedRow['changeType'],
+        ...(avgPrice !== undefined ? { avgPrice } : {}),
+        ...(avgPriceInvalid ? { avgPriceInvalid: true } : {}),
+        ...(changeKind !== undefined ? { changeKind } : {}),
+        ...(changeKindInvalid ? { changeKindInvalid: true } : {}),
       });
     }
 
-    return rows;
+    return { rows: out, invalidHeader: false };
   };
 
-  const applyBusinessRules = async (rows: ParsedRow[]) => {
+  const applyBusinessRules = async (rows: UnifiedRow[]) => {
+    if (!user?.id) {
+      showAlert(t('bulk.errorTitle'), t('bulk.needSession'));
+      return;
+    }
+
     const { data: categories } = await supabase
       .from('categories')
       .select('id, name')
       .order('sort_order', { ascending: true });
 
-    const uniqueSymbols = [...new Set(rows.map((r) => r.assetValue.trim()).filter(Boolean))];
+    const { data: portfoliosData } = await supabase
+      .from('portfolios')
+      .select('id, name')
+      .eq('user_id', user.id);
+
+    let portList = (portfoliosData ?? []) as PortfolioRowDb[];
+
+    const portfolioLooseExists = (loose: string) =>
+      portList.some(
+        (x) => normalizeLoose(x.name) === loose || normalizeLoose(x.id) === loose
+      );
+
+    /** Aynı portföyü farklı yazımla tekrar oluşturmayı önle (Hasim / hasim → tek kayıt) */
+    const desiredPortfolioByLoose = new Map<string, string>();
+    for (const r of rows) {
+      const n = r.portfolioName?.trim();
+      if (!n) continue;
+      const loose = normalizeLoose(n);
+      if (!desiredPortfolioByLoose.has(loose)) {
+        desiredPortfolioByLoose.set(loose, n);
+      }
+    }
+
+    const newPortfolioNames = [...desiredPortfolioByLoose.entries()]
+      .filter(([loose]) => !portfolioLooseExists(loose))
+      .map(([, displayName]) => displayName);
+
+    for (const name of newPortfolioNames) {
+      const { data: created, error: createErr } = await supabase
+        .from('portfolios')
+        .insert({ user_id: user.id, name: name.trim(), currency: 'USD' })
+        .select('id, name')
+        .single();
+      if (createErr || !created) {
+        showAlert(
+          t('bulk.errorTitle'),
+          t('bulk.portfolioCreateError', {
+            name: name.trim(),
+            message: createErr?.message ?? 'unknown',
+          })
+        );
+        return;
+      }
+      portList = [...portList, created as PortfolioRowDb];
+    }
+
+    const portfolioIds = portList.map((p) => p.id);
+
+    const catListForPrefetch = (categories ?? []) as CategoryRow[];
+    const symbolSet = new Set<string>();
+    for (const r of rows) {
+      const v = r.assetValue.trim();
+      if (!v) continue;
+      symbolSet.add(v);
+      const cat = catListForPrefetch.find(
+        (c) =>
+          categoryCsvLookupKeys(r.categoryName).has(normalizeLoose(c.id)) ||
+          categoryCsvLookupKeys(r.categoryName).has(normalizeLoose(c.name))
+      );
+      if (cat?.id === 'bist') {
+        const canon = resolveBistCsvToCanonicalSymbol(v);
+        if (canon) symbolSet.add(canon);
+      }
+    }
+    const uniqueSymbols = [...symbolSet];
     const assetChunks: AssetRow[] = [];
     const CHUNK = 200;
     for (let i = 0; i < uniqueSymbols.length; i += CHUNK) {
@@ -320,33 +628,50 @@ export default function BulkUploadScreen() {
       }
     }
 
-    const { data: holdings } = await supabase
-      .from('holdings')
-      .select('id, asset_id, quantity')
-      .eq('portfolio_id', portfolioId);
+    const { data: holdings } =
+      portfolioIds.length > 0
+        ? await supabase
+            .from('holdings')
+            .select('id, asset_id, quantity, avg_price, portfolio_id')
+            .in('portfolio_id', portfolioIds)
+        : { data: [] as HoldingRow[] };
 
     const catList = (categories ?? []) as CategoryRow[];
     const assetList = assetChunks;
     const holdingList = (holdings ?? []) as HoldingRow[];
 
     const errors: string[] = [];
-    const inserts: { assetId: string; quantity: number }[] = [];
-    const updates: { holdingId: string; quantity: number }[] = [];
+    const resolvedLines: ResolvedBulkLine[] = [];
+
+    const resolvePortfolioId = (row: UnifiedRow): string | null => {
+      if (row.portfolioName && row.portfolioName.trim()) {
+        const p = portList.find(
+          (x) =>
+            normalizeLoose(x.name) === normalizeLoose(row.portfolioName) ||
+            normalizeLoose(x.id) === normalizeLoose(row.portfolioName)
+        );
+        return p?.id ?? null;
+      }
+      return portfolioId;
+    };
 
     for (const row of rows) {
-      const typeDisp =
-        row.changeType === 'Ekleme'
-          ? t('bulk.changeAdd')
-          : row.changeType === 'Güncelleme'
-            ? t('bulk.changeUpdate')
-            : t('bulk.emptyTypeLabel');
+      const pfLabel = row.portfolioName?.trim() || '—';
 
-      if (!row.changeType || !Number.isFinite(row.quantity) || row.quantity <= 0) {
+      if (row.avgPriceInvalid) {
+        errors.push(t('bulk.rowInvalidAvgPrice', { row: row.rowNumber, price: '—' }));
+        continue;
+      }
+      if (row.changeKindInvalid) {
+        errors.push(t('bulk.rowInvalidChangeKind', { row: row.rowNumber }));
+        continue;
+      }
+      if (!Number.isFinite(row.quantity) || row.quantity <= 0) {
         errors.push(
           t('bulk.rowInvalidQty', {
             row: row.rowNumber,
             qty: row.quantity,
-            type: typeDisp,
+            pf: pfLabel,
             cat: row.categoryName,
             asset: row.assetValue,
           })
@@ -354,42 +679,49 @@ export default function BulkUploadScreen() {
         continue;
       }
 
+      const targetPid = resolvePortfolioId(row);
+      if (!targetPid) {
+        errors.push(
+          t('bulk.rowPortfolioNotFound', {
+            row: row.rowNumber,
+            name: row.portfolioName?.trim() || pfLabel,
+          })
+        );
+        continue;
+      }
+
+      const catKeys = categoryCsvLookupKeys(row.categoryName);
       const category = catList.find(
-        (c) =>
-          normalizeLoose(c.name) === normalizeLoose(row.categoryName) ||
-          normalizeLoose(c.id) === normalizeLoose(row.categoryName)
+        (c) => catKeys.has(normalizeLoose(c.id)) || catKeys.has(normalizeLoose(c.name))
       );
       if (!category) {
         errors.push(t('bulk.rowCategoryNotFound', { row: row.rowNumber, name: row.categoryName }));
         continue;
       }
 
+      const assetCell =
+        category.id === 'bist' ? resolveBistCsvToCanonicalSymbol(row.assetValue) : row.assetValue;
       const asset = assetList.find(
         (a) =>
           a.category_id === category.id &&
-          (normalize(a.symbol) === normalize(row.assetValue) ||
-            normalize(a.name) === normalize(row.assetValue))
+          (normalize(a.symbol) === normalize(assetCell) || normalize(a.name) === normalize(assetCell))
       );
       if (!asset) {
         errors.push(t('bulk.rowAssetNotFound', { row: row.rowNumber, asset: row.assetValue }));
         continue;
       }
 
-      const holding = holdingList.find((h) => h.asset_id === asset.id);
-
-      if (row.changeType === 'Ekleme') {
-        if (holding) {
-          errors.push(t('bulk.rowAlreadyHolding', { row: row.rowNumber, asset: row.assetValue }));
-          continue;
-        }
-        inserts.push({ assetId: asset.id, quantity: row.quantity });
-      } else {
-        if (!holding) {
-          errors.push(t('bulk.rowNoHoldingForUpdate', { row: row.rowNumber, asset: row.assetValue }));
-          continue;
-        }
-        updates.push({ holdingId: holding.id, quantity: row.quantity });
+      const line: ResolvedBulkLine = {
+        rowNumber: row.rowNumber,
+        portfolioId: targetPid,
+        assetId: asset.id,
+        quantity: row.quantity,
+        changeKind: row.changeKind ?? 'auto',
+      };
+      if (row.avgPrice !== undefined && row.avgPrice !== null) {
+        line.unitCost = row.avgPrice;
       }
+      resolvedLines.push(line);
     }
 
     if (errors.length > 0) {
@@ -397,13 +729,107 @@ export default function BulkUploadScreen() {
       return;
     }
 
+    const byKey = new Map<string, ResolvedBulkLine[]>();
+    for (const ln of resolvedLines) {
+      const k = holdingAggregateKey(ln.portfolioId, ln.assetId);
+      const arr = byKey.get(k);
+      if (arr) arr.push(ln);
+      else byKey.set(k, [ln]);
+    }
+
+    const groupErrors: string[] = [];
+    for (const [, lines] of byKey) {
+      const kind0 = lines[0]!.changeKind;
+      if (!lines.every((l) => l.changeKind === kind0)) {
+        const nums = [...new Set(lines.map((l) => l.rowNumber))].sort((a, b) => a - b).join(', ');
+        groupErrors.push(t('bulk.mixedChangeKind', { rows: nums }));
+        continue;
+      }
+      const holding = holdingList.find(
+        (h) => h.portfolio_id === lines[0]!.portfolioId && h.asset_id === lines[0]!.assetId
+      );
+      if (kind0 === 'update' && !holding) {
+        const nums = [...new Set(lines.map((l) => l.rowNumber))].sort((a, b) => a - b).join(', ');
+        groupErrors.push(t('bulk.updateRequiresExisting', { rows: nums }));
+      }
+    }
+    if (groupErrors.length > 0) {
+      showAlert(t('bulk.uploadFailedTitle'), groupErrors.join('\n'));
+      return;
+    }
+
+    const inserts: { portfolioId: string; assetId: string; quantity: number; avgPrice: number | null }[] = [];
+    const updates: { holdingId: string; quantity: number; avgPrice?: number | null }[] = [];
+
+    for (const [, lines] of byKey) {
+      const kind = lines[0]!.changeKind;
+      const holding = holdingList.find(
+        (h) => h.portfolio_id === lines[0]!.portfolioId && h.asset_id === lines[0]!.assetId
+      );
+
+      if (kind === 'update') {
+        if (!holding) continue;
+        const last = lines.reduce((a, b) => (a.rowNumber >= b.rowNumber ? a : b));
+        updates.push({
+          holdingId: holding.id,
+          quantity: last.quantity,
+          ...(last.unitCost !== undefined ? { avgPrice: last.unitCost } : {}),
+        });
+        continue;
+      }
+
+      if (kind === 'add') {
+        const fileSumQty = lines.reduce((s, l) => s + l.quantity, 0);
+        const fileAvg = mergeAvgFromLines(lines, fileSumQty);
+        if (holding) {
+          const newQ = holding.quantity + fileSumQty;
+          const blended = blendAvgForAddToHolding(
+            holding.quantity,
+            holding.avg_price,
+            fileSumQty,
+            fileAvg
+          );
+          updates.push({
+            holdingId: holding.id,
+            quantity: newQ,
+            ...(blended !== undefined ? { avgPrice: blended } : {}),
+          });
+        } else {
+          inserts.push({
+            portfolioId: lines[0]!.portfolioId,
+            assetId: lines[0]!.assetId,
+            quantity: fileSumQty,
+            avgPrice: fileAvg === undefined ? null : fileAvg,
+          });
+        }
+        continue;
+      }
+
+      const sumQty = lines.reduce((s, l) => s + l.quantity, 0);
+      const mergedAvg = mergeAvgFromLines(lines, sumQty);
+      if (holding) {
+        updates.push({
+          holdingId: holding.id,
+          quantity: sumQty,
+          ...(mergedAvg !== undefined ? { avgPrice: mergedAvg } : {}),
+        });
+      } else {
+        inserts.push({
+          portfolioId: lines[0]!.portfolioId,
+          assetId: lines[0]!.assetId,
+          quantity: sumQty,
+          avgPrice: mergedAvg === undefined ? null : mergedAvg,
+        });
+      }
+    }
+
     if (inserts.length > 0) {
       const { error } = await supabase.from('holdings').insert(
         inserts.map((i) => ({
-          portfolio_id: portfolioId,
+          portfolio_id: i.portfolioId,
           asset_id: i.assetId,
           quantity: i.quantity,
-          avg_price: null,
+          avg_price: i.avgPrice,
         }))
       );
       if (error) {
@@ -415,13 +841,18 @@ export default function BulkUploadScreen() {
     for (const u of updates) {
       const { error } = await supabase
         .from('holdings')
-        .update({ quantity: u.quantity })
+        .update({
+          quantity: u.quantity,
+          ...(u.avgPrice !== undefined ? { avg_price: u.avgPrice } : {}),
+        })
         .eq('id', u.holdingId);
       if (error) {
         showAlert(t('bulk.errorTitle'), t('bulk.updateError', { message: error.message }));
         return;
       }
     }
+
+    await refreshPortfolios();
 
     showAlert(
       t('bulk.successTitle'),
@@ -447,16 +878,38 @@ export default function BulkUploadScreen() {
         return;
       }
 
-      const firstLines = rawContent.split(/\r?\n/).slice(0, 3);
-      const detectedDelim = detectDelimiter(firstLines[0] ?? '');
+      const textProbe = rawContent.replace(/\u0000/g, '');
+      const linesProbe = textProbe.split(/\r\n|\n|\r/);
+      const firstNonEmptyLine = linesProbe.find((l) => l.trim()) ?? '';
+      const detectedDelim = detectDelimiter(firstNonEmptyLine);
+      const delimLabel =
+        detectedDelim === ';'
+          ? t('bulk.delimSemicolon')
+          : detectedDelim === '\t'
+            ? t('bulk.delimTab')
+            : t('bulk.delimComma');
+      const previewForAlert = linesProbe
+        .slice(0, 5)
+        .map((line, idx) => {
+          const s = line.length > 140 ? `${line.slice(0, 140)}…` : line;
+          return `[${idx + 1}] ${s}`;
+        })
+        .join('\n');
 
-      const rows = parseCsv(rawContent);
+      const { rows, invalidHeader } = parseCsv(rawContent);
+      if (invalidHeader) {
+        showAlert(
+          t('bulk.invalidHeaderTitle'),
+          t('bulk.invalidHeaderBody', { delim: delimLabel, preview: previewForAlert })
+        );
+        return;
+      }
       if (rows.length === 0) {
         showAlert(
           t('bulk.errorTitle'),
           t('bulk.emptyFileBody', {
-            delim: detectedDelim,
-            lines: firstLines.map((l, i) => `[${i}] ${l}`).join('\n'),
+            delim: delimLabel,
+            lines: linesProbe.slice(0, 3).map((l, i) => `[${i}] ${l}`).join('\n'),
           })
         );
         return;

@@ -10,13 +10,16 @@ create table if not exists public.categories (
 );
 
 insert into public.categories (id, name, subtitle, sort_order) values
-  ('yurtdisi', 'Yurtdışı', 'Global Hisse Senetleri', 1),
+  ('yurtdisi', 'ABD', 'Global Hisse Senetleri', 1),
   ('bist', 'Bist', 'Borsa İstanbul', 2),
   ('doviz', 'Döviz', 'Yabancı Para Birimleri', 3),
   ('emtia', 'Emtia', 'Altın, Petrol ve Değerli Metaller', 4),
   ('fon', 'Fon', 'Yatırım Fonları', 5),
   ('kripto', 'Kripto', 'Dijital Varlıklar', 6)
 on conflict (id) do nothing;
+
+-- Zaten kurulu veritabanı: display adı güncellemek için
+-- update public.categories set name = 'ABD' where id = 'yurtdisi';
 
 -- 2) Master varlık listesi
 create table if not exists public.assets (
