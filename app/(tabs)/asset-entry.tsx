@@ -1,6 +1,6 @@
 import { Ionicons } from '@expo/vector-icons';
 import { useFocusEffect } from '@react-navigation/native';
-import { useLocalSearchParams, useRouter } from 'expo-router';
+import { type Href, useLocalSearchParams, useRouter } from 'expo-router';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator,
@@ -23,6 +23,13 @@ import { usePortfolio } from '@/context/portfolio';
 import { resolveBistDisplayName } from '@/lib/bist-display-name';
 import { supabase } from '@/lib/supabase';
 import { useTranslation } from 'react-i18next';
+
+/** Portföy sekmesi (`index.tsx`); `(tabs)` grupları URL’de yok — kök path portföy listesine gider. */
+const PORTFOLIO_TAB_HREF = '/' as Href;
+
+function isReturnToPortfolioTab(returnTo: string | undefined): boolean {
+  return returnTo === '/' || returnTo === '/(tabs)/index';
+}
 
 /** Expo Router aynı param anahtarını bazen string[] döndürebilir. */
 function firstParam(v: string | string[] | undefined): string | undefined {
@@ -271,8 +278,8 @@ export default function AssetEntryScreen() {
       });
       return;
     }
-    if (returnTo === '/(tabs)/index') {
-      router.replace('/(tabs)');
+    if (isReturnToPortfolioTab(returnTo)) {
+      router.replace(PORTFOLIO_TAB_HREF);
       return;
     }
     router.back();
@@ -523,6 +530,8 @@ export default function AssetEntryScreen() {
         pathname: '/(tabs)/asset-list',
         params: { categoryId: returnCategoryId, label: returnLabel ?? '', _t: Date.now().toString() },
       });
+    } else if (isReturnToPortfolioTab(returnTo)) {
+      router.replace(PORTFOLIO_TAB_HREF);
     } else {
       router.replace('/(tabs)');
     }
@@ -648,7 +657,7 @@ export default function AssetEntryScreen() {
       }
       return;
     }
-    router.replace('/(tabs)');
+    router.replace(isReturnToPortfolioTab(returnTo) ? PORTFOLIO_TAB_HREF : '/(tabs)');
   };
 
   const isUSD = categoryId === 'yurtdisi' || categoryId === 'kripto';

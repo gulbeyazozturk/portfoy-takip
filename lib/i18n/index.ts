@@ -33,14 +33,19 @@ void i18n.use(initReactI18next).init({
   interpolation: { escapeValue: false },
 });
 
-AsyncStorage.getItem(LANG_STORAGE_KEY).then((stored) => {
-  if (stored === 'en' || stored === 'tr') {
-    void i18n.changeLanguage(stored);
-  }
-});
+/** Expo web SSR / Node: window yok; AsyncStorage burada patlar. */
+if (typeof window !== 'undefined') {
+  void AsyncStorage.getItem(LANG_STORAGE_KEY).then((stored) => {
+    if (stored === 'en' || stored === 'tr') {
+      void i18n.changeLanguage(stored);
+    }
+  });
+}
 
 export async function setAppLanguage(lng: 'tr' | 'en'): Promise<void> {
-  await AsyncStorage.setItem(LANG_STORAGE_KEY, lng);
+  if (typeof window !== 'undefined') {
+    await AsyncStorage.setItem(LANG_STORAGE_KEY, lng);
+  }
   await i18n.changeLanguage(lng);
 }
 

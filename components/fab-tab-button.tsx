@@ -13,7 +13,7 @@ export function FABTabButton(props: BottomTabBarButtonProps) {
         activeOpacity={0.85}
         onPress={onPress}
         style={styles.fab}>
-        <Ionicons name="search" size={26} color="#FFFFFF" />
+        <Ionicons name="add" size={28} color="#FFFFFF" />
       </TouchableOpacity>
     </View>
   );

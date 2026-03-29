@@ -1,6 +1,6 @@
-import React, { useMemo } from 'react';
+import React, { useMemo, type ReactNode } from 'react';
 import { Image, StyleSheet, View } from 'react-native';
-import Svg, { Circle, Path, Text as SvgText } from 'react-native-svg';
+import Svg, { Circle, G, Path, Text as SvgText } from 'react-native-svg';
 import { useTranslation } from 'react-i18next';
 
 import { Fonts } from '@/constants/theme';
@@ -11,6 +11,8 @@ export type DonutSlice = {
   label: string;
   value: number;
   color: string;
+  /** Kategori kimliği (ana sayfa neon renk eşlemesi için). */
+  categoryId?: string;
 };
 
 type UltraDarkDonutChartProps = {
@@ -19,6 +21,19 @@ type UltraDarkDonutChartProps = {
   /** Halka kalınlığı (iç yarıçap = dış − strokeWidth). */
   strokeWidth?: number;
   showLabels?: boolean;
+  /** Verildiğinde merkezde uygulama ikonu yerine bu içerik gösterilir (ör. portföy adı). */
+  centerContent?: ReactNode;
+  /** İç cam daire rengi (bento / neon tema). */
+  innerDiskFill?: string;
+  innerDiskStroke?: string;
+  /** Dilim altına hafif “glow” için ikinci katman (iOS’te daha belirgin). */
+  segmentGlow?: boolean;
+  /** Ok/etiket için tuval payı; dar ekranda küçültülebilir (varsayılan 80). */
+  labelMargin?: number;
+  /** Dilime basıldığında (categoryId ile alt kart eşleştirmesi). */
+  onSlicePress?: (slice: DonutSlice) => void;
+  /** Seçili kategori — diğer dilimler soluklaşır. */
+  selectedCategoryId?: string | null;
 };
 
 /** Commit’teki stroke tabanlı grafikle aynı açı → koordinat dönüşümü (9 yönünden saat yönü). */
@@ -64,9 +79,16 @@ export const UltraDarkDonutChart: React.FC<UltraDarkDonutChartProps> = ({
   size = 240,
   strokeWidth = 28,
   showLabels = true,
+  centerContent,
+  innerDiskFill = 'rgba(255,255,255,0.06)',
+  innerDiskStroke = 'rgba(255,255,255,0.08)',
+  segmentGlow = false,
+  labelMargin: labelMarginProp,
+  onSlicePress,
+  selectedCategoryId = null,
 }) => {
   const { i18n } = useTranslation();
-  const labelMargin = 80;
+  const labelMargin = showLabels ? (labelMarginProp ?? 80) : 20;
   const canvasSize = size + 2 * labelMargin;
   const cx = canvasSize / 2;
   const cy = canvasSize / 2;
@@ -101,6 +123,17 @@ export const UltraDarkDonutChart: React.FC<UltraDarkDonutChartProps> = ({
 
   const useCommaDecimal = i18n.language?.startsWith('tr');
 
+  const segmentDimOpacity = (slice: DonutSlice) => {
+    if (selectedCategoryId == null) return 1;
+    const id = slice.categoryId;
+    if (id != null && id === selectedCategoryId) return 1;
+    return 0.4;
+  };
+
+  const handleSlicePress = (slice: DonutSlice) => {
+    onSlicePress?.(slice);
+  };
+
   return (
     <View
       style={[
@@ -131,23 +164,50 @@ export const UltraDarkDonutChart: React.FC<UltraDarkDonutChartProps> = ({
         {hasData &&
           slices.map(({ slice, pct, start, end }, sliceIndex) => {
             const sweep = end - start;
+            const so = segmentDimOpacity(slice);
+            const glowBase = segmentGlow ? 0.4 * so : 0;
             const isFullRing = sweep >= 359.5 || pct >= 99.95;
             if (isFullRing) {
               const [d1, d2] = describeFullAnnulusTwoHalves(cx, cy, rOuter, rInner);
-              return (
-                <React.Fragment key={`${slice.label}-${sliceIndex}-full`}>
-                  <Path d={d1} fill={slice.color} />
-                  <Path d={d2} fill={slice.color} />
-                </React.Fragment>
+              const fullRingBody = (
+                <>
+                  {segmentGlow ? (
+                    <>
+                      <Path d={d1} fill={slice.color} opacity={0.35} pointerEvents="none" />
+                      <Path d={d2} fill={slice.color} opacity={0.35} pointerEvents="none" />
+                    </>
+                  ) : null}
+                  <Path d={d1} fill={slice.color} pointerEvents="none" />
+                  <Path d={d2} fill={slice.color} pointerEvents="none" />
+                </>
+              );
+              return onSlicePress != null ? (
+                <G
+                  key={`${slice.label}-${sliceIndex}-full`}
+                  opacity={so}
+                  onPress={() => handleSlicePress(slice)}>
+                  {fullRingBody}
+                </G>
+              ) : (
+                <G key={`${slice.label}-${sliceIndex}-full`} opacity={so}>
+                  {fullRingBody}
+                </G>
               );
             }
             if (sweep < 0.5) return null;
+            const d = describeAnnularSector(cx, cy, rOuter, rInner, start, end);
             return (
-              <Path
-                key={`${slice.label}-${sliceIndex}`}
-                d={describeAnnularSector(cx, cy, rOuter, rInner, start, end)}
-                fill={slice.color}
-              />
+              <React.Fragment key={`${slice.label}-${sliceIndex}`}>
+                {segmentGlow ? (
+                  <Path d={d} fill={slice.color} opacity={glowBase} pointerEvents="none" />
+                ) : null}
+                <Path
+                  d={d}
+                  fill={slice.color}
+                  opacity={so}
+                  {...(onSlicePress != null ? { onPress: () => handleSlicePress(slice) } : {})}
+                />
+              </React.Fragment>
             );
           })}
 
@@ -157,9 +217,10 @@ export const UltraDarkDonutChart: React.FC<UltraDarkDonutChartProps> = ({
             cx={cx}
             cy={cy}
             r={Math.max(4, rInner - 1)}
-            fill="rgba(255,255,255,0.06)"
-            stroke="rgba(255,255,255,0.08)"
+            fill={innerDiskFill}
+            stroke={innerDiskStroke}
             strokeWidth={1}
+            pointerEvents="none"
           />
         )}
 
@@ -194,6 +255,7 @@ export const UltraDarkDonutChart: React.FC<UltraDarkDonutChartProps> = ({
                   stroke={slice.color}
                   strokeWidth={1.25}
                   opacity={0.85}
+                  pointerEvents="none"
                 />
                 <SvgText
                   x={labelX}
@@ -202,7 +264,8 @@ export const UltraDarkDonutChart: React.FC<UltraDarkDonutChartProps> = ({
                   fontSize={11}
                   fontWeight="500"
                   fontFamily={Fonts.sans}
-                  textAnchor={isLeftSide ? 'start' : 'end'}>
+                  textAnchor={isLeftSide ? 'start' : 'end'}
+                  pointerEvents="none">
                   {percentLabel}
                 </SvgText>
               </React.Fragment>
@@ -210,18 +273,23 @@ export const UltraDarkDonutChart: React.FC<UltraDarkDonutChartProps> = ({
           })}
       </Svg>
 
-      {/* Merkez metin yerine app ikonu (SVG Text yerine RN Image — tutarlı ölçek). */}
-      <View style={styles.centerIconWrap} pointerEvents="none">
-        <Image
-          source={APP_ICON}
-          style={{
-            width: centerIconSize,
-            height: centerIconSize,
-            borderRadius: centerIconSize / 2,
-          }}
-          resizeMode="cover"
-          accessibilityLabel="Omnifolio"
-        />
+      <View style={styles.centerIconWrap} pointerEvents={centerContent != null ? 'box-none' : 'none'}>
+        {centerContent != null ? (
+          <View style={[styles.centerSlot, { maxWidth: rInner * 2 - 8 }]} pointerEvents="box-none">
+            {centerContent}
+          </View>
+        ) : (
+          <Image
+            source={APP_ICON}
+            style={{
+              width: centerIconSize,
+              height: centerIconSize,
+              borderRadius: centerIconSize / 2,
+            }}
+            resizeMode="cover"
+            accessibilityLabel="Omnifolio"
+          />
+        )}
       </View>
     </View>
   );
@@ -238,5 +306,10 @@ const styles = StyleSheet.create({
     ...StyleSheet.absoluteFillObject,
     alignItems: 'center',
     justifyContent: 'center',
+  },
+  centerSlot: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 4,
   },
 });

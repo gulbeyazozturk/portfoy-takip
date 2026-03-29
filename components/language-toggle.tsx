@@ -36,6 +36,10 @@ export function LanguageToggle({ compact }: { compact?: boolean }) {
   );
 }
 
+/** Portföy / ana sayfa kategori hapları ile aynı vurgu. */
+const PRIMARY = '#89acff';
+const SURFACE_HIGH = '#1f1f1f';
+
 const styles = StyleSheet.create({
   row: {
     flexDirection: 'row',
@@ -46,16 +50,16 @@ const styles = StyleSheet.create({
     gap: 4,
   },
   flag: {
-    paddingHorizontal: 8,
-    paddingVertical: 6,
-    borderRadius: 10,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: 999,
     borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.12)',
-    backgroundColor: 'rgba(255,255,255,0.04)',
+    borderColor: 'rgba(72,72,72,0.35)',
+    backgroundColor: SURFACE_HIGH,
   },
   flagActive: {
-    borderColor: '#00e677',
-    backgroundColor: 'rgba(0,230,119,0.12)',
+    borderColor: PRIMARY,
+    backgroundColor: PRIMARY,
   },
   flagEmoji: {
     fontSize: 22,

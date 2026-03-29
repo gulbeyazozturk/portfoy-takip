@@ -23,8 +23,10 @@ export default {
     tagline: 'Portfolio and assets — in one place.',
   },
   tabs: {
+    home: 'Home',
     portfolio: 'Portfolio',
-    search: 'Search',
+    add: 'Add',
+    trend: 'Trend',
     settings: 'Settings',
   },
   settings: {
@@ -42,7 +44,8 @@ export default {
     appLockHint: 'When on, Face ID / Touch ID is required on launch and when returning from the background.',
     appLockUnavailable: 'No Face ID or Touch ID is enrolled on this device; app lock is unavailable.',
     portfoliosSection: 'Portfolios',
-    portfoliosHint: 'Create multiple portfolios and switch from the menu at the top of the portfolio tab.',
+    portfoliosHint:
+      'Create multiple portfolios and switch from the donut on Home or the menu on the Portfolio / Trend tabs.',
     addPortfolio: 'Add portfolio',
     renamePortfolio: 'Rename',
     portfolioNamePlaceholder: 'Portfolio name',
@@ -75,6 +78,7 @@ export default {
   portfolio: {
     headerTitle: 'Portfolio',
     pickPortfolio: 'Choose portfolio',
+    allAssets: 'All assets',
     loading: 'Loading portfolio…',
     allocation: 'Asset allocation',
     performance: 'Performance trend',
@@ -88,12 +92,16 @@ export default {
     sortAlphaAZ: 'Alphabetical A-Z',
     sortAlphaZA: 'Alphabetical Z-A',
     daily: 'Daily',
+    scopeAll: 'All',
     total: 'Total',
     gain: 'Total gain',
     loss: 'Total loss',
     unitGram: 'Gram',
     unitPiece: 'Units',
     donutTotal: 'TOTAL',
+    totalBalance: 'TOTAL BALANCE',
+    notificationsA11y: 'Notifications',
+    notificationsPlaceholder: 'Notifications coming soon.',
   },
   categories: {
     yurtdisi: 'USA',
@@ -220,6 +228,13 @@ export default {
   home: {
     title: 'Home',
     subtitle: 'Dashboard',
+    totalNetWorth: 'Total net worth',
+    portfolioKicker: 'Portfolio',
+    positionsCount: '{{count}} positions',
+    noBreakdown: 'No allocation to show yet.',
+    currencyTL: 'TRY',
+    currencyUSD: 'USD',
+    doubleTapOpenPortfolio: 'Double-tap: open this type on the Portfolio tab',
   },
   explore: {
     title: 'Explore',

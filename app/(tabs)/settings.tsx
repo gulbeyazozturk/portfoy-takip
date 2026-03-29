@@ -28,6 +28,14 @@ const APP_VERSION = '1.0.0';
 // GitHub Pages: Repo → Settings → Pages → Source: main branch, /docs → https://<user>.github.io/portfoy-takip/privacy-policy.html
 const PRIVACY_POLICY_URL = 'https://hozturk907.github.io/portfoy-takip/privacy-policy.html';
 
+/** Portföy sekmesi (index) ile aynı seçim / hap paleti */
+const PRIMARY = '#89acff';
+const ON_PRIMARY = '#002b6a';
+const SURFACE_CONTAINER = '#191919';
+const SURFACE_CONTAINER_HIGH = '#1f1f1f';
+const ON_SURFACE_VARIANT = '#ababab';
+const OUTLINE_VARIANT = '#484848';
+
 export default function SettingsScreen() {
   const { t } = useTranslation();
   const router = useRouter();
@@ -189,12 +197,12 @@ export default function SettingsScreen() {
                   <ThemedText style={styles.mutedSmall}>{t('settings.appLockHint')}</ThemedText>
                 </View>
                 {lockBusy ? (
-                  <ActivityIndicator color="#60a5fa" />
+                  <ActivityIndicator color={PRIMARY} />
                 ) : (
                   <Switch
                     value={appLockEnabled}
                     onValueChange={(v) => void handleAppLockToggle(v)}
-                    trackColor={{ false: '#374151', true: '#2563eb' }}
+                    trackColor={{ false: '#374151', true: PRIMARY }}
                     thumbColor="#f9fafb"
                     ios_backgroundColor="#374151"
                   />
@@ -240,7 +248,7 @@ export default function SettingsScreen() {
                 </Pressable>
                 <Pressable style={styles.modalBtnPrimary} onPress={() => void submitAddPortfolio()} disabled={portfolioBusy}>
                   {portfolioBusy ? (
-                    <ActivityIndicator color="#fff" />
+                    <ActivityIndicator color={ON_PRIMARY} />
                   ) : (
                     <ThemedText style={styles.modalBtnPrimaryText}>{t('settings.save')}</ThemedText>
                   )}
@@ -276,7 +284,7 @@ export default function SettingsScreen() {
                 </Pressable>
                 <Pressable style={styles.modalBtnPrimary} onPress={() => void submitRename()} disabled={portfolioBusy}>
                   {portfolioBusy ? (
-                    <ActivityIndicator color="#fff" />
+                    <ActivityIndicator color={ON_PRIMARY} />
                   ) : (
                     <ThemedText style={styles.modalBtnPrimaryText}>{t('settings.save')}</ThemedText>
                   )}
@@ -321,25 +329,32 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'space-between',
     gap: 12,
-    paddingVertical: 10,
-    paddingHorizontal: 12,
-    backgroundColor: '#111111',
-    borderRadius: 10,
+    paddingVertical: 12,
+    paddingHorizontal: 14,
+    backgroundColor: SURFACE_CONTAINER,
+    borderRadius: 16,
     borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.06)',
+    borderColor: 'rgba(72,72,72,0.35)',
   },
-  portfolioName: { flex: 1, color: '#f3f4f6', fontSize: 15, fontWeight: '600' },
-  renameBtn: { paddingVertical: 6, paddingHorizontal: 10 },
-  renameBtnText: { color: '#60a5fa', fontSize: 14, fontWeight: '600' },
+  portfolioName: { flex: 1, color: '#ffffff', fontSize: 15, fontWeight: '600' },
+  renameBtn: {
+    paddingVertical: 8,
+    paddingHorizontal: 14,
+    borderRadius: 999,
+    backgroundColor: SURFACE_CONTAINER_HIGH,
+    borderWidth: 1,
+    borderColor: 'rgba(72,72,72,0.35)',
+  },
+  renameBtnText: { color: PRIMARY, fontSize: 12, fontWeight: '700' },
   addPortfolioBtn: {
     marginTop: 12,
     alignSelf: 'flex-start',
-    backgroundColor: '#00e677',
+    backgroundColor: PRIMARY,
     paddingVertical: 10,
-    paddingHorizontal: 16,
-    borderRadius: 10,
+    paddingHorizontal: 20,
+    borderRadius: 999,
   },
-  addPortfolioBtnText: { color: '#000000', fontWeight: '700', fontSize: 15 },
+  addPortfolioBtnText: { color: ON_PRIMARY, fontWeight: '700', fontSize: 13 },
   langRow: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -362,7 +377,7 @@ const styles = StyleSheet.create({
   lockTextCol: { flex: 1 },
   lockTitle: { color: '#e5e7eb', fontSize: 16, fontWeight: '600' },
   mutedSmall: { color: '#6b7280', fontSize: 12, marginTop: 4, lineHeight: 16 },
-  link: { color: '#60a5fa', textDecorationLine: 'underline', marginTop: 8 },
+  link: { color: PRIMARY, textDecorationLine: 'underline', marginTop: 8 },
   muted: { color: '#6b7280', fontSize: 13, marginTop: 8 },
   signOutBtn: {
     marginTop: 12,
@@ -379,33 +394,41 @@ const styles = StyleSheet.create({
     paddingHorizontal: 24,
   },
   modalCard: {
-    backgroundColor: '#111',
-    borderRadius: 14,
+    backgroundColor: SURFACE_CONTAINER,
+    borderRadius: 16,
     padding: 18,
     borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.08)',
+    borderColor: OUTLINE_VARIANT,
   },
   modalLabel: { color: '#e5e7eb', fontSize: 16, fontWeight: '700', marginBottom: 12 },
   input: {
     borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.15)',
-    borderRadius: 10,
+    borderColor: 'rgba(72,72,72,0.45)',
+    borderRadius: 14,
     paddingHorizontal: 14,
     paddingVertical: 12,
     fontSize: 16,
     color: '#fff',
+    backgroundColor: SURFACE_CONTAINER_HIGH,
     marginBottom: 16,
   },
-  modalActions: { flexDirection: 'row', justifyContent: 'flex-end', gap: 12 },
-  modalBtnGhost: { paddingVertical: 10, paddingHorizontal: 14 },
-  modalBtnGhostText: { color: '#9ca3af', fontSize: 16, fontWeight: '600' },
-  modalBtnPrimary: {
-    backgroundColor: '#2563eb',
+  modalActions: { flexDirection: 'row', justifyContent: 'flex-end', gap: 12, alignItems: 'center' },
+  modalBtnGhost: {
     paddingVertical: 10,
-    paddingHorizontal: 18,
-    borderRadius: 10,
+    paddingHorizontal: 16,
+    borderRadius: 999,
+    backgroundColor: SURFACE_CONTAINER_HIGH,
+    borderWidth: 1,
+    borderColor: 'rgba(72,72,72,0.35)',
+  },
+  modalBtnGhostText: { color: ON_SURFACE_VARIANT, fontSize: 13, fontWeight: '700' },
+  modalBtnPrimary: {
+    backgroundColor: PRIMARY,
+    paddingVertical: 10,
+    paddingHorizontal: 20,
+    borderRadius: 999,
     minWidth: 100,
     alignItems: 'center',
   },
-  modalBtnPrimaryText: { color: '#fff', fontWeight: '700', fontSize: 16 },
+  modalBtnPrimaryText: { color: ON_PRIMARY, fontWeight: '700', fontSize: 14 },
 });

@@ -23,8 +23,10 @@ export default {
     tagline: 'Portföy ve varlık takibi — tek ekranda.',
   },
   tabs: {
+    home: 'Ana sayfa',
     portfolio: 'Portföy',
-    search: 'Ara',
+    add: 'Ekle',
+    trend: 'Trend',
     settings: 'Ayarlar',
   },
   settings: {
@@ -42,7 +44,8 @@ export default {
     appLockHint: 'Açıkken uygulama her açılışta ve arka plandan dönüşte Face ID / Touch ID ister.',
     appLockUnavailable: 'Bu cihazda kayıtlı Face ID veya Touch ID yok; uygulama kilidi kullanılamaz.',
     portfoliosSection: 'Portföyler',
-    portfoliosHint: 'Birden fazla portföy oluşturup üstteki menüden geçiş yapabilirsiniz.',
+    portfoliosHint:
+      'Birden fazla portföy oluşturup ana sayfadaki daire ortasından veya Portföy / Trend sekmesindeki menüden geçiş yapabilirsiniz.',
     addPortfolio: 'Yeni portföy ekle',
     renamePortfolio: 'Adı değiştir',
     portfolioNamePlaceholder: 'Portföy adı',
@@ -75,6 +78,7 @@ export default {
   portfolio: {
     headerTitle: 'Portföy',
     pickPortfolio: 'Portföy seç',
+    allAssets: 'Tüm Varlıklar',
     loading: 'Portföy yükleniyor…',
     allocation: 'Varlık dağılımı',
     performance: 'Performans trendi',
@@ -89,12 +93,17 @@ export default {
     sortAlphaAZ: 'Alfabetik A-Z',
     sortAlphaZA: 'Alfabetik Z-A',
     daily: 'Günlük',
+    /** Özet / ana sayfa: maliyete göre tüm dönem */
+    scopeAll: 'Tümü',
     total: 'Toplam',
     gain: 'Toplam kazanç',
     loss: 'Toplam kayıp',
     unitGram: 'Gram',
     unitPiece: 'Adet',
     donutTotal: 'TOPLAM',
+    totalBalance: 'TOPLAM BAKİYE',
+    notificationsA11y: 'Bildirimler',
+    notificationsPlaceholder: 'Bildirimler yakında.',
   },
   categories: {
     yurtdisi: 'ABD',
@@ -222,6 +231,13 @@ export default {
   home: {
     title: 'Ana sayfa',
     subtitle: 'Özet',
+    totalNetWorth: 'Toplam değer',
+    portfolioKicker: 'Portföy',
+    positionsCount: '{{count}} varlık',
+    noBreakdown: 'Bu portföyde henüz dağılım yok.',
+    currencyTL: 'TL',
+    currencyUSD: 'USD',
+    doubleTapOpenPortfolio: 'Çift dokun: Portföy sekmesinde bu türü aç',
   },
   explore: {
     title: 'Keşfet',

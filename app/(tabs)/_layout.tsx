@@ -20,7 +20,7 @@ export default function TabLayout() {
 
   return (
     <Tabs
-      initialRouteName="index"
+      initialRouteName="home"
       screenOptions={{
         headerShown: false,
         tabBarStyle: {
@@ -33,19 +33,35 @@ export default function TabLayout() {
         tabBarLabelStyle: { fontSize: 10, fontWeight: '500' },
       }}>
       <Tabs.Screen
+        name="home"
+        options={{
+          title: t('tabs.home'),
+          tabBarButton: HapticTab,
+          tabBarIcon: ({ color }) => <Ionicons name="home-outline" size={24} color={color} />,
+        }}
+      />
+      <Tabs.Screen
         name="index"
         options={{
           title: t('tabs.portfolio'),
           tabBarButton: HapticTab,
-          tabBarIcon: ({ color }) => <Ionicons name="pie-chart-outline" size={24} color={color} />,
+          tabBarIcon: ({ color }) => <Ionicons name="briefcase-outline" size={24} color={color} />,
         }}
       />
       <Tabs.Screen
         name="add"
         options={{
-          title: t('tabs.search'),
+          title: t('tabs.add'),
           tabBarButton: FABTabButton,
           tabBarIcon: () => null,
+        }}
+      />
+      <Tabs.Screen
+        name="trend"
+        options={{
+          title: t('tabs.trend'),
+          tabBarButton: HapticTab,
+          tabBarIcon: ({ color }) => <Ionicons name="analytics-outline" size={24} color={color} />,
         }}
       />
       <Tabs.Screen
@@ -55,10 +71,6 @@ export default function TabLayout() {
           tabBarButton: HapticTab,
           tabBarIcon: ({ color }) => <Ionicons name="settings-outline" size={24} color={color} />,
         }}
-      />
-      <Tabs.Screen
-        name="home"
-        options={{ href: null }}
       />
       <Tabs.Screen
         name="explore"
