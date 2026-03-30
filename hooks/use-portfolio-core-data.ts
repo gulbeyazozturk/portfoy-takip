@@ -3,6 +3,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 
 import { usePortfolio } from '@/context/portfolio';
+import { CATEGORY_CHART_COLORS } from '@/lib/category-chart-colors';
 import { categoryDisplayLabel } from '@/lib/category-display';
 import { kriptoStoredUnitToUsd, legacyCryptoStoredUnitToUsd } from '@/lib/crypto-price-usd';
 import { isUsdNativeCategory } from '@/lib/portfolio-currency';
@@ -19,15 +20,7 @@ export type AllocationBreakdownRow = {
   amountUSD: number;
 };
 
-export const CATEGORY_COLORS: Record<string, string> = {
-  fon: '#00C2F2',
-  emtia: '#F9A000',
-  yurtdisi: '#C60021',
-  kripto: '#F6465D',
-  bist: '#A64CEB',
-  doviz: '#2EB135',
-  mevduat: '#FFD700',
-};
+export const CATEGORY_COLORS = CATEGORY_CHART_COLORS;
 
 export type CategoryRow = { id: string; name: string; sort_order: number };
 export type AssetRow = {
@@ -67,12 +60,20 @@ export function normalizeAsset(asset: HoldingRow['asset']): AssetRow | null {
   return a;
 }
 
+/** Döviz sembol eşlemesi (M*_ öneki kalkmış büyük harf); spot haritası anahtarları için. */
+function dovizSymbolKey(symbol: string | null | undefined): string {
+  if (!symbol) return '';
+  return symbol.replace(/^M\d+_/, '').toUpperCase().trim();
+}
+
 export function usePortfolioCoreData() {
   const { t } = useTranslation();
   const { portfolioId, portfolios, selectPortfolio, portfoliosLoading } = usePortfolio();
   const [categories, setCategories] = useState<CategoryRow[]>([]);
   const [holdings, setHoldings] = useState<HoldingRow[]>([]);
   const [usdTry, setUsdTry] = useState<number>(1);
+  /** Sembol → pozitif TRY/1 birim; aynı sembolün birden fazla asset satırında en yüksek fiyat (genelde dolu master satır). */
+  const [dovizSpotBySymbol, setDovizSpotBySymbol] = useState<Record<string, number>>({});
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -80,11 +81,19 @@ export function usePortfolioCoreData() {
     try {
       const { data } = await supabase
         .from('assets')
-        .select('current_price')
-        .eq('category_id', 'doviz')
-        .eq('symbol', 'USD')
-        .maybeSingle();
-      if (data?.current_price) setUsdTry(Number(data.current_price));
+        .select('symbol, current_price')
+        .eq('category_id', 'doviz');
+      const map: Record<string, number> = {};
+      for (const row of data ?? []) {
+        const p = Number(row.current_price);
+        if (!Number.isFinite(p) || p <= 0) continue;
+        const sym = dovizSymbolKey(row.symbol);
+        if (!sym) continue;
+        if (map[sym] == null || p > map[sym]) map[sym] = p;
+      }
+      setDovizSpotBySymbol(map);
+      const usd = map.USD;
+      if (usd != null && usd > 0) setUsdTry(usd);
     } catch {
       /* keep previous */
     }
@@ -293,7 +302,7 @@ export function usePortfolioCoreData() {
         categoryId: id,
         label: catNames[id] ?? id,
         value: Math.round((amountTL / totalValueTL) * 10000) / 100,
-        color: CATEGORY_COLORS[id] ?? '#666',
+        color: CATEGORY_CHART_COLORS[id] ?? '#666',
       }))
       .filter((d) => d.value > 0);
 
@@ -331,7 +340,7 @@ export function usePortfolioCoreData() {
       },
       categoryPerformanceById,
     };
-  }, [holdings, categories, usdTry, t]);
+  }, [holdings, categories, usdTry, dovizSpotBySymbol, t]);
 
   return {
     categories,

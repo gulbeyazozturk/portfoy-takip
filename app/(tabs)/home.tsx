@@ -21,6 +21,7 @@ import { UltraDarkDonutChart } from '@/components/ultra-dark-donut-chart';
 import { getSingleChartCategoryId, useSelectedCategories } from '@/context/selected-categories';
 import type { AllocationBreakdownRow } from '@/hooks/use-portfolio-core-data';
 import { usePortfolioCoreData } from '@/hooks/use-portfolio-core-data';
+import { CATEGORY_CHART_COLORS } from '@/lib/category-chart-colors';
 
 const BG = '#000000';
 const SURFACE_LOW = '#131313';
@@ -32,19 +33,9 @@ const WHITE = '#ffffff';
 const PRIMARY = '#89acff';
 const ON_PRIMARY = '#002b6a';
 
-/** Mockup’a yakın neon palet — kategori bazlı (birebir değil). */
-const NEON_BY_CATEGORY: Record<string, string> = {
-  bist: '#89acff',
-  yurtdisi: '#3fff8b',
-  kripto: '#ff716b',
-  emtia: '#facc15',
-  fon: '#a855f7',
-  doviz: '#22d3ee',
-  mevduat: '#fcd34d',
-};
-
-const SECONDARY_MINT = '#3fff8b';
-const TERTIARY_CORAL = '#ff716b';
+const SECONDARY_MINT = '#39FF14';
+/** Portföy sekmesi `ERROR` ile aynı — düşüş / negatif %. */
+const PCT_NEGATIVE = '#ff716c';
 
 const CATEGORY_ICONS: Record<string, keyof typeof Ionicons.glyphMap> = {
   bist: 'stats-chart',
@@ -114,7 +105,7 @@ export default function HomeScreen() {
     () =>
       allocationData.map((s) => ({
         ...s,
-        color: (s.categoryId && NEON_BY_CATEGORY[s.categoryId]) || s.color,
+        color: (s.categoryId && CATEGORY_CHART_COLORS[s.categoryId]) || s.color,
       })),
     [allocationData],
   );
@@ -301,7 +292,7 @@ export default function HomeScreen() {
                 <Text style={styles.noBreakdown}>{t('home.noBreakdown')}</Text>
               ) : (
                 allocationBreakdown.map((row) => {
-                  const neon = NEON_BY_CATEGORY[row.categoryId] ?? row.color;
+                  const neon = CATEGORY_CHART_COLORS[row.categoryId] ?? row.color;
                   const selected = filter.kind === 'include' && filter.ids.has(row.categoryId);
                   const dimmed = filter.kind === 'include' && !selected;
                   const perf = categoryPerformanceById[row.categoryId];
@@ -477,7 +468,7 @@ const styles = StyleSheet.create({
   },
   heroPct: { fontSize: 15, fontWeight: '700', flexShrink: 0 },
   heroPctUp: { color: SECONDARY_MINT },
-  heroPctDown: { color: TERTIARY_CORAL },
+  heroPctDown: { color: PCT_NEGATIVE },
   currencyPill: {
     flexDirection: 'row',
     flexShrink: 0,
@@ -604,7 +595,7 @@ const styles = StyleSheet.create({
     fontVariant: ['tabular-nums'] as any,
   },
   gridDayPositive: { color: SECONDARY_MINT },
-  gridDayNegative: { color: TERTIARY_CORAL },
+  gridDayNegative: { color: PCT_NEGATIVE },
   gridCardSelected: {
     transform: [{ scale: 1.04 }],
     zIndex: 3,
