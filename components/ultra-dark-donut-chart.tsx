@@ -74,6 +74,69 @@ const describeFullAnnulusTwoHalves = (
     describeAnnularSector(cx, cy, rOuter, rInner, 90, 270),
   ] as const;
 
+/** Aynı taraftaki etiketlerin üst üste binmesini önlemek için dikey aralık (px); metin çizginin üstünde olduğu için biraz geniş. */
+const LABEL_ROW_GAP = 17;
+const LABEL_EDGE_PAD = 10;
+/** Lider çizginin yatay ucu (labelY); metin tabanı bundan yukarıda — çizgi metnin ortasından geçmesin. */
+const LABEL_TEXT_ABOVE_LINE = 10;
+const LABEL_FONT_SIZE = 11;
+/** Donut dış halkası ile metin kutusu arası minimum boşluk (px). */
+const DONUT_LABEL_CLEAR = 16;
+
+/** Yaklaşık metin genişliği (SVG Text, tek satır). */
+function estimateLabelTextWidth(text: string, fontSize: number): number {
+  return text.length * fontSize * 0.58;
+}
+
+type LabelLayoutItem = {
+  key: string;
+  slice: DonutSlice;
+  pct: number;
+  p1: { x: number; y: number };
+  p2x: number;
+  p2y: number;
+  labelX: number;
+  baseY: number;
+  labelY: number;
+  textY: number;
+  isLeftSide: boolean;
+  percentLabel: string;
+};
+
+function packLabelYs(
+  group: { baseY: number; key: string }[],
+  minY: number,
+  maxY: number,
+): Map<string, number> {
+  if (group.length === 0) return new Map();
+  const sorted = [...group].sort((a, b) => a.baseY - b.baseY);
+  const ys = sorted.map((s) => s.baseY);
+  for (let i = 1; i < ys.length; i++) {
+    if (ys[i]! < ys[i - 1]! + LABEL_ROW_GAP) {
+      ys[i] = ys[i - 1]! + LABEL_ROW_GAP;
+    }
+  }
+  for (let iter = 0; iter < 12 && ys[ys.length - 1]! > maxY; iter++) {
+    const shift = ys[ys.length - 1]! - maxY;
+    for (let i = 0; i < ys.length; i++) {
+      ys[i]! -= shift;
+    }
+    for (let i = 1; i < ys.length; i++) {
+      if (ys[i]! < ys[i - 1]! + LABEL_ROW_GAP) {
+        ys[i] = ys[i - 1]! + LABEL_ROW_GAP;
+      }
+    }
+    if (ys[0]! < minY) {
+      for (let i = 0; i < ys.length; i++) {
+        ys[i]! += minY - ys[0]!;
+      }
+    }
+  }
+  const map = new Map<string, number>();
+  sorted.forEach((s, i) => map.set(s.key, ys[i]!));
+  return map;
+}
+
 export const UltraDarkDonutChart: React.FC<UltraDarkDonutChartProps> = ({
   data,
   size = 240,
@@ -121,8 +184,6 @@ export const UltraDarkDonutChart: React.FC<UltraDarkDonutChartProps> = ({
   /** İç boşluğa sığacak şekilde (glass disk ~ rInner). */
   const centerIconSize = Math.round(Math.min(72, Math.max(40, (rInner - 6) * 1.25)));
 
-  const useCommaDecimal = i18n.language?.startsWith('tr');
-
   const segmentDimOpacity = (slice: DonutSlice) => {
     if (selectedCategoryId == null) return 1;
     const id = slice.categoryId;
@@ -133,6 +194,79 @@ export const UltraDarkDonutChart: React.FC<UltraDarkDonutChartProps> = ({
   const handleSlicePress = (slice: DonutSlice) => {
     onSlicePress?.(slice);
   };
+
+  const labelLayouts = useMemo((): LabelLayoutItem[] => {
+    if (!hasData || !showLabels) return [];
+
+    const useComma = i18n.language?.startsWith('tr');
+    const items: Omit<LabelLayoutItem, 'labelY' | 'textY'>[] = [];
+
+    slices.forEach(({ slice, pct, start, end }, sliceIndex) => {
+      const angle = end - start;
+      if (angle < 0.5) return;
+
+      const midAngle = start + angle / 2;
+      const ringOuter = rOuter;
+      const p1 = polarToCartesian(cx, cy, ringOuter, midAngle);
+      /** Dikey eksen (merkezden yukarı–aşağı): dilim ortası cx’in solundaysa etiket solda, sağındaysa sağda. */
+      const isLeftSide = p1.x <= cx;
+      const pctStr = pct.toFixed(1);
+      const percentLabel = `${useComma ? pctStr.replace('.', ',') : pctStr}% ${slice.label.toLocaleUpperCase('tr-TR')}`;
+      const estTextW = estimateLabelTextWidth(percentLabel, LABEL_FONT_SIZE);
+      const radialStep = 24 + Math.min(14, percentLabel.length * 0.28);
+      const horizontalLen =
+        50 + Math.min(58, Math.max(0, estTextW - 42) * 0.52);
+      const unitRadX = (p1.x - cx) / (ringOuter || 1);
+      const unitRadY = (p1.y - cy) / (ringOuter || 1);
+      const p2x = p1.x + unitRadX * radialStep;
+      const p2y = p1.y + unitRadY * radialStep;
+      const edgePad = LABEL_EDGE_PAD;
+      const maxXLeft = cx - ringOuter - DONUT_LABEL_CLEAR - estTextW;
+      const minXRight = cx + ringOuter + DONUT_LABEL_CLEAR + estTextW;
+      const candidateLabelX = isLeftSide ? p2x - horizontalLen : p2x + horizontalLen;
+      let labelX: number;
+      if (isLeftSide) {
+        labelX = Math.max(edgePad, candidateLabelX);
+        labelX = Math.min(labelX, maxXLeft);
+        labelX = Math.max(edgePad, labelX);
+      } else {
+        labelX = Math.min(canvasSize - edgePad, candidateLabelX);
+        labelX = Math.max(labelX, minXRight);
+        labelX = Math.min(canvasSize - edgePad, labelX);
+      }
+
+      items.push({
+        key: `lbl-${slice.label}-${sliceIndex}`,
+        slice,
+        pct,
+        p1,
+        p2x,
+        p2y,
+        labelX,
+        baseY: p2y,
+        isLeftSide,
+        percentLabel,
+      });
+    });
+
+    const left = items.filter((i) => i.isLeftSide).map((i) => ({ key: i.key, baseY: i.baseY }));
+    const right = items.filter((i) => !i.isLeftSide).map((i) => ({ key: i.key, baseY: i.baseY }));
+    const yLo = LABEL_EDGE_PAD;
+    const yHi = canvasSize - LABEL_EDGE_PAD;
+
+    const yByKey = new Map<string, number>();
+    packLabelYs(left, yLo, yHi).forEach((v, k) => yByKey.set(k, v));
+    packLabelYs(right, yLo, yHi).forEach((v, k) => yByKey.set(k, v));
+
+    return items.map((i) => {
+      const labelY = yByKey.get(i.key) ?? i.baseY;
+      return {
+        ...i,
+        labelY,
+        textY: labelY - LABEL_TEXT_ABOVE_LINE,
+      };
+    });
+  }, [hasData, showLabels, slices, canvasSize, cx, cy, rOuter, i18n.language]);
 
   return (
     <View
@@ -226,47 +360,31 @@ export const UltraDarkDonutChart: React.FC<UltraDarkDonutChartProps> = ({
 
         {hasData &&
           showLabels &&
-          slices.map(({ slice, pct, start, end }, sliceIndex) => {
-            const angle = end - start;
-            if (angle < 0.5) return null;
-            const midAngle = start + angle / 2;
-            const ringOuter = rOuter;
-            const p1 = polarToCartesian(cx, cy, ringOuter, midAngle);
-            const isLeftSide = midAngle > 90 && midAngle < 270;
-            const radialStep = 20;
-            const horizontalLen = 55;
-            const horizontalDir = isLeftSide ? -1 : 1;
-            const unitRadX = (p1.x - cx) / (ringOuter || 1);
-            const unitRadY = (p1.y - cy) / (ringOuter || 1);
-            const p2x = p1.x + unitRadX * radialStep;
-            const p2y = p1.y + unitRadY * radialStep;
-            const p3x = p2x + horizontalDir * horizontalLen;
-            const p3y = p2y;
-            const labelX = p3x;
-            const pctStr = pct.toFixed(1);
-            const percentLabel = `${useCommaDecimal ? pctStr.replace('.', ',') : pctStr}% ${slice.label.toLocaleUpperCase('tr-TR')}`;
-            const leaderPath = `M ${p1.x} ${p1.y} L ${p2x} ${p2y} L ${p3x} ${p3y}`;
+          labelLayouts.map((lay) => {
+            /** Son segment mutlaka yatay (y = labelY); önce dikey (p2x sabit), sonra yatay. */
+            const leaderPath = `M ${lay.p1.x} ${lay.p1.y} L ${lay.p2x} ${lay.p2y} L ${lay.p2x} ${lay.labelY} L ${lay.labelX} ${lay.labelY}`;
 
             return (
-              <React.Fragment key={`lbl-${slice.label}-${sliceIndex}`}>
+              <React.Fragment key={lay.key}>
                 <Path
                   d={leaderPath}
                   fill="none"
-                  stroke={slice.color}
+                  stroke={lay.slice.color}
                   strokeWidth={1.25}
                   opacity={0.85}
                   pointerEvents="none"
                 />
                 <SvgText
-                  x={labelX}
-                  y={p3y}
+                  x={lay.labelX}
+                  y={lay.textY}
                   fill="#ffffff"
-                  fontSize={11}
+                  fontSize={LABEL_FONT_SIZE}
                   fontWeight="500"
                   fontFamily={Fonts.sans}
-                  textAnchor={isLeftSide ? 'start' : 'end'}
+                  textAnchor={lay.isLeftSide ? 'start' : 'end'}
+                  alignmentBaseline="alphabetic"
                   pointerEvents="none">
-                  {percentLabel}
+                  {lay.percentLabel}
                 </SvgText>
               </React.Fragment>
             );

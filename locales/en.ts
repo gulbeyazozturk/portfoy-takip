@@ -29,6 +29,10 @@ export default {
     trend: 'Trend',
     settings: 'Settings',
   },
+  trend: {
+    historyExplainer:
+      'The chart uses historical prices and daily USD/TRY from after each position was added. When a date has no quote, the last known price is carried forward.',
+  },
   settings: {
     title: 'Settings',
     version: 'Version {{v}}',
@@ -129,8 +133,8 @@ export default {
     showing: '{{from}}–{{to}} / {{total}}',
   },
   bulk: {
-    webOnlyTitle: 'Web only',
-    webOnlyBody: 'Sample CSV downloads are only available in the web browser for now.',
+    shareCsvFailed: 'The CSV file could not be saved or shared.',
+    shareUnavailable: 'Sharing is not available on this device.',
     valuesListError: 'Could not build the values list.',
     uploadFailedTitle: 'Upload failed',
     needSession: 'You must be signed in.',
@@ -155,7 +159,7 @@ export default {
     delimTab: 'tab (TAB)',
     delimComma: 'comma (,)',
     formatBody:
-      '- Export from Excel as CSV. Turkish Excel often uses **semicolon (;)** as delimiter and **comma** for decimals.\n- A header row is required: **Portfolio** (optional; if empty the selected portfolio is used), **Asset Type**, **Asset**, **Quantity**, **Average Cost** (optional), **Change type** (optional). If line 1 is a sheet title, headers are read from the next matching line (first 12 lines scanned).\n- With **no Change type column** or an **empty** cell: rows for the same portfolio+asset merge into **one holding** — **quantities summed**; if **every** row has average cost, a **weighted average** is stored; if some omit it, average cost is **left unchanged** in the DB (null on new rows).\n- **ADD / EKLE / EKLEME**: the file’s quantity total is **added** to the current holding; averages are **blended** when costs allow.\n- **UPDATE / GÜNCELLE / …**: the position is set from the **last file row** (by row number) for that asset; **fails** if there is no holding yet. You cannot mix change types (e.g. ADD and UPDATE) on the same portfolio+asset in one upload.\n- Unknown **Portfolio** names are **created** automatically.',
+      '- Export from Excel as CSV. Turkish Excel often uses **semicolon (;)** as delimiter and **comma** for decimals.\n- A header row is required: **Portfolio** (optional; if empty the selected portfolio is used), **Asset Type**, **Asset**, **Quantity**, **Average Cost** (optional), **Change type** (optional). If line 1 is a sheet title, headers are read from the next matching line (first 12 lines scanned).\n- With **no Change type column** or an **empty** cell: rows for the same portfolio+asset merge into **one holding** — **quantities summed**; if **every** row has average cost, a **weighted average** is stored; if some omit it, average cost is **left unchanged** in the DB (null on new rows).\n- **ADD / EKLE / EKLEME**: the file’s quantity total is **added** to the current holding; averages are **blended** when costs allow.\n- **UPDATE / GÜNCELLE / …**: the position is set from the **last file row** (by row number) for that asset; **fails** if there is no holding yet. You cannot mix change types (e.g. ADD and UPDATE) on the same portfolio+asset in one upload.\n- Unknown **Portfolio** names are **created** automatically.\n- **Average Cost** is interpreted as **USD** for **USA (global stocks)** and **Crypto**, and as **TRY** for all other categories (same as manual entry and portfolio math).\n- **TL Mevduat / cash deposit** rows: **Average Cost** is **always ignored** (not saved); only **quantity** is applied.',
     sampleCsv: 'Download sample CSV',
     allValuesCsv: 'Download all values (CSV)',
     uploadsTitle: 'Uploaded files',
@@ -180,6 +184,14 @@ export default {
     exportFilename: 'all-asset-values.csv',
   },
   assetEntry: {
+    screenTitle: 'Asset details',
+    myPosition: 'My position',
+    positionTotalValue: 'Total value',
+    profitLoss: 'Profit / loss',
+    holdings: 'Holdings',
+    invested: 'Invested',
+    today: 'Today',
+    confirmTransaction: 'ADD',
     errorTitle: 'Error',
     missingInfo: 'Portfolio or asset information is missing.',
     invalidQty: 'Enter a valid quantity.',
@@ -192,7 +204,15 @@ export default {
     marketValue: 'Market value',
     totalGain: 'Total gain',
     totalLoss: 'Total loss',
+    averageCost: 'Average cost',
+    averageCostUsd: 'Avg cost USD',
+    usdValue: 'Unit (USD)',
+    profitLossUsd: 'P/L',
     costTotal: 'Total cost',
+    costBasisExplanation:
+      'Total = quantity × average unit cost (avg_price on this holding). The chart shows market price only; the daily % is vs. the prior close. If this does not match your CSV, check the cost column in bulk upload or unit costs entered on recent adds.',
+    costBasisImplicitSpot:
+      'With no average cost, we use the current market price for display (P/L shows as zero). Enter your unit cost for accurate gain/loss.',
     modeAdd: 'Add',
     modeReduce: 'Reduce',
     modeDelete: 'Remove',
@@ -235,6 +255,7 @@ export default {
     currencyTL: 'TRY',
     currencyUSD: 'USD',
     doubleTapOpenPortfolio: 'Double-tap: open this type on the Portfolio tab',
+    clearCategoryHighlightA11y: 'Clear asset group selection',
   },
   explore: {
     title: 'Explore',

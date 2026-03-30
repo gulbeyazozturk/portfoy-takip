@@ -1,3 +1,4 @@
+import Constants from 'expo-constants';
 import * as LocalAuthentication from 'expo-local-authentication';
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
@@ -5,6 +6,7 @@ import {
   Alert,
   AppState,
   type AppStateStatus,
+  Platform,
   Pressable,
   StyleSheet,
   View,
@@ -13,6 +15,9 @@ import { useTranslation } from 'react-i18next';
 
 import { ThemedText } from '@/components/themed-text';
 import { useAppLock } from '@/context/app-lock';
+
+/** Expo Go’da Face ID host uygulamasına bağlı değildir; zaman aşımı sonrası tekrar denemeye izin verir. */
+const AUTH_PROMPT_TIMEOUT_MS = 90_000;
 
 type Props = {
   children: React.ReactNode;
@@ -25,25 +30,57 @@ export function AppLockGate({ children }: Props) {
   const { t } = useTranslation();
   const { loaded, appLockEnabled, biometricSupported, setAppLockEnabled } = useAppLock();
   const [unlocked, setUnlocked] = useState(true);
+  const [authBusy, setAuthBusy] = useState(false);
   const unlockedRef = useRef(true);
   const appStateRef = useRef<AppStateStatus>(AppState.currentState);
+  /** Aynı anda iki authenticateAsync iOS’ta üst üste binip parola / garip akış çıkarabiliyor. */
+  const authSessionRef = useRef<Promise<boolean> | null>(null);
 
   useEffect(() => {
     unlockedRef.current = unlocked;
   }, [unlocked]);
 
   const authenticate = useCallback(async (): Promise<boolean> => {
-    try {
-      const result = await LocalAuthentication.authenticateAsync({
-        promptMessage: t('appLock.promptMessage'),
-        fallbackLabel: t('appLock.fallbackLabel'),
-        cancelLabel: t('appLock.cancelLabel'),
-        disableDeviceFallback: false,
-      });
-      return result.success === true;
-    } catch {
-      return false;
-    }
+    if (authSessionRef.current) return authSessionRef.current;
+
+    const session = (async () => {
+      setAuthBusy(true);
+      try {
+        /**
+         * Expo Go’da Face ID çoğu cihazda çalışmaz; yalnızca biyometrik + disableDeviceFallback
+         * doğrulama penceresi hiç açılmadan başarısız dönebiliyor. Standalone / mağaza build’inde
+         * yalnız Face ID / Touch ID kullanılır.
+         */
+        const isExpoGo = Constants.appOwnership === 'expo';
+        const disableDeviceFallback = !isExpoGo;
+        const fallbackLabel =
+          Platform.OS === 'ios' && disableDeviceFallback ? '' : t('appLock.fallbackLabel');
+
+        const authPromise = LocalAuthentication.authenticateAsync({
+          promptMessage: t('appLock.promptMessage'),
+          cancelLabel: t('appLock.cancelLabel'),
+          disableDeviceFallback,
+          fallbackLabel,
+        });
+
+        const result = await Promise.race([
+          authPromise,
+          new Promise<{ success: false }>((resolve) =>
+            setTimeout(() => resolve({ success: false }), AUTH_PROMPT_TIMEOUT_MS),
+          ),
+        ]);
+
+        return result.success === true;
+      } catch {
+        return false;
+      } finally {
+        authSessionRef.current = null;
+        setAuthBusy(false);
+      }
+    })();
+
+    authSessionRef.current = session;
+    return session;
   }, [t]);
 
   const tryUnlock = useCallback(async () => {
@@ -112,8 +149,16 @@ export function AppLockGate({ children }: Props) {
           {t('appLock.title')}
         </ThemedText>
         <ThemedText style={styles.sub}>{t('appLock.subtitle')}</ThemedText>
-        <Pressable style={styles.btn} onPress={() => void tryUnlock()}>
-          <ThemedText style={styles.btnText}>{t('appLock.unlock')}</ThemedText>
+        <Pressable
+          style={({ pressed }) => [styles.btn, (pressed || authBusy) && styles.btnPressed]}
+          onPress={() => void tryUnlock()}
+          disabled={authBusy}
+          accessibilityState={{ busy: authBusy }}>
+          {authBusy ? (
+            <ActivityIndicator color="#fff" />
+          ) : (
+            <ThemedText style={styles.btnText}>{t('appLock.unlock')}</ThemedText>
+          )}
         </Pressable>
         <Pressable
           style={styles.disableWrap}
@@ -151,7 +196,12 @@ const styles = StyleSheet.create({
     paddingHorizontal: 24,
     paddingVertical: 14,
     borderRadius: 12,
+    minHeight: 48,
+    minWidth: 160,
+    justifyContent: 'center',
+    alignItems: 'center',
   },
+  btnPressed: { opacity: 0.85 },
   btnText: { color: '#fff', fontWeight: '700', fontSize: 16 },
   disableWrap: { marginTop: 20 },
   disableLink: { color: '#6b7280', fontSize: 14, textDecorationLine: 'underline' },

@@ -9,14 +9,19 @@ import {
   Text,
   TouchableOpacity,
   View,
+  useWindowDimensions,
 } from 'react-native';
 import Svg, { Defs, LinearGradient, Path, Stop } from 'react-native-svg';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useTranslation } from 'react-i18next';
 
 import { PortfolioPickerModal } from '@/components/portfolio-picker-modal';
-import type { AssetRow, HoldingRow } from '@/hooks/use-portfolio-core-data';
+import type { HoldingRow } from '@/hooks/use-portfolio-core-data';
 import { normalizeAsset, usePortfolioCoreData } from '@/hooks/use-portfolio-core-data';
+import { usePortfolioHistorySeries } from '@/hooks/use-portfolio-history-series';
+import { categoryDisplayLabel } from '@/lib/category-display';
+import type { PortfolioHistoryTf } from '@/lib/portfolio-history-math';
+import { computePortfolioPerformanceValues } from '@/lib/portfolio-performance';
 
 const BG_DARK = '#000000';
 const SURFACE = '#111111';
@@ -30,6 +35,8 @@ const WHITE = '#FFFFFF';
 const BORDER = 'rgba(255,255,255,0.05)';
 
 const TIMEFRAMES = ['1D', '1W', '1M', '1Y', '5Y'] as const;
+
+const TREND_CATEGORY_ORDER = ['yurtdisi', 'bist', 'doviz', 'emtia', 'fon', 'kripto', 'mevduat'] as const;
 
 const CHART_W = 400;
 const CHART_H = 120;
@@ -175,6 +182,7 @@ function TrendInteractiveChart({
 
 export default function TrendScreen() {
   const { t, i18n } = useTranslation();
+  const { width: windowWidth } = useWindowDimensions();
   const numberLocale = i18n.language?.toLowerCase().startsWith('en') ? 'en-US' : 'tr-TR';
   const [fontsLoaded] = useFonts({ Manrope_800ExtraBold });
   const fontHead800 = fontsLoaded ? 'Manrope_800ExtraBold' : undefined;
@@ -182,8 +190,10 @@ export default function TrendScreen() {
   const [activeTimeframe, setActiveTimeframe] = useState<(typeof TIMEFRAMES)[number]>('1D');
   const [perfCurrency, setPerfCurrency] = useState<'TL' | 'USD'>('TL');
   const [chartSelectedIdx, setChartSelectedIdx] = useState<number | null>(null);
+  const [chartCategoryId, setChartCategoryId] = useState<string | null>(null);
 
   const {
+    categories,
     holdings,
     usdTry,
     loading,
@@ -194,151 +204,86 @@ export default function TrendScreen() {
     currentPortfolioName,
   } = usePortfolioCoreData();
 
-  const performanceValues = useMemo(() => {
-    const withAsset = holdings
-      .map((h) => ({ ...h, asset: normalizeAsset(h.asset) }))
-      .filter((h): h is HoldingRow & { asset: AssetRow } => h.asset != null);
-    let totalValueTL = 0;
-    let costBasisTL = 0;
-    let totalValueUSD = 0;
-    let costBasisUSD = 0;
-    let dailyChangeTL = 0;
-    let dailyChangeUSD = 0;
-    const safeRate = usdTry > 0 ? usdTry : 1;
-    for (const h of withAsset) {
-      const asset = h.asset;
-      const price = asset.current_price ?? h.avg_price ?? 0;
-      const cost = h.avg_price != null && h.avg_price > 0 ? h.avg_price : price;
-      const isUSD = asset.category_id === 'yurtdisi';
-      const rateTL = isUSD ? safeRate : 1;
-      const rateUSD = isUSD ? 1 : 1 / safeRate;
-      const value = h.quantity * (Number(price) || 0);
-      const costVal = h.quantity * (Number(cost) || 0);
-      totalValueTL += value * rateTL;
-      costBasisTL += costVal * rateTL;
-      totalValueUSD += value * rateUSD;
-      costBasisUSD += costVal * rateUSD;
-      const pct24 = asset.change_24h_pct ?? 0;
-      if (pct24 !== 0) {
-        const prevValue = value / (1 + pct24 / 100);
-        dailyChangeTL += (value - prevValue) * rateTL;
-        dailyChangeUSD += (value - prevValue) * rateUSD;
-      }
+  const trendCategories = useMemo(() => {
+    const list: { id: string; name: string }[] = [];
+    for (const id of TREND_CATEGORY_ORDER) {
+      const c = categories.find((x) => x.id === id);
+      if (c) list.push(c);
     }
+    return list;
+  }, [categories]);
 
-    const totalChangeAmtTL = totalValueTL - costBasisTL;
-    const totalChangePctTL = costBasisTL > 0 ? Math.round((totalChangeAmtTL / costBasisTL) * 10000) / 100 : null;
-    const totalChangeAmtUSD = totalValueUSD - costBasisUSD;
-    const totalChangePctUSD = costBasisUSD > 0 ? Math.round((totalChangeAmtUSD / costBasisUSD) * 10000) / 100 : null;
+  const filteredHoldings = useMemo((): HoldingRow[] => {
+    return holdings.filter((h) => {
+      const a = normalizeAsset(h.asset);
+      if (!a) return false;
+      if (!chartCategoryId) return true;
+      return a.category_id === chartCategoryId;
+    });
+  }, [holdings, chartCategoryId]);
 
-    const dailyPctTL =
-      totalValueTL - dailyChangeTL > 0
-        ? Math.round((dailyChangeTL / (totalValueTL - dailyChangeTL)) * 10000) / 100
-        : 0;
-    const dailyPctUSD =
-      totalValueUSD - dailyChangeUSD > 0
-        ? Math.round((dailyChangeUSD / (totalValueUSD - dailyChangeUSD)) * 10000) / 100
-        : 0;
+  const performanceValues = useMemo(
+    () => computePortfolioPerformanceValues(filteredHoldings, usdTry),
+    [filteredHoldings, usdTry],
+  );
 
-    return {
-      totalValueTL,
-      costBasisTL,
-      totalValueUSD,
-      costBasisUSD,
-      totalChangeAmtTL,
-      totalChangePctTL,
-      totalChangeAmtUSD,
-      totalChangePctUSD,
-      dailyChangeTL,
-      dailyPctTL,
-      dailyChangeUSD,
-      dailyPctUSD,
-    };
-  }, [holdings, usdTry]);
-
-  const performanceSeries = useMemo(() => {
-    if (!holdings.length) return { values: [] as number[], dates: [] as Date[] };
-    const now = Date.now();
-    const nowDate = new Date(now);
-    const createdTimes = holdings.map((h) => new Date(h.created_at).getTime()).filter((x) => Number.isFinite(x));
-    const firstCreated = createdTimes.length ? Math.min(...createdTimes) : now;
-    const totalNow =
-      perfCurrency === 'TL' ? performanceValues.totalValueTL : performanceValues.totalValueUSD;
-    const costNow =
-      perfCurrency === 'TL' ? performanceValues.costBasisTL : performanceValues.costBasisUSD;
-
-    const makeZeroToNow = (startMs: number) => {
-      const points = 20;
-      const values: number[] = [];
-      const dates: Date[] = [];
-      const span = Math.max(1, points - 1);
-      for (let i = 0; i < points; i++) {
-        const tMs = startMs + ((now - startMs) * i) / span;
-        dates.push(new Date(tMs));
-        if (tMs < firstCreated) values.push(0);
-        else values.push(totalNow);
-      }
-      return { values, dates };
-    };
-
-    switch (activeTimeframe) {
-      case '1D': {
-        const d0 = new Date(now - 24 * 60 * 60 * 1000);
-        return { values: [costNow || totalNow, totalNow], dates: [d0, nowDate] };
-      }
-      case '1W': {
-        const start = now - 7 * 24 * 60 * 60 * 1000;
-        return makeZeroToNow(start);
-      }
-      case '1M': {
-        const start = now - 30 * 24 * 60 * 60 * 1000;
-        return makeZeroToNow(start);
-      }
-      case '1Y': {
-        const start = now - 365 * 24 * 60 * 60 * 1000;
-        return makeZeroToNow(start);
-      }
-      case '5Y':
-      default: {
-        const start = now - 5 * 365 * 24 * 60 * 60 * 1000;
-        return makeZeroToNow(start);
-      }
-    }
-  }, [
-    holdings,
-    performanceValues.totalValueTL,
-    performanceValues.costBasisTL,
-    performanceValues.totalValueUSD,
-    performanceValues.costBasisUSD,
-    activeTimeframe,
+  const historySeries = usePortfolioHistorySeries(
+    filteredHoldings,
+    usdTry,
+    activeTimeframe as PortfolioHistoryTf,
     perfCurrency,
-  ]);
+    portfolioId ?? null,
+  );
+
+  const performanceSeries = historySeries;
 
   useEffect(() => {
     setChartSelectedIdx(null);
-  }, [activeTimeframe, perfCurrency, portfolioId]);
+  }, [activeTimeframe, perfCurrency, portfolioId, chartCategoryId]);
 
-  const chartPositive =
-    perfCurrency === 'TL'
+  const chartPositive = useMemo(() => {
+    const vals = performanceSeries.values;
+    if (vals.length >= 2) {
+      const last = vals[vals.length - 1];
+      const first = vals[0];
+      return last >= first;
+    }
+    return perfCurrency === 'TL'
       ? performanceValues.totalChangeAmtTL >= 0
       : performanceValues.totalChangeAmtUSD >= 0;
+  }, [performanceSeries.values, perfCurrency, performanceValues]);
 
   const chartPointHint = useMemo(() => {
     if (chartSelectedIdx == null) return null;
     const v = performanceSeries.values[chartSelectedIdx];
     const d = performanceSeries.dates[chartSelectedIdx];
     if (v == null || d == null) return null;
+    const dateOpts: Intl.DateTimeFormatOptions =
+      activeTimeframe === '1D'
+        ? {
+            day: 'numeric',
+            month: 'short',
+            year: 'numeric',
+            hour: '2-digit',
+            minute: '2-digit',
+          }
+        : {
+            day: 'numeric',
+            month: 'short',
+            year: 'numeric',
+          };
     return {
-      dateLine: d.toLocaleString(numberLocale, {
-        day: 'numeric',
-        month: 'short',
-        year: 'numeric',
-        hour: '2-digit',
-        minute: '2-digit',
-      }),
+      dateLine: d.toLocaleString(numberLocale, dateOpts),
       valueLine: fmtPortfolioAxis(v, perfCurrency, numberLocale),
     };
-  }, [chartSelectedIdx, performanceSeries.values, performanceSeries.dates, numberLocale, perfCurrency]);
+  }, [
+    chartSelectedIdx,
+    performanceSeries.values,
+    performanceSeries.dates,
+    numberLocale,
+    perfCurrency,
+    activeTimeframe,
+  ]);
 
   return (
     <View style={styles.root}>
@@ -388,6 +333,39 @@ export default function TrendScreen() {
 
           <View style={styles.card}>
             <Text style={styles.sectionTitle}>{t('portfolio.performance')}</Text>
+            <ScrollView
+              horizontal
+              nestedScrollEnabled
+              showsHorizontalScrollIndicator={false}
+              style={[styles.categoryScroll, { width: Math.max(0, windowWidth - 32) }]}
+              contentContainerStyle={styles.categoryScrollContent}>
+              <TouchableOpacity
+                onPress={() => setChartCategoryId(null)}
+                activeOpacity={0.85}
+                style={[styles.categoryPill, chartCategoryId == null && styles.categoryPillActive]}>
+                <Text
+                  style={[
+                    styles.categoryPillText,
+                    chartCategoryId == null && styles.categoryPillTextActive,
+                  ]}>
+                  {t('portfolio.allAssets')}
+                </Text>
+              </TouchableOpacity>
+              {trendCategories.map((c) => {
+                const active = chartCategoryId === c.id;
+                return (
+                  <TouchableOpacity
+                    key={c.id}
+                    onPress={() => setChartCategoryId(active ? null : c.id)}
+                    activeOpacity={0.85}
+                    style={[styles.categoryPill, active && styles.categoryPillActive]}>
+                    <Text style={[styles.categoryPillText, active && styles.categoryPillTextActive]}>
+                      {categoryDisplayLabel(c.id, c.name, t)}
+                    </Text>
+                  </TouchableOpacity>
+                );
+              })}
+            </ScrollView>
             <View style={styles.performanceBody}>
               <View style={styles.performanceTop}>
                 <View>
@@ -465,15 +443,26 @@ export default function TrendScreen() {
                   <Text style={styles.chartHintValue}>{chartPointHint.valueLine}</Text>
                 </View>
               ) : null}
-              <TrendInteractiveChart
-                values={performanceSeries.values}
-                dates={performanceSeries.dates}
-                isPositive={chartPositive}
-                currency={perfCurrency}
-                numberLocale={numberLocale}
-                selectedIdx={chartSelectedIdx}
-                onSelect={setChartSelectedIdx}
-              />
+              {historySeries.error ? (
+                <Text style={styles.historyErrorText}>{historySeries.error}</Text>
+              ) : null}
+              <View style={styles.chartBlock}>
+                {historySeries.loading && filteredHoldings.length > 0 ? (
+                  <View style={styles.chartLoadingOverlay}>
+                    <ActivityIndicator color={PRIMARY} />
+                  </View>
+                ) : null}
+                <TrendInteractiveChart
+                  values={performanceSeries.values}
+                  dates={performanceSeries.dates}
+                  isPositive={chartPositive}
+                  currency={perfCurrency}
+                  numberLocale={numberLocale}
+                  selectedIdx={chartSelectedIdx}
+                  onSelect={setChartSelectedIdx}
+                />
+              </View>
+              <Text style={styles.chartFootnote}>{t('trend.historyExplainer')}</Text>
               <View style={styles.timeframeRow}>
                 {TIMEFRAMES.map((tf) => (
                   <TouchableOpacity
@@ -528,7 +517,41 @@ const styles = StyleSheet.create({
     marginBottom: 16,
     overflow: 'hidden',
   },
-  sectionTitle: { fontSize: 16, fontWeight: '600', color: WHITE, padding: 16, paddingBottom: 0 },
+  sectionTitle: { fontSize: 16, fontWeight: '600', color: WHITE, padding: 16, paddingBottom: 8 },
+  categoryScroll: { flexGrow: 0, marginBottom: 4 },
+  categoryScrollContent: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingLeft: 16,
+    paddingRight: 8,
+    paddingVertical: 4,
+    gap: 8,
+  },
+  categoryPill: {
+    paddingHorizontal: 14,
+    paddingVertical: 8,
+    borderRadius: 999,
+    backgroundColor: SURFACE_CONTAINER,
+  },
+  categoryPillActive: { backgroundColor: PRIMARY },
+  categoryPillText: { fontSize: 12, fontWeight: '600', color: ON_SURFACE_VARIANT },
+  categoryPillTextActive: { color: ON_PRIMARY },
+  chartBlock: { position: 'relative' },
+  chartLoadingOverlay: {
+    ...StyleSheet.absoluteFillObject,
+    justifyContent: 'center',
+    alignItems: 'center',
+    backgroundColor: 'rgba(0,0,0,0.25)',
+    zIndex: 2,
+  },
+  historyErrorText: { color: '#fca5a5', fontSize: 12, marginBottom: 8, paddingHorizontal: 16 },
+  chartFootnote: {
+    fontSize: 10,
+    color: MUTED,
+    marginTop: 8,
+    lineHeight: 14,
+    paddingHorizontal: 16,
+  },
   performanceBody: { padding: 16, paddingTop: 12 },
   performanceTop: {
     flexDirection: 'row',

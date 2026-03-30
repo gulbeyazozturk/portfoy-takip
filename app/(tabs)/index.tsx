@@ -23,9 +23,16 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { PortfolioPickerModal } from '@/components/portfolio-picker-modal';
 import { useSelectedCategories } from '@/context/selected-categories';
-import { normalizeAsset, usePortfolioCoreData } from '@/hooks/use-portfolio-core-data';
+import {
+  normalizeAsset,
+  usePortfolioCoreData,
+  type AssetRow,
+  type HoldingRow,
+} from '@/hooks/use-portfolio-core-data';
+import { kriptoStoredUnitToUsd, legacyCryptoStoredUnitToUsd } from '@/lib/crypto-price-usd';
 import { resolveBistDisplayName } from '@/lib/bist-display-name';
 import { categoryDisplayLabel } from '@/lib/category-display';
+import { isUsdNativeCategory } from '@/lib/portfolio-currency';
 import { useTranslation } from 'react-i18next';
 
 const BG = '#000000';
@@ -41,6 +48,34 @@ const OUTLINE_VARIANT = '#484848';
 const MUTED_PCT = 'rgba(255,255,255,0.45)';
 
 const CATEGORY_ORDER = ['yurtdisi', 'bist', 'doviz', 'emtia', 'fon', 'kripto', 'mevduat'] as const;
+
+/** Tutarlar: kuruş yok, yukarı yuvarlı tam TL/USD. */
+function formatPortfolioMoneyCeil(value: number, locale: string): string {
+  if (!Number.isFinite(value)) return (0).toLocaleString(locale, { maximumFractionDigits: 0 });
+  return Math.ceil(value).toLocaleString(locale, { maximumFractionDigits: 0, minimumFractionDigits: 0 });
+}
+
+/**
+ * Sıralama için günlük %: önce change_24h_pct; yoksa (FON vb.) liste satırıyla aynı şekilde maliyetten türetilir.
+ * Eski mantıkta null hep -Infinity/Infinity sayılırdı → tüm çiftler eşit, sıra değişmezdi.
+ */
+function effectiveDailyPctForSort(h: HoldingRow, asset: AssetRow, usdTry: number): number {
+  const rawSpot = Number(asset.current_price ?? h.avg_price ?? 0);
+  const currentPrice =
+    asset.category_id === 'kripto' ? kriptoStoredUnitToUsd(rawSpot, usdTry, asset.currency) : rawSpot;
+  const changePct = asset.change_24h_pct;
+  if (changePct != null && Number.isFinite(changePct)) return changePct;
+
+  const costRaw = h.avg_price != null ? Number(h.avg_price) : null;
+  const costPrice =
+    costRaw != null && asset.category_id === 'kripto'
+      ? legacyCryptoStoredUnitToUsd(costRaw, usdTry, currentPrice)
+      : costRaw;
+  if (costPrice != null && costPrice > 0 && Number.isFinite(currentPrice) && currentPrice > 0) {
+    return ((currentPrice - costPrice) / costPrice) * 100;
+  }
+  return 0;
+}
 
 const ASSET_ICONS: Record<string, { icon: string; bg: string; color: string }> = {
   default: { icon: 'ellipse-outline', bg: 'rgba(148,163,184,0.2)', color: '#94A3B8' },
@@ -67,6 +102,12 @@ const ASSET_ICONS: Record<string, { icon: string; bg: string; color: string }> =
 };
 
 type SortMode = 'todayTopGainers' | 'todayTopLosers' | 'highestValue' | 'lowestValue' | 'alphaAZ' | 'alphaZA';
+
+/** Portföy tutarları: kuruş yok, yukarı yuvarlanmış tam birim. */
+function formatAmountCeiling(value: number, locale: string): string {
+  const n = Number.isFinite(value) ? Math.ceil(value) : 0;
+  return n.toLocaleString(locale, { minimumFractionDigits: 0, maximumFractionDigits: 0 });
+}
 
 export default function PortfolioScreen() {
   const { t, i18n } = useTranslation();
@@ -161,23 +202,31 @@ export default function PortfolioScreen() {
       const assetA = normalizeAsset(a.asset);
       const assetB = normalizeAsset(b.asset);
 
-      const priceA = (assetA?.current_price ?? a.avg_price ?? 0) || 0;
-      const priceB = (assetB?.current_price ?? b.avg_price ?? 0) || 0;
-      const valueA = a.quantity * Number(priceA || 0);
-      const valueB = b.quantity * Number(priceB || 0);
-
-      const changeA = assetA?.change_24h_pct;
-      const changeB = assetB?.change_24h_pct;
+      const rawA = Number((assetA?.current_price ?? a.avg_price ?? 0) || 0);
+      const rawB = Number((assetB?.current_price ?? b.avg_price ?? 0) || 0);
+      const unitA =
+        assetA?.category_id === 'kripto'
+          ? kriptoStoredUnitToUsd(rawA, usdTry, assetA.currency)
+          : rawA;
+      const unitB =
+        assetB?.category_id === 'kripto'
+          ? kriptoStoredUnitToUsd(rawB, usdTry, assetB.currency)
+          : rawB;
+      const nativeA = a.quantity * unitA;
+      const nativeB = b.quantity * unitB;
+      const rate = usdTry > 0 ? usdTry : 1;
+      const valueA = isUsdNativeCategory(assetA?.category_id) ? nativeA * rate : nativeA;
+      const valueB = isUsdNativeCategory(assetB?.category_id) ? nativeB * rate : nativeB;
 
       switch (sortMode) {
         case 'todayTopGainers': {
-          const ca = changeA ?? -Infinity;
-          const cb = changeB ?? -Infinity;
+          const ca = assetA ? effectiveDailyPctForSort(a, assetA, usdTry) : Number.NEGATIVE_INFINITY;
+          const cb = assetB ? effectiveDailyPctForSort(b, assetB, usdTry) : Number.NEGATIVE_INFINITY;
           return cb - ca;
         }
         case 'todayTopLosers': {
-          const ca = changeA ?? Infinity;
-          const cb = changeB ?? Infinity;
+          const ca = assetA ? effectiveDailyPctForSort(a, assetA, usdTry) : Number.POSITIVE_INFINITY;
+          const cb = assetB ? effectiveDailyPctForSort(b, assetB, usdTry) : Number.POSITIVE_INFINITY;
           return ca - cb;
         }
         case 'highestValue':
@@ -194,7 +243,7 @@ export default function PortfolioScreen() {
     });
 
     return sorted;
-  }, [holdings, filter, sortMode, sortCollator]);
+  }, [holdings, filter, sortMode, sortCollator, usdTry]);
 
   const summaryData = useMemo(() => {
     let totalUSD = 0;
@@ -209,13 +258,21 @@ export default function PortfolioScreen() {
     for (const h of filteredHoldings) {
       const asset = normalizeAsset(h.asset);
       if (!asset) continue;
-      const price = asset.current_price ?? h.avg_price ?? 0;
-      const value = h.quantity * (Number(price) || 0);
+      const rawSpot = Number(asset.current_price ?? h.avg_price ?? 0);
+      const spotUsd =
+        asset.category_id === 'kripto' ? kriptoStoredUnitToUsd(rawSpot, usdTry, asset.currency) : rawSpot;
+      const value = h.quantity * (Number(spotUsd) || 0);
       const pct = asset.change_24h_pct ?? 0;
       const prevValue = pct !== 0 ? value / (1 + pct / 100) : value;
       const daily = value - prevValue;
-      const cost = h.avg_price != null ? h.quantity * (Number(h.avg_price) || 0) : prevValue;
-      const isUSD = asset.category_id === 'yurtdisi';
+      const costRaw = h.avg_price != null ? Number(h.avg_price) : null;
+      const unitCost =
+        costRaw != null && asset.category_id === 'kripto'
+          ? legacyCryptoStoredUnitToUsd(costRaw, usdTry, spotUsd)
+          : costRaw;
+      const cost =
+        unitCost != null ? h.quantity * (Number(unitCost) || 0) : prevValue;
+      const isUSD = isUsdNativeCategory(asset.category_id);
       if (isUSD) {
         totalUSD += value;
         dailyAmtUSD += daily;
@@ -349,8 +406,8 @@ export default function PortfolioScreen() {
             })}%`;
             const amountStr =
               summaryDisplayCurrency === 'USD'
-                ? mainTotal.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
-                : mainTotal.toLocaleString(numberLocale, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+                ? formatPortfolioMoneyCeil(mainTotal, 'en-US')
+                : formatPortfolioMoneyCeil(mainTotal, numberLocale);
             const suffix = summaryDisplayCurrency === 'USD' ? ' USD' : ` ${t('home.currencyTL')}`;
             return (
               <View style={styles.hero}>
@@ -535,10 +592,14 @@ export default function PortfolioScreen() {
               filteredHoldings.map((h) => {
                 const asset = normalizeAsset(h.asset);
                 if (!asset) return null;
-                const currentPrice = asset.current_price ?? h.avg_price ?? 0;
+                const rawSpot = Number(asset.current_price ?? h.avg_price ?? 0);
+                const currentPrice =
+                  asset.category_id === 'kripto'
+                    ? kriptoStoredUnitToUsd(rawSpot, usdTry, asset.currency)
+                    : rawSpot;
                 const value = h.quantity * currentPrice;
                 const changePct = asset.change_24h_pct ?? null;
-                const valueCurrency = asset.category_id === 'yurtdisi' ? 'USD' : 'TL';
+                const valueCurrency = isUsdNativeCategory(asset.category_id) ? 'USD' : 'TL';
                 const iconStyle =
                   ASSET_ICONS[asset.symbol] ??
                   ASSET_ICONS[asset.category_id] ??
@@ -569,6 +630,7 @@ export default function PortfolioScreen() {
                                 : '',
                           quantity: String(h.quantity),
                           avgPrice: h.avg_price != null ? String(h.avg_price) : '',
+                          spotCurrency: asset.currency ?? '',
                         },
                       })
                     }>
@@ -595,14 +657,18 @@ export default function PortfolioScreen() {
                     </View>
                     <View style={styles.assetRight}>
                       <Text style={[styles.assetValue, { fontFamily: fontHead700 }]}>
-                        {value.toLocaleString(valueCurrency === 'USD' ? 'en-US' : numberLocale, {
-                          minimumFractionDigits: 2,
-                          maximumFractionDigits: 2,
-                        })}{' '}
+                        {formatPortfolioMoneyCeil(
+                          value,
+                          valueCurrency === 'USD' ? 'en-US' : numberLocale,
+                        )}{' '}
                         {valueCurrency}
                       </Text>
                       {(() => {
-                        const costPrice = h.avg_price != null ? Number(h.avg_price) : null;
+                        const costRaw = h.avg_price != null ? Number(h.avg_price) : null;
+                        const costPrice =
+                          costRaw != null && asset.category_id === 'kripto'
+                            ? legacyCryptoStoredUnitToUsd(costRaw, usdTry, currentPrice)
+                            : costRaw;
                         const totalPctFromCost =
                           costPrice != null && costPrice > 0
                             ? ((currentPrice - costPrice) / costPrice) * 100

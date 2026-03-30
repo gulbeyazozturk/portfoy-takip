@@ -2,6 +2,7 @@ import { Ionicons } from '@expo/vector-icons';
 import * as DocumentPicker from 'expo-document-picker';
 import { File as ExpoFile } from 'expo-file-system';
 import { useRouter } from 'expo-router';
+import * as Sharing from 'expo-sharing';
 import React, { useCallback, useEffect, useState } from 'react';
 import {
   ActivityIndicator,
@@ -312,28 +313,49 @@ export default function BulkUploadScreen() {
     }
   };
 
-  const ensureWebDownload = () => {
-    if (Platform.OS !== 'web') {
-      showAlert(t('bulk.webOnlyTitle'), t('bulk.webOnlyBody'));
-      return false;
+  const triggerCsvDownload = async (filename: string, content: string) => {
+    if (Platform.OS === 'web') {
+      const blob = new Blob([content], { type: 'text/csv;charset=utf-8;' });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.setAttribute('download', filename);
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      URL.revokeObjectURL(url);
+      return;
     }
-    return true;
+
+    try {
+      const FileSystem = await import('expo-file-system/legacy');
+      const baseDir = FileSystem.cacheDirectory;
+      if (!baseDir) {
+        showAlert(t('bulk.errorTitle'), t('bulk.shareCsvFailed'));
+        return;
+      }
+      const baseName = filename.split(/[/\\]/).pop()?.replace(/\.\./g, '') || 'export.csv';
+      const fileUri = `${baseDir}${Date.now()}-${baseName}`;
+      await FileSystem.writeAsStringAsync(fileUri, content, {
+        encoding: FileSystem.EncodingType.UTF8,
+      });
+      const canShare = await Sharing.isAvailableAsync();
+      if (!canShare) {
+        showAlert(t('bulk.errorTitle'), t('bulk.shareUnavailable'));
+        return;
+      }
+      await Sharing.shareAsync(fileUri, {
+        mimeType: 'text/csv',
+        UTI: 'public.comma-separated-values-text',
+        dialogTitle: baseName,
+      });
+    } catch (e) {
+      console.error(e);
+      showAlert(t('bulk.errorTitle'), t('bulk.shareCsvFailed'));
+    }
   };
 
-  const triggerCsvDownload = (filename: string, content: string) => {
-    if (!ensureWebDownload()) return;
-    const blob = new Blob([content], { type: 'text/csv;charset=utf-8;' });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement('a');
-    link.href = url;
-    link.setAttribute('download', filename);
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
-    URL.revokeObjectURL(url);
-  };
-
-  const handleDownloadSampleCsv = () => {
+  const handleDownloadSampleCsv = async () => {
     const isEn = i18n.language?.toLowerCase().startsWith('en');
     // Semicolon: TR Excel; adet/maliyet ondalığı virgülle güvenli
     const delim = isEn ? ',' : ';';
@@ -363,18 +385,21 @@ export default function BulkUploadScreen() {
 
   const handleDownloadAllValuesCsv = async () => {
     try {
-      if (!ensureWebDownload()) return;
+      const { data: categories, error: catError } = await supabase
+        .from('categories')
+        .select('id, name, subtitle');
+      if (catError) throw catError;
 
-      const { data: categories } = await supabase.from('categories').select('id, name, subtitle');
       const allAssets: Array<{ category_id: string; symbol: string; name: string }> = [];
       let from = 0;
       const PG = 1000;
       while (true) {
-        const { data: batch } = await supabase
+        const { data: batch, error: assetsError } = await supabase
           .from('assets')
           .select('category_id, symbol, name')
           .order('symbol', { ascending: true })
           .range(from, from + PG - 1);
+        if (assetsError) throw assetsError;
         if (!batch || batch.length === 0) break;
         allAssets.push(...batch);
         if (batch.length < PG) break;
@@ -399,7 +424,7 @@ export default function BulkUploadScreen() {
       }
 
       const csv = rows.map((r) => r.join(',')).join('\n');
-      triggerCsvDownload(t('bulk.exportFilename'), csv);
+      await triggerCsvDownload(t('bulk.exportFilename'), csv);
     } catch (e) {
       console.error(e);
       showAlert(t('bulk.errorTitle'), t('bulk.valuesListError'));
@@ -658,10 +683,6 @@ export default function BulkUploadScreen() {
     for (const row of rows) {
       const pfLabel = row.portfolioName?.trim() || '—';
 
-      if (row.avgPriceInvalid) {
-        errors.push(t('bulk.rowInvalidAvgPrice', { row: row.rowNumber, price: '—' }));
-        continue;
-      }
       if (row.changeKindInvalid) {
         errors.push(t('bulk.rowInvalidChangeKind', { row: row.rowNumber }));
         continue;
@@ -699,6 +720,11 @@ export default function BulkUploadScreen() {
         continue;
       }
 
+      if (row.avgPriceInvalid && category.id !== 'mevduat') {
+        errors.push(t('bulk.rowInvalidAvgPrice', { row: row.rowNumber, price: '—' }));
+        continue;
+      }
+
       const assetCell =
         category.id === 'bist' ? resolveBistCsvToCanonicalSymbol(row.assetValue) : row.assetValue;
       const asset = assetList.find(
@@ -718,7 +744,7 @@ export default function BulkUploadScreen() {
         quantity: row.quantity,
         changeKind: row.changeKind ?? 'auto',
       };
-      if (row.avgPrice !== undefined && row.avgPrice !== null) {
+      if (category.id !== 'mevduat' && row.avgPrice !== undefined && row.avgPrice !== null) {
         line.unitCost = row.avgPrice;
       }
       resolvedLines.push(line);
@@ -763,6 +789,8 @@ export default function BulkUploadScreen() {
 
     for (const [, lines] of byKey) {
       const kind = lines[0]!.changeKind;
+      const asset0 = assetList.find((x) => x.id === lines[0]!.assetId);
+      const isMevduat = asset0?.category_id === 'mevduat';
       const holding = holdingList.find(
         (h) => h.portfolio_id === lines[0]!.portfolioId && h.asset_id === lines[0]!.assetId
       );
@@ -773,52 +801,56 @@ export default function BulkUploadScreen() {
         updates.push({
           holdingId: holding.id,
           quantity: last.quantity,
-          ...(last.unitCost !== undefined ? { avgPrice: last.unitCost } : {}),
+          ...(!isMevduat && last.unitCost !== undefined ? { avgPrice: last.unitCost } : {}),
         });
         continue;
       }
 
       if (kind === 'add') {
         const fileSumQty = lines.reduce((s, l) => s + l.quantity, 0);
-        const fileAvg = mergeAvgFromLines(lines, fileSumQty);
+        const fileAvg = isMevduat ? undefined : mergeAvgFromLines(lines, fileSumQty);
         if (holding) {
           const newQ = holding.quantity + fileSumQty;
-          const blended = blendAvgForAddToHolding(
-            holding.quantity,
-            holding.avg_price,
-            fileSumQty,
-            fileAvg
-          );
-          updates.push({
-            holdingId: holding.id,
-            quantity: newQ,
-            ...(blended !== undefined ? { avgPrice: blended } : {}),
-          });
+          if (isMevduat) {
+            updates.push({ holdingId: holding.id, quantity: newQ });
+          } else {
+            const blended = blendAvgForAddToHolding(
+              holding.quantity,
+              holding.avg_price,
+              fileSumQty,
+              fileAvg
+            );
+            updates.push({
+              holdingId: holding.id,
+              quantity: newQ,
+              ...(blended !== undefined ? { avgPrice: blended } : {}),
+            });
+          }
         } else {
           inserts.push({
             portfolioId: lines[0]!.portfolioId,
             assetId: lines[0]!.assetId,
             quantity: fileSumQty,
-            avgPrice: fileAvg === undefined ? null : fileAvg,
+            avgPrice: isMevduat || fileAvg === undefined ? null : fileAvg,
           });
         }
         continue;
       }
 
       const sumQty = lines.reduce((s, l) => s + l.quantity, 0);
-      const mergedAvg = mergeAvgFromLines(lines, sumQty);
+      const mergedAvg = isMevduat ? undefined : mergeAvgFromLines(lines, sumQty);
       if (holding) {
         updates.push({
           holdingId: holding.id,
           quantity: sumQty,
-          ...(mergedAvg !== undefined ? { avgPrice: mergedAvg } : {}),
+          ...(!isMevduat && mergedAvg !== undefined ? { avgPrice: mergedAvg } : {}),
         });
       } else {
         inserts.push({
           portfolioId: lines[0]!.portfolioId,
           assetId: lines[0]!.assetId,
           quantity: sumQty,
-          avgPrice: mergedAvg === undefined ? null : mergedAvg,
+          avgPrice: isMevduat || mergedAvg === undefined ? null : mergedAvg,
         });
       }
     }

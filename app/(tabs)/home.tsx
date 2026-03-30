@@ -2,7 +2,7 @@ import { Manrope_800ExtraBold } from '@expo-google-fonts/manrope';
 import { Ionicons } from '@expo/vector-icons';
 import { useFonts } from 'expo-font';
 import { type Href, useRouter } from 'expo-router';
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   Platform,
@@ -71,8 +71,11 @@ export default function HomeScreen() {
   const [valueScope, setValueScope] = useState<'daily' | 'all'>('daily');
   const { filter, selectAllCategories, setCategoryFromChart } = useSelectedCategories();
 
-  /** Scroll (20×2) + bento yatay padding (8×2) — ok/etiketler kesilmesin. */
-  const donutLabelMargin = windowWidth < 360 ? 48 : 58;
+  /**
+   * Oku + yatay kol (radialStep + horizontalLen ≈ 75px) tuval kenarından içeride kalmalı.
+   * Dar ekranda küçük margin (ör. 48) etiketi viewBox dışına iter (“FON” → “F”, “% BIST” vb.).
+   */
+  const donutLabelMargin = windowWidth < 360 ? 84 : 78;
   const donutMaxCanvas = windowWidth - 40 - 16;
   const donutSize = Math.max(
     148,
@@ -101,6 +104,11 @@ export default function HomeScreen() {
   }, [portfolioId, selectAllCategories]);
 
   const chartHighlightCategoryId = getSingleChartCategoryId(filter);
+
+  const clearHomeCategoryFilter = useCallback(() => {
+    lastGridTapRef.current = null;
+    setCategoryFromChart(null);
+  }, [setCategoryFromChart]);
 
   const neonSlices = useMemo(
     () =>
@@ -177,14 +185,20 @@ export default function HomeScreen() {
             keyboardShouldPersistTaps="handled">
             {/* Üst özet: tutar + %; alt satırda günlük/tümü ve TL/USD (aynı hap stili) */}
             <View style={styles.hero}>
-              <View style={styles.heroTopRow}>
-                <Text style={styles.heroValue} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.55}>
-                  {mainTotal > 0 ? fmtMoney(mainTotal) : valueCurrency === 'USD' ? '$0' : `0 ${t('home.currencyTL')}`}
-                </Text>
-                {mainTotal > 0 ? (
-                  <Text style={[styles.heroPct, pctPositive ? styles.heroPctUp : styles.heroPctDown]}>{pctStr}</Text>
-                ) : null}
-              </View>
+              <Pressable
+                onPress={clearHomeCategoryFilter}
+                accessibilityRole="button"
+                accessibilityLabel={t('home.clearCategoryHighlightA11y')}
+                style={styles.heroTopRowPressable}>
+                <View style={styles.heroTopRow}>
+                  <Text style={styles.heroValue} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.55}>
+                    {mainTotal > 0 ? fmtMoney(mainTotal) : valueCurrency === 'USD' ? '$0' : `0 ${t('home.currencyTL')}`}
+                  </Text>
+                  {mainTotal > 0 ? (
+                    <Text style={[styles.heroPct, pctPositive ? styles.heroPctUp : styles.heroPctDown]}>{pctStr}</Text>
+                  ) : null}
+                </View>
+              </Pressable>
               <View style={styles.heroPillsRow}>
                 <View style={[styles.currencyPill, styles.heroPill]}>
                   <Pressable
@@ -236,6 +250,14 @@ export default function HomeScreen() {
                 </View>
               </View>
             </View>
+
+            {/* Hero ile grafik arası: boş alan dokunması → vurgu kapanır (donut ile çakışmaz) */}
+            <Pressable
+              onPress={clearHomeCategoryFilter}
+              style={styles.heroChartGap}
+              accessibilityElementsHidden
+              importantForAccessibility="no-hide-descendants"
+            />
 
             {/* Bento: donut kartı */}
             <View style={[styles.bentoChart, Platform.OS === 'ios' && styles.bentoChartIos]}>
@@ -371,6 +393,14 @@ export default function HomeScreen() {
                 })
               )}
             </View>
+
+            {/* Kısa içerikte kalan boşluğa dokununca da vurgu kapanır */}
+            <Pressable
+              onPress={clearHomeCategoryFilter}
+              style={styles.scrollBottomClear}
+              accessibilityElementsHidden
+              importantForAccessibility="no-hide-descendants"
+            />
           </ScrollView>
         )}
       </SafeAreaView>
@@ -393,6 +423,7 @@ const styles = StyleSheet.create({
   safe: { flex: 1 },
   scroll: { flex: 1 },
   scrollContent: {
+    flexGrow: 1,
     paddingHorizontal: 20,
     paddingTop: 6,
     paddingBottom: 120,
@@ -412,6 +443,10 @@ const styles = StyleSheet.create({
     marginBottom: 22,
     paddingTop: 14,
     alignItems: 'center',
+  },
+  heroTopRowPressable: {
+    maxWidth: '100%',
+    alignSelf: 'stretch',
   },
   heroTopRow: {
     flexDirection: 'row',
@@ -479,6 +514,16 @@ const styles = StyleSheet.create({
     shadowOffset: { width: 0, height: 16 },
     shadowOpacity: 0.12,
     shadowRadius: 28,
+  },
+  heroChartGap: {
+    alignSelf: 'stretch',
+    height: 14,
+    marginTop: 4,
+    marginBottom: 2,
+  },
+  scrollBottomClear: {
+    flexGrow: 1,
+    minHeight: 120,
   },
   donutInner: {
     alignItems: 'center',

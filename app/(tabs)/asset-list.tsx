@@ -29,8 +29,17 @@ const PRIMARY = '#2979FF';
 const ICON_BG = '#111827';
 
 const PAGE_SIZE = 500;
+/** Aynı satırda iki dokunuş “Detaya git” ile aynı navigasyonu tetikler */
+const DOUBLE_TAP_MS = 380;
 
-type AssetItem = { id: string; name: string; symbol: string; price?: number; iconUrl?: string | null };
+type AssetItem = {
+  id: string;
+  name: string;
+  symbol: string;
+  price?: number;
+  spotCurrency?: string | null;
+  iconUrl?: string | null;
+};
 
 function Radio({ selected }: { selected: boolean }) {
   return (
@@ -63,6 +72,7 @@ export default function AssetListScreen() {
   const [totalCount, setTotalCount] = useState<number | null>(null);
 
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const lastRowTapRef = useRef<{ t: number; id: string }>({ t: 0, id: '' });
 
   const cleanSymbol = (s: string) => s.replace(/^M\d+_/, '');
 
@@ -73,6 +83,7 @@ export default function AssetListScreen() {
       name: categoryId === 'bist' ? resolveBistDisplayName(sym, r.name) : r.name,
       symbol: sym,
       price: r.current_price ?? undefined,
+      spotCurrency: r.currency ?? null,
       iconUrl: r.icon_url ?? null,
     };
   };
@@ -162,21 +173,40 @@ export default function AssetListScreen() {
 
   const selectedAsset = selectedId ? assets.find((a) => a.id === selectedId) : null;
 
+  const openAssetDetail = useCallback(
+    (asset: AssetItem) => {
+      router.push({
+        pathname: '/(tabs)/asset-entry',
+        params: {
+          returnTo: '/(tabs)/asset-list',
+          returnCategoryId: categoryId,
+          returnLabel: label,
+          assetId: asset.id,
+          name: asset.name,
+          symbol: asset.symbol,
+          categoryId,
+          price: asset.price != null ? String(asset.price) : '',
+          spotCurrency: asset.spotCurrency ?? '',
+        },
+      });
+    },
+    [router, categoryId, label],
+  );
+
   const handleAdd = () => {
     if (!selectedAsset) return;
-    router.push({
-      pathname: '/(tabs)/asset-entry',
-      params: {
-        returnTo: '/(tabs)/asset-list',
-        returnCategoryId: categoryId,
-        returnLabel: label,
-        assetId: selectedAsset.id,
-        name: selectedAsset.name,
-        symbol: selectedAsset.symbol,
-        categoryId,
-        price: selectedAsset.price != null ? String(selectedAsset.price) : '',
-      },
-    });
+    openAssetDetail(selectedAsset);
+  };
+
+  const onRowPress = (item: AssetItem) => {
+    const now = Date.now();
+    if (lastRowTapRef.current.id === item.id && now - lastRowTapRef.current.t < DOUBLE_TAP_MS) {
+      openAssetDetail(item);
+      lastRowTapRef.current = { t: 0, id: '' };
+      return;
+    }
+    lastRowTapRef.current = { t: now, id: item.id };
+    setSelectedId(item.id);
   };
 
   const title = t('assetList.title', { label });
@@ -268,7 +298,7 @@ export default function AssetListScreen() {
                 return (
                   <Pressable
                     style={({ pressed }) => [styles.row, pressed && styles.rowPressed]}
-                    onPress={() => setSelectedId(item.id)}>
+                    onPress={() => onRowPress(item)}>
                     <View style={styles.rowLeft}>
                       <View style={styles.iconCircle}>
                         {item.iconUrl ? (

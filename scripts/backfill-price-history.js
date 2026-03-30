@@ -7,7 +7,7 @@
  *   - bist     : Yahoo Finance (sembol + '.IS')
  *   - doviz    : Yahoo Finance (sembol + 'TRY=X')
  *   - emtia    : Yahoo (XAU…XPD) + USDTRY; XAUT/PAXG CoinGecko market_chart (TRY)
- *   - kripto   : CoinGecko market_chart (vs_currency=try, days=1825)
+ *   - kripto   : CoinGecko market_chart (vs_currency=usd, days=1825)
  *   - fon      : TEFAS BindHistoryInfo API
  *   - mevduat  : atlanır
  *
@@ -196,7 +196,7 @@ async function backfillCoinGecko(sb, assets, sectionTitle = 'Kripto (CoinGecko)'
     }
 
     try {
-      const url = `https://api.coingecko.com/api/v3/coins/${coinId}/market_chart?vs_currency=try&days=1825`;
+      const url = `https://api.coingecko.com/api/v3/coins/${coinId}/market_chart?vs_currency=usd&days=1825`;
       const res = await fetch(url);
       if (res.status === 429) {
         console.log(`  [${i + 1}] ${asset.symbol}: Rate limit, 60s bekleniyor...`);

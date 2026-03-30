@@ -29,6 +29,10 @@ export default {
     trend: 'Trend',
     settings: 'Ayarlar',
   },
+  trend: {
+    historyExplainer:
+      'Grafik, pozisyonların eklenme tarihinden sonra geçmiş fiyatlar ve günlük USD/TRY ile hesaplanır. Veri aralığında kayıt yoksa son bilinen fiyat kullanılır.',
+  },
   settings: {
     title: 'Ayarlar',
     version: 'Sürüm {{v}}',
@@ -131,8 +135,8 @@ export default {
     showing: '{{from}}–{{to}} / {{total}}',
   },
   bulk: {
-    webOnlyTitle: 'Sadece web',
-    webOnlyBody: 'Örnek CSV dosyalarını şu anda sadece web tarayıcısından indirebilirsiniz.',
+    shareCsvFailed: 'CSV dosyası kaydedilemedi veya paylaşılamadı.',
+    shareUnavailable: 'Bu cihazda paylaşım kullanılamıyor.',
     valuesListError: 'Değerler listesi oluşturulurken bir hata oluştu.',
     uploadFailedTitle: 'Dosya yüklenemedi',
     needSession: 'Bu işlem için giriş yapılmış olmalıdır.',
@@ -158,7 +162,7 @@ export default {
     delimTab: 'sekme (TAB)',
     delimComma: 'virgül (,)',
     formatBody:
-      '- Excel’den CSV dışa aktarın (Türkiye’de genelde sütun ayırıcı **noktalı virgül**; ondalık **virgül**).\n- Başlık satırı zorunlu: **Portföy** (opsiyonel, boşsa seçili portföy), **Varlık Tipi**, **Varlık**, **Adet**, **Ortalama Maliyet** (opsiyonel), **Değişiklik Tipi** (opsiyonel). İlk satır sayfa adıysa başlıklar sonraki satırdan okunur.\n- **Değişiklik Tipi** yoksa veya hücre boşsa: aynı portföy+varlık satırları **tek holdinge** birleşir — adetler **toplanır**, her satırda maliyet doluysa **ağırlıklı ortalama**; eksik maliyette DB’deki ortalama **değişmez** (yeni kayıtta null).\n- **EKLE / EKLEME / ADD**: dosyadaki adet toplamı mevcut adedin **üzerine eklenir**; maliyetler uygunsa ortalama **birleştirilir**.\n- **GÜNCELLE / GÜNCELLEME / UPDATE**: pozisyon **dosyadaki en son satıra** göre ayarlanır; kayıt yoksa hata. Birden fazla satırda farklı tipler (EKLE ile GÜNCELLE vb.) aynı varlıkta **karıştırılamaz**.\n- **Portföy** adı sistemde yoksa otomatik oluşturulur.',
+      '- Excel’den CSV dışa aktarın (Türkiye’de genelde sütun ayırıcı **noktalı virgül**; ondalık **virgül**).\n- Başlık satırı zorunlu: **Portföy** (opsiyonel, boşsa seçili portföy), **Varlık Tipi**, **Varlık**, **Adet**, **Ortalama Maliyet** (opsiyonel), **Değişiklik Tipi** (opsiyonel). İlk satır sayfa adıysa başlıklar sonraki satırdan okunur.\n- **Değişiklik Tipi** yoksa veya hücre boşsa: aynı portföy+varlık satırları **tek holdinge** birleşir — adetler **toplanır**, her satırda maliyet doluysa **ağırlıklı ortalama**; eksik maliyette DB’deki ortalama **değişmez** (yeni kayıtta null).\n- **EKLE / EKLEME / ADD**: dosyadaki adet toplamı mevcut adedin **üzerine eklenir**; maliyetler uygunsa ortalama **birleştirilir**.\n- **GÜNCELLE / GÜNCELLEME / UPDATE**: pozisyon **dosyadaki en son satıra** göre ayarlanır; kayıt yoksa hata. Birden fazla satırda farklı tipler (EKLE ile GÜNCELLE vb.) aynı varlıkta **karıştırılamaz**.\n- **Portföy** adı sistemde yoksa otomatik oluşturulur.\n- **ABD** ve **Kripto** için girilen **Ortalama Maliyet** **USD** olarak kabul edilir; diğer varlık tiplerinde **TL** kabul edilir (manuel giriş ve portföy hesaplarıyla aynı).\n- **TL Mevduat** satırlarında **Ortalama Maliyet** doldurulmuş olsa bile **yok sayılır**; veritabanına yazılmaz (yalnızca adet).',
     sampleCsv: 'Örnek CSV indir',
     allValuesCsv: 'Tüm değerleri CSV indir',
     uploadsTitle: 'Yüklenen dosyalar',
@@ -183,6 +187,14 @@ export default {
     exportFilename: 'tum-varlik-degerleri.csv',
   },
   assetEntry: {
+    screenTitle: 'Varlık detayı',
+    myPosition: 'Pozisyonum',
+    positionTotalValue: 'Toplam değer',
+    profitLoss: 'Kâr / zarar',
+    holdings: 'Pozisyon',
+    invested: 'Yatırılan',
+    today: 'Bugün',
+    confirmTransaction: 'EKLE',
     errorTitle: 'Hata',
     missingInfo: 'Portföy veya varlık bilgisi eksik.',
     invalidQty: 'Geçerli bir miktar girin.',
@@ -195,7 +207,15 @@ export default {
     marketValue: 'Piyasa değeri',
     totalGain: 'Toplam kazanç',
     totalLoss: 'Toplam kayıp',
+    averageCost: 'Ortalama maliyet',
+    averageCostUsd: 'Ortalama USD',
+    usdValue: 'Birim (USD)',
+    profitLossUsd: 'KAR/ZARAR',
     costTotal: 'Maliyet toplamı',
+    costBasisExplanation:
+      'Toplam = adet × ortalama birim maliyet (holding kaydındaki avg_price). Grafik yalnızca piyasa fiyatını gösterir; günlük % ise önceki kapanışa göredir. CSV ile tutmuyorsa toplu yüklemedeki maliyet sütununu veya son eklemelerde girilen birim maliyeti kontrol edin.',
+    costBasisImplicitSpot:
+      'Ortalama maliyet girilmediyse gösterim için güncel piyasa fiyatı kullanılır (kazanç/kayıp bu yüzden 0 görünür). Gerçek maliyetinizi girmeniz yeterli.',
     modeAdd: 'Ekleme',
     modeReduce: 'Azaltma',
     modeDelete: 'Silme',
@@ -238,6 +258,7 @@ export default {
     currencyTL: 'TL',
     currencyUSD: 'USD',
     doubleTapOpenPortfolio: 'Çift dokun: Portföy sekmesinde bu türü aç',
+    clearCategoryHighlightA11y: 'Varlık grubu seçimini kapat',
   },
   explore: {
     title: 'Keşfet',

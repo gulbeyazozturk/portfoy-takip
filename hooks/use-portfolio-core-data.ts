@@ -4,6 +4,8 @@ import { useTranslation } from 'react-i18next';
 
 import { usePortfolio } from '@/context/portfolio';
 import { categoryDisplayLabel } from '@/lib/category-display';
+import { kriptoStoredUnitToUsd, legacyCryptoStoredUnitToUsd } from '@/lib/crypto-price-usd';
+import { isUsdNativeCategory } from '@/lib/portfolio-currency';
 import { supabase } from '@/lib/supabase';
 
 import type { DonutSlice } from '@/components/ultra-dark-donut-chart';
@@ -34,6 +36,7 @@ export type AssetRow = {
   symbol: string;
   category_id: string;
   current_price: number | null;
+  currency?: string | null;
   icon_url?: string | null;
   change_24h_pct?: number | null;
 };
@@ -109,7 +112,7 @@ export function usePortfolioCoreData() {
     const { data, error: e } = await supabase
       .from('holdings')
       .select(
-        'id, quantity, avg_price, created_at, asset:assets(id, name, symbol, category_id, current_price, change_24h_pct, icon_url)',
+        'id, quantity, avg_price, created_at, asset:assets(id, name, symbol, category_id, current_price, currency, change_24h_pct, icon_url)',
       )
       .eq('portfolio_id', portfolioId);
     if (e) {
@@ -184,11 +187,21 @@ export function usePortfolioCoreData() {
 
     for (const h of withAsset) {
       const asset = h.asset as AssetRow;
-      const price = asset.current_price ?? h.avg_price ?? 0;
-      const isUSD = asset.category_id === 'yurtdisi';
+      let unitNative = 0;
+      if (asset.category_id === 'kripto') {
+        const r = asset.current_price != null ? Number(asset.current_price) : NaN;
+        if (Number.isFinite(r) && r > 0) {
+          unitNative = kriptoStoredUnitToUsd(r, safeRate, asset.currency);
+        } else if (h.avg_price != null) {
+          unitNative = legacyCryptoStoredUnitToUsd(Number(h.avg_price), safeRate);
+        }
+      } else {
+        unitNative = Number(asset.current_price ?? h.avg_price ?? 0) || 0;
+      }
+      const isUSD = isUsdNativeCategory(asset.category_id);
       const rateTL = isUSD ? safeRate : 1;
       const rateUSD = isUSD ? 1 : 1 / safeRate;
-      const value = h.quantity * (Number(price) || 0);
+      const value = h.quantity * unitNative;
       const valueTL = value * rateTL;
       const valueUSD = value * rateUSD;
       const cat = asset.category_id;
@@ -199,7 +212,13 @@ export function usePortfolioCoreData() {
       const pct24 = asset.change_24h_pct ?? 0;
       const prevValue = pct24 !== 0 ? value / (1 + pct24 / 100) : value;
       const dailyDeltaNative = pct24 !== 0 ? value - prevValue : 0;
-      const costNative = h.avg_price != null ? h.quantity * (Number(h.avg_price) || 0) : prevValue;
+      const costUnit =
+        h.avg_price != null
+          ? asset.category_id === 'kripto'
+            ? legacyCryptoStoredUnitToUsd(Number(h.avg_price), safeRate, unitNative > 0 ? unitNative : undefined)
+            : Number(h.avg_price) || 0
+          : 0;
+      const costNative = h.avg_price != null ? h.quantity * costUnit : prevValue;
       const dTL = dailyDeltaNative * rateTL;
       const dUSD = dailyDeltaNative * rateUSD;
       const cTL = costNative * rateTL;

@@ -1,6 +1,6 @@
 /**
  * Kripto fiyat + ikon batch:
- * - CoinGecko'dan top coin listesini çeker
+ * - CoinGecko'dan top coin listesini çeker (kripto: USD, XAUT/PAXG: TRY emtia)
  * - Kripto: category_id = 'kripto' UPSERT (XAUT, PAXG bu grupta tutulmaz).
  * - Emtia: XAUT ve PAXG CoinGecko ile UPSERT (altın token’lar); önce kripto’da kalan satırlar emtia’ya taşınır (aynı id).
  * Günde 1 defa çalıştır (Windows Task Scheduler / cron / GitHub Actions).
@@ -16,11 +16,17 @@ const SUPABASE_KEY =
   process.env.SUPABASE_ANON_KEY;
 
 const COINGECKO_MARKETS = 'https://api.coingecko.com/api/v3/coins/markets';
-// Kripto fiyatlarını doğrudan TL olarak çekiyoruz.
-const VS_CURRENCY = 'try';
+/** Kripto: ABD kayıtları gibi USD birim (current_price + currency). */
+const VS_CRYPTO = 'usd';
+/** XAUT / PAXG emtia satırı TL fiyat (mevcut uygulama davranışı). */
+const VS_EMTIA_TRY = 'try';
 
 /** CoinGecko’dan fiyatlanır; kripto listesinde değil, Emtia’da gösterilir (aynı CoinGecko verisi). */
 const EMTIA_GOLD_TOKEN_SYMBOLS = new Set(['XAUT', 'PAXG']);
+
+function sleep(ms) {
+  return new Promise((r) => setTimeout(r, ms));
+}
 
 async function loadEnv() {
   const path = require('path');
@@ -36,10 +42,11 @@ async function loadEnv() {
   }
 }
 
-async function fetchCoinGeckoTopMarkets(pages = 3, perPage = 250) {
+async function fetchCoinGeckoTopMarkets(pages = 3, perPage = 250, vsCurrency = 'usd') {
   const all = [];
   for (let page = 1; page <= pages; page++) {
-    const url = `${COINGECKO_MARKETS}?vs_currency=${VS_CURRENCY}&order=market_cap_desc&per_page=${perPage}&page=${page}&sparkline=false&price_change_percentage=24h`;
+    if (page > 1) await sleep(2100);
+    const url = `${COINGECKO_MARKETS}?vs_currency=${vsCurrency}&order=market_cap_desc&per_page=${perPage}&page=${page}&sparkline=false&price_change_percentage=24h`;
     const res = await fetch(url);
     if (!res.ok) throw new Error('CoinGecko: ' + res.status + ' ' + (await res.text()));
     const chunk = await res.json();
@@ -59,12 +66,12 @@ function marketsByUpperSymbol(markets) {
   return bySymbol;
 }
 
-function rowFromMarket(m, categoryId) {
+function rowFromMarket(m, categoryId, currency) {
   return {
     category_id: categoryId,
     name: m.name,
     symbol: (m.symbol || '').toUpperCase(),
-    currency: 'TRY',
+    currency,
     external_id: m.id,
     current_price: m.current_price == null ? null : Number(m.current_price),
     change_24h_pct:
@@ -94,7 +101,7 @@ async function upsertKriptoAssets(supabase, markets) {
 
   const rows = Array.from(bySymbol.values())
     .filter((m) => !EMTIA_GOLD_TOKEN_SYMBOLS.has((m.symbol || '').toUpperCase()))
-    .map((m) => rowFromMarket(m, 'kripto'));
+    .map((m) => rowFromMarket(m, 'kripto', 'USD'));
 
   if (rows.length === 0) return 0;
 
@@ -122,13 +129,54 @@ async function upsertEmtiaGoldTokens(supabase, markets) {
       console.warn('  CoinGecko listesinde yok (atlanıyor):', sym);
       continue;
     }
-    rows.push(rowFromMarket(m, 'emtia'));
+    rows.push(rowFromMarket(m, 'emtia', 'TRY'));
   }
   if (rows.length === 0) return 0;
   const { error, count } = await supabase
     .from('assets')
     .upsert(rows, { onConflict: 'category_id,symbol', ignoreDuplicates: false, count: 'exact' });
   if (error) throw new Error('Emtia altın token upsert: ' + error.message);
+  return typeof count === 'number' ? count : rows.length;
+}
+
+/** USDTRY (assets döviz); senkron yoksa güvenli varsayılan. */
+async function getUsdTryFromDb(supabase) {
+  const { data } = await supabase
+    .from('assets')
+    .select('current_price')
+    .eq('category_id', 'doviz')
+    .eq('symbol', 'USD')
+    .maybeSingle();
+  const n = Number(data?.current_price);
+  return Number.isFinite(n) && n > 10 ? n : 40;
+}
+
+/** Rate limit vb. nedeniyle TRY API yokken: USD piyasası × USDTRY ile TL fiyat. */
+async function upsertEmtiaGoldTokensFromUsdMarkets(supabase, marketsUsd) {
+  const usdTry = await getUsdTryFromDb(supabase);
+  const bySymbol = marketsByUpperSymbol(marketsUsd);
+  const rows = [];
+  for (const sym of EMTIA_GOLD_TOKEN_SYMBOLS) {
+    const m = bySymbol.get(sym);
+    if (!m || m.current_price == null) {
+      console.warn('  USD listesinde yok / fiyat yok (atlanıyor):', sym);
+      continue;
+    }
+    const usd = Number(m.current_price);
+    if (!Number.isFinite(usd)) continue;
+    const clone = {
+      ...m,
+      current_price: usd * usdTry,
+      price_change_percentage_24h: m.price_change_percentage_24h,
+    };
+    rows.push(rowFromMarket(clone, 'emtia', 'TRY'));
+  }
+  if (rows.length === 0) return 0;
+  console.log('  (XAUT/PAXG) TRY API atlandı; USD fiyat × USDTRY ≈', usdTry, 'ile emtia yazılıyor.');
+  const { error, count } = await supabase
+    .from('assets')
+    .upsert(rows, { onConflict: 'category_id,symbol', ignoreDuplicates: false, count: 'exact' });
+  if (error) throw new Error('Emtia altın token (USD fallback) upsert: ' + error.message);
   return typeof count === 'number' ? count : rows.length;
 }
 
@@ -150,16 +198,33 @@ async function main() {
   console.log('XAUT / PAXG: kripto → emtia taşıma (varsa, aynı uuid)…');
   await migrateGoldTokensKriptoToEmtia(supabase);
 
-  console.log('CoinGecko top marketler çekiliyor…');
-  const markets = await fetchCoinGeckoTopMarkets(3, 250); // XAUT/PAXG için yeterli derinlik
-  console.log('Gelen coin sayısı:', markets.length);
+  console.log('CoinGecko top marketler (USD, kripto)…');
+  const marketsUsd = await fetchCoinGeckoTopMarkets(3, 250, VS_CRYPTO);
+  console.log('USD coin sayısı:', marketsUsd.length);
 
-  console.log('Kripto assets upsert (XAUT/PAXG hariç)…');
-  const affectedKripto = await upsertKriptoAssets(supabase, markets);
+  console.log('Kripto assets upsert (XAUT/PAXG hariç) — TRY isteğinden önce kaydediliyor…');
+  const affectedKripto = await upsertKriptoAssets(supabase, marketsUsd);
   console.log('Kripto etkilenen satır:', affectedKripto);
 
-  console.log('Emtia altın token (XAUT, PAXG) CoinGecko ile upsert…');
-  const affectedEmtia = await upsertEmtiaGoldTokens(supabase, markets);
+  console.log('CoinGecko (TRY, XAUT/PAXG) için bekleniyor (rate limit)…');
+  await sleep(9000);
+
+  let marketsTry = [];
+  try {
+    marketsTry = await fetchCoinGeckoTopMarkets(3, 250, VS_EMTIA_TRY);
+    console.log('TRY coin sayısı:', marketsTry.length);
+  } catch (e) {
+    console.warn('CoinGecko TRY:', e.message || e);
+    marketsTry = [];
+  }
+
+  console.log('Emtia altın token (XAUT, PAXG)…');
+  let affectedEmtia;
+  if (marketsTry.length > 0) {
+    affectedEmtia = await upsertEmtiaGoldTokens(supabase, marketsTry);
+  } else {
+    affectedEmtia = await upsertEmtiaGoldTokensFromUsdMarkets(supabase, marketsUsd);
+  }
   console.log('Emtia altın token etkilenen satır:', affectedEmtia);
 }
 

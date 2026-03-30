@@ -15,11 +15,15 @@ import {
   TouchableOpacity,
   View,
 } from 'react-native';
+import { Image } from 'expo-image';
 import Svg, { Circle, Defs, LinearGradient, Path, Stop } from 'react-native-svg';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
 import { usePortfolio } from '@/context/portfolio';
+import { kriptoStoredUnitToUsd, legacyCryptoStoredUnitToUsd } from '@/lib/crypto-price-usd';
+import { isUsdNativeCategory } from '@/lib/portfolio-currency';
 import { resolveBistDisplayName } from '@/lib/bist-display-name';
 import { supabase } from '@/lib/supabase';
 import { useTranslation } from 'react-i18next';
@@ -59,9 +63,17 @@ function parseHoldingQtyString(raw: string | undefined): number {
   return Number.isFinite(n) ? n : 0;
 }
 
-const CHART_W = 400;
-const CHART_H = 140;
-const ACCENT_BLUE = '#3b82f6';
+const CHART_W = 300;
+const CHART_H = 165;
+/** Obsidian-style palette (HTML referans) */
+const PRIMARY = '#89acff';
+const CHART_GREEN = '#3fff8b';
+const CHART_RED = '#ff716b';
+const SURFACE = '#0e0e0e';
+const SURFACE_LOW = '#131313';
+const SURFACE_HIGH = '#1f1f1f';
+const ON_SURFACE_MUTED = '#ababab';
+const ON_PRIMARY_FIXED = '#000000';
 const TIMEFRAMES = ['1D', '1W', '1M', '1Y', '5Y'] as const;
 type Timeframe = (typeof TIMEFRAMES)[number];
 
@@ -104,7 +116,7 @@ function PriceChart({
   const vMax = maxVal + padding;
   const vRange = vMax - vMin || 1;
   const toY = (v: number) => CHART_H - ((v - vMin) / vRange) * CHART_H;
-  const lineColor = isPositive ? '#22c55e' : '#EF4444';
+  const lineColor = isPositive ? CHART_GREEN : CHART_RED;
 
   let dLine = '';
   vals.forEach((v, idx) => {
@@ -152,7 +164,7 @@ function PriceChart({
         <Svg width="100%" height={CHART_H} viewBox={`0 0 ${CHART_W} ${CHART_H}`} preserveAspectRatio="none">
           <Defs>
             <LinearGradient id="priceGrad" x1="0%" x2="0%" y1="0%" y2="100%">
-              <Stop offset="0%" stopColor={lineColor} stopOpacity="0.2" />
+              <Stop offset="0%" stopColor={lineColor} stopOpacity="0.35" />
               <Stop offset="100%" stopColor={lineColor} stopOpacity="0" />
             </LinearGradient>
           </Defs>
@@ -173,7 +185,7 @@ function PriceChart({
             d={dLine}
             fill="none"
             stroke={lineColor}
-            strokeWidth={2}
+            strokeWidth={3}
             strokeLinecap="round"
             strokeLinejoin="round"
           />
@@ -216,13 +228,13 @@ const chartStyles = StyleSheet.create({
     flexDirection: 'row',
     marginHorizontal: 16,
     marginTop: 8,
-    marginBottom: 16,
+    marginBottom: 12,
   },
   svgWrap: {
     flex: 1,
   },
   labelCol: {
-    width: 75,
+    width: 56,
     justifyContent: 'space-between',
     paddingVertical: 2,
     alignItems: 'flex-end',
@@ -230,13 +242,14 @@ const chartStyles = StyleSheet.create({
   },
   labelText: {
     fontSize: 10,
-    color: '#6b7280',
+    color: ON_SURFACE_MUTED,
   },
 });
 
 export default function AssetEntryScreen() {
   const { t, i18n } = useTranslation();
   const numberLocale = i18n.language?.toLowerCase().startsWith('en') ? 'en-US' : 'tr-TR';
+  const insets = useSafeAreaInsets();
 
   const router = useRouter();
   const { portfolioId } = usePortfolio();
@@ -250,6 +263,8 @@ export default function AssetEntryScreen() {
     symbol?: string;
     categoryId?: string;
     price?: string;
+    /** assets.currency (TRY spot için hızlı seed) */
+    spotCurrency?: string;
     quantity?: string;
     avgPrice?: string;
   }>();
@@ -268,7 +283,18 @@ export default function AssetEntryScreen() {
   const returnTo = params.returnTo as string | undefined;
   const returnCategoryId = params.returnCategoryId as string | undefined;
   const returnLabel = params.returnLabel as string | undefined;
-  const currentPrice = params.price ? Number(params.price) : 0;
+  const routePrice = params.price ? Number(params.price) : 0;
+  const routeSpotCurrency = firstParam(params.spotCurrency);
+  /** DB `assets.currency`; TRY ise spot TL → USD çevrimi (düşük fiyatlı coinlerde zorunlu). */
+  const [spotCurrency, setSpotCurrency] = useState<string | null>(() => routeSpotCurrency || null);
+  /** Liste/parametre seed; ekranda DB’den güncellenir (yurtdışı/kripto senkron sonrası doğru fiyat ve %). */
+  const [livePrice, setLivePrice] = useState(0);
+  const [assetIconUrl, setAssetIconUrl] = useState<string | null>(null);
+  const priceRaw = livePrice > 0 ? livePrice : routePrice;
+
+  useEffect(() => {
+    setSpotCurrency(routeSpotCurrency || null);
+  }, [assetId, routeSpotCurrency]);
 
   const handleBack = () => {
     if (returnTo === '/(tabs)/asset-list' && returnCategoryId != null) {
@@ -299,19 +325,6 @@ export default function AssetEntryScreen() {
     return symbol || t('portfolio.unitPiece');
   }, [categoryId, symbol, t]);
 
-  const catLabel = useMemo(() => {
-    const m: Record<string, string> = {
-      yurtdisi: t('categories.yurtdisi'),
-      bist: t('categories.bist'),
-      doviz: t('categories.doviz'),
-      emtia: t('categories.emtia'),
-      fon: t('categories.fon'),
-      kripto: t('categories.kripto'),
-      mevduat: t('categories.mevduat'),
-    };
-    return (cid: string) => m[cid] ?? cid;
-  }, [t]);
-
   const [amount, setAmount] = useState(
     () => (firstParam(params.holdingId) ? '' : (params.quantity as string | undefined)) ?? '',
   );
@@ -341,17 +354,57 @@ export default function AssetEntryScreen() {
   const [loadingChart, setLoadingChart] = useState(false);
   const [change24hPct, setChange24hPct] = useState<number | null>(null);
   const [holdingCreatedAt, setHoldingCreatedAt] = useState<string | null>(null);
+  /** price_history birim fiyatı (assets.current_price ile aynı birimde). */
+  const [addTimePriceRaw, setAddTimePriceRaw] = useState<number | null>(null);
   const [selectedIdx, setSelectedIdx] = useState<number | null>(null);
+  const [usdTry, setUsdTry] = useState(1);
+  /** Grafik altı % / tutar: piyasa kotasyonlarının penceredeki ilk ve son değeri (maliyet noktası hariç). */
+  const [chartRangeForPct, setChartRangeForPct] = useState<{ first: number; last: number } | null>(null);
 
   const qty = parseHoldingQtyString(amount);
   const avgCost = unitPrice ? parseFloat(unitPrice.replace(',', '.')) || 0 : 0;
+
+  const currentPrice = useMemo(() => {
+    if (categoryId !== 'kripto' || usdTry <= 0) return priceRaw;
+    return kriptoStoredUnitToUsd(priceRaw, usdTry, spotCurrency);
+  }, [categoryId, priceRaw, usdTry, spotCurrency]);
+
+  /** Kripto: ortalama maliyet USD; eski holding’lerde TRY birimi kalırsa spot ile hizala. */
+  const avgCostUsd = useMemo(() => {
+    if (categoryId !== 'kripto' || avgCost <= 0) return avgCost;
+    if (usdTry <= 0) return avgCost;
+    return legacyCryptoStoredUnitToUsd(avgCost, usdTry, currentPrice);
+  }, [categoryId, avgCost, usdTry, currentPrice]);
+
+  const hasExplicitAvgCost = avgCostUsd > 0;
+  /** Maliyet girilmemişse gösterimde güncel fiyatı baz al (kazanç ≈ 0); grafikte sahte 0 çizgisi yok. */
+  const effectiveAvgCostUsd = useMemo(() => {
+    if (avgCostUsd > 0) return avgCostUsd;
+    if (qty > 0 && currentPrice > 0) return currentPrice;
+    return 0;
+  }, [avgCostUsd, qty, currentPrice]);
+
+  const dayChangeAmt = useMemo(() => {
+    if (change24hPct == null || !Number.isFinite(change24hPct) || currentPrice <= 0) return null;
+    const prev = currentPrice / (1 + change24hPct / 100);
+    return currentPrice - prev;
+  }, [change24hPct, currentPrice]);
 
   /** Route params ile miktarı ezme: holdingId ile açıldıysa sunucudan gelen değer geçerli. */
   useEffect(() => {
     if (routeHoldingId) return;
     setAmount((params.quantity as string | undefined) ?? '');
-    setUnitPrice((params.avgPrice as string | undefined) ?? '');
-  }, [params.quantity, params.avgPrice, assetId, routeHoldingId]);
+    setUnitPrice(
+      categoryId === 'mevduat' ? '' : ((params.avgPrice as string | undefined) ?? ''),
+    );
+  }, [params.quantity, params.avgPrice, assetId, routeHoldingId, categoryId]);
+
+  useEffect(() => {
+    if (categoryId === 'mevduat') {
+      setUnitPrice('');
+      setInputCost('');
+    }
+  }, [categoryId]);
 
   /** holdingId ile liste detayından gelince miktarı DB'den al; params eski kalabiliyordu. */
   useEffect(() => {
@@ -373,7 +426,9 @@ export default function AssetEntryScreen() {
         }
         setHoldingId(data.id);
         setAmount(String(data.quantity ?? ''));
-        setUnitPrice(data.avg_price != null ? String(data.avg_price) : '');
+        setUnitPrice(
+          categoryId === 'mevduat' ? '' : data.avg_price != null ? String(data.avg_price) : '',
+        );
         return;
       }
 
@@ -393,7 +448,9 @@ export default function AssetEntryScreen() {
       if (data) {
         setHoldingId(data.id);
         setAmount(String(data.quantity ?? ''));
-        setUnitPrice(data.avg_price != null ? String(data.avg_price) : '');
+        setUnitPrice(
+          categoryId === 'mevduat' ? '' : data.avg_price != null ? String(data.avg_price) : '',
+        );
       } else {
         setHoldingId(undefined);
         setAmount('');
@@ -403,24 +460,63 @@ export default function AssetEntryScreen() {
     return () => {
       cancelled = true;
     };
-  }, [assetId, portfolioId, routeHoldingId]);
+  }, [assetId, portfolioId, routeHoldingId, categoryId]);
 
-  useEffect(() => {
+  const fetchAssetQuote = useCallback(async () => {
     if (!assetId) return;
-    (async () => {
-      const { data } = await supabase
-        .from('assets')
-        .select('change_24h_pct')
-        .eq('id', assetId)
-        .single();
-      if (data) {
-        setChange24hPct(data.change_24h_pct != null ? Number(data.change_24h_pct) : null);
-      }
-    })();
+    const { data } = await supabase
+      .from('assets')
+      .select('current_price, change_24h_pct, icon_url, currency')
+      .eq('id', assetId)
+      .maybeSingle();
+    if (data?.currency != null && String(data.currency).trim() !== '') {
+      setSpotCurrency(String(data.currency).trim());
+    }
+    if (data?.current_price != null) {
+      const p = Number(data.current_price);
+      if (Number.isFinite(p) && p > 0) setLivePrice(p);
+    }
+    if (data?.change_24h_pct != null) {
+      const c = Number(data.change_24h_pct);
+      setChange24hPct(Number.isFinite(c) ? c : null);
+    } else {
+      setChange24hPct(null);
+    }
+    const url = data?.icon_url;
+    setAssetIconUrl(typeof url === 'string' && url.length > 0 ? url : null);
   }, [assetId]);
 
   useEffect(() => {
-    if (!holdingId) return;
+    setLivePrice(0);
+  }, [assetId]);
+
+  useEffect(() => {
+    void fetchAssetQuote();
+  }, [fetchAssetQuote]);
+
+  useFocusEffect(
+    useCallback(() => {
+      void fetchAssetQuote();
+    }, [fetchAssetQuote]),
+  );
+
+  useEffect(() => {
+    (async () => {
+      const { data } = await supabase
+        .from('assets')
+        .select('current_price')
+        .eq('category_id', 'doviz')
+        .eq('symbol', 'USD')
+        .maybeSingle();
+      if (data?.current_price) setUsdTry(Number(data.current_price));
+    })();
+  }, []);
+
+  useEffect(() => {
+    if (!holdingId) {
+      setHoldingCreatedAt(null);
+      return;
+    }
     (async () => {
       const { data } = await supabase
         .from('holdings')
@@ -432,6 +528,45 @@ export default function AssetEntryScreen() {
   }, [holdingId]);
 
   useEffect(() => {
+    if (!assetId || !holdingCreatedAt) {
+      setAddTimePriceRaw(null);
+      return;
+    }
+    let cancelled = false;
+    const iso = new Date(holdingCreatedAt).toISOString();
+    (async () => {
+      const { data: before } = await supabase
+        .from('price_history')
+        .select('price')
+        .eq('asset_id', assetId)
+        .lte('recorded_at', iso)
+        .order('recorded_at', { ascending: false })
+        .limit(1)
+        .maybeSingle();
+      if (cancelled) return;
+      const p0 = before?.price != null ? Number(before.price) : NaN;
+      if (Number.isFinite(p0) && p0 > 0) {
+        setAddTimePriceRaw(p0);
+        return;
+      }
+      const { data: after } = await supabase
+        .from('price_history')
+        .select('price')
+        .eq('asset_id', assetId)
+        .gte('recorded_at', iso)
+        .order('recorded_at', { ascending: true })
+        .limit(1)
+        .maybeSingle();
+      if (cancelled) return;
+      const p1 = after?.price != null ? Number(after.price) : NaN;
+      setAddTimePriceRaw(Number.isFinite(p1) && p1 > 0 ? p1 : null);
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [assetId, holdingCreatedAt]);
+
+  useEffect(() => {
     if (!assetId || currentPrice <= 0 || categoryId === 'mevduat') return;
     let cancelled = false;
     (async () => {
@@ -439,57 +574,93 @@ export default function AssetEntryScreen() {
       setSelectedIdx(null);
 
       const tfFrom = new Date(Date.now() - timeframeMs(activeTimeframe));
+      const windowStartMs = tfFrom.getTime();
       const holdStart = holdingCreatedAt ? new Date(holdingCreatedAt) : null;
+      /** Piyasa çizgisi: seçilen zaman penceresi ∩ pozisyon açılışından sonra (ortalama maliyet seriye eklenmez). */
+      const historyFromMs =
+        holdStart != null ? Math.max(holdStart.getTime(), windowStartMs) : windowStartMs;
 
       const { data, error } = await supabase
         .from('price_history')
         .select('price, recorded_at')
         .eq('asset_id', assetId)
-        .gte('recorded_at', holdStart ? holdStart.toISOString() : tfFrom.toISOString())
+        .gte('recorded_at', new Date(historyFromMs).toISOString())
         .order('recorded_at', { ascending: true });
 
       if (cancelled) return;
 
       const historyPrices = !error && data ? data.map((d) => Number(d.price)) : [];
       const historyDates = !error && data ? data.map((d) => new Date(d.recorded_at)) : [];
-      const entryPrice = holdingId && avgCost > 0 ? avgCost : currentPrice;
 
-      let prices: number[] = [];
-      let dates: (Date | null)[] = [];
+      const prices: number[] = [];
+      const dates: (Date | null)[] = [];
 
-      if (holdStart && holdStart > tfFrom) {
-        const totalMs = Date.now() - tfFrom.getTime();
-        const zeroMs = holdStart.getTime() - tfFrom.getTime();
-        const zeroPortion = zeroMs / totalMs;
-        const zeroPoints = Math.max(2, Math.round(zeroPortion * 20));
-
+      if (holdStart != null && holdStart.getTime() > windowStartMs) {
+        const zeroSpan = holdStart.getTime() - windowStartMs;
+        const zeroPoints = Math.max(2, Math.round((zeroSpan / Math.max(1, Date.now() - windowStartMs)) * 20));
+        const padPrice = currentPrice > 0 ? currentPrice : 0;
         for (let p = 0; p < zeroPoints; p++) {
-          const t = new Date(tfFrom.getTime() + (p / Math.max(1, zeroPoints - 1)) * zeroMs);
-          prices.push(0);
-          dates.push(t);
+          const tMs =
+            windowStartMs + (p / Math.max(1, zeroPoints - 1)) * (holdStart.getTime() - windowStartMs);
+          prices.push(padPrice);
+          dates.push(new Date(tMs));
         }
+      }
 
-        prices.push(entryPrice);
-        dates.push(holdStart);
-        prices.push(...historyPrices);
-        dates.push(...historyDates);
-        if (currentPrice > 0) { prices.push(currentPrice); dates.push(new Date()); }
-      } else {
-        if (holdStart) { prices.push(entryPrice); dates.push(holdStart); }
-        prices.push(...historyPrices);
-        dates.push(...historyDates);
-        if (currentPrice > 0) { prices.push(currentPrice); dates.push(new Date()); }
+      for (let i = 0; i < historyPrices.length; i++) {
+        prices.push(historyPrices[i]);
+        dates.push(historyDates[i]);
+      }
+
+      if (currentPrice > 0) {
+        if (prices.length === 0) {
+          prices.push(currentPrice, currentPrice);
+          dates.push(new Date(historyFromMs), new Date());
+        } else {
+          const last = prices[prices.length - 1];
+          const relDiff =
+            Number.isFinite(last) && last > 0 ? Math.abs(last - currentPrice) / currentPrice : 1;
+          if (relDiff > 0.0005) {
+            prices.push(currentPrice);
+            dates.push(new Date());
+          } else {
+            prices[prices.length - 1] = currentPrice;
+            dates[dates.length - 1] = new Date();
+          }
+        }
+      }
+
+      if (categoryId === 'kripto' && usdTry > 0 && currentPrice > 0) {
+        for (let i = 0; i < prices.length; i++) {
+          const p = prices[i];
+          prices[i] = p <= 0 ? p : kriptoStoredUnitToUsd(p, usdTry, spotCurrency, currentPrice);
+        }
+      }
+
+      let rangeFirst: number | null = null;
+      const rangeLast = currentPrice;
+      if (historyPrices.length >= 1) {
+        let first = historyPrices[0];
+        if (categoryId === 'kripto' && usdTry > 0 && rangeLast > 0) {
+          first = kriptoStoredUnitToUsd(first, usdTry, spotCurrency, rangeLast);
+        }
+        rangeFirst = first;
+      }
+
+      if (!cancelled) {
+        if (rangeFirst != null && rangeFirst > 0 && rangeLast > 0) {
+          setChartRangeForPct({ first: rangeFirst, last: rangeLast });
+        } else {
+          setChartRangeForPct(null);
+        }
       }
 
       if (prices.length >= 2) {
         setPriceHistory(prices);
         setChartDates(dates);
-      } else if (holdingId && avgCost > 0 && currentPrice > 0) {
-        setPriceHistory([0, 0, avgCost, currentPrice]);
-        setChartDates([tfFrom, holdStart ?? tfFrom, holdStart ?? tfFrom, new Date()]);
       } else if (currentPrice > 0) {
-        setPriceHistory([currentPrice * 0.99, currentPrice]);
-        setChartDates([tfFrom, new Date()]);
+        setPriceHistory([currentPrice * 0.998, currentPrice]);
+        setChartDates([new Date(historyFromMs), new Date()]);
       } else {
         setPriceHistory([]);
         setChartDates([]);
@@ -498,7 +669,17 @@ export default function AssetEntryScreen() {
       setLoadingChart(false);
     })();
     return () => { cancelled = true; };
-  }, [assetId, activeTimeframe, currentPrice, categoryId, holdingCreatedAt, holdingId, avgCost]);
+  }, [
+    assetId,
+    activeTimeframe,
+    currentPrice,
+    categoryId,
+    holdingCreatedAt,
+    avgCost,
+    avgCostUsd,
+    usdTry,
+    spotCurrency,
+  ]);
 
   const inputQty = useMemo(() => {
     const w = parseInt(inputWhole || '0', 10) || 0;
@@ -546,40 +727,64 @@ export default function AssetEntryScreen() {
       Alert.alert(t('assetEntry.errorTitle'), t('assetEntry.invalidQty'));
       return;
     }
-    const cost = inputCost ? parseFloat(inputCost.replace(',', '.')) : null;
+    const isMevduat = categoryId === 'mevduat';
+    const cost = isMevduat
+      ? null
+      : inputCost
+        ? parseFloat(inputCost.replace(',', '.'))
+        : null;
     setSaving(true);
     try {
       if (holdingId) {
-        let newAvg: number | null = avgCost;
-        if (cost != null && cost > 0) {
-          newAvg = avgCost > 0
-            ? (qty * avgCost + inputQty * cost) / (qty + inputQty)
-            : cost;
-        }
         const newQty = qty + inputQty;
-        const { data: updated, error } = await supabase
-          .from('holdings')
-          .update({ quantity: newQty, avg_price: newAvg })
-          .eq('id', holdingId)
-          .eq('portfolio_id', portfolioId)
-          .select('quantity, avg_price')
-          .maybeSingle();
-        if (error) {
-          Alert.alert(t('assetEntry.errorTitle'), error.message);
-          return;
+        if (isMevduat) {
+          const { data: updated, error } = await supabase
+            .from('holdings')
+            .update({ quantity: newQty, avg_price: null })
+            .eq('id', holdingId)
+            .eq('portfolio_id', portfolioId)
+            .select('quantity, avg_price')
+            .maybeSingle();
+          if (error) {
+            Alert.alert(t('assetEntry.errorTitle'), error.message);
+            return;
+          }
+          if (!updated) {
+            Alert.alert(t('assetEntry.errorTitle'), t('assetEntry.updateNoRow'));
+            return;
+          }
+          setAmount(String(updated.quantity ?? newQty));
+          setUnitPrice('');
+        } else {
+          let newAvg: number | null = avgCost;
+          if (cost != null && cost > 0) {
+            newAvg =
+              avgCost > 0 ? (qty * avgCost + inputQty * cost) / (qty + inputQty) : cost;
+          }
+          const { data: updated, error } = await supabase
+            .from('holdings')
+            .update({ quantity: newQty, avg_price: newAvg })
+            .eq('id', holdingId)
+            .eq('portfolio_id', portfolioId)
+            .select('quantity, avg_price')
+            .maybeSingle();
+          if (error) {
+            Alert.alert(t('assetEntry.errorTitle'), error.message);
+            return;
+          }
+          if (!updated) {
+            Alert.alert(t('assetEntry.errorTitle'), t('assetEntry.updateNoRow'));
+            return;
+          }
+          setAmount(String(updated.quantity ?? newQty));
+          setUnitPrice(updated.avg_price != null ? String(updated.avg_price) : '');
         }
-        if (!updated) {
-          Alert.alert(t('assetEntry.errorTitle'), t('assetEntry.updateNoRow'));
-          return;
-        }
-        setAmount(String(updated.quantity ?? newQty));
-        setUnitPrice(updated.avg_price != null ? String(updated.avg_price) : '');
       } else {
         const { data, error } = await supabase.from('holdings').insert({
           portfolio_id: portfolioId,
           asset_id: assetId,
           quantity: inputQty,
-          avg_price: cost,
+          avg_price: isMevduat ? null : cost,
         }).select('id').single();
         if (error) {
           Alert.alert(t('assetEntry.errorTitle'), error.message);
@@ -587,7 +792,7 @@ export default function AssetEntryScreen() {
         }
         if (data) setHoldingId(data.id);
         setAmount(String(inputQty));
-        setUnitPrice(cost != null ? String(cost) : '');
+        setUnitPrice(isMevduat || cost == null ? '' : String(cost));
       }
       setInputWhole('');
       setInputDecimal('');
@@ -660,13 +865,71 @@ export default function AssetEntryScreen() {
     router.replace(isReturnToPortfolioTab(returnTo) ? PORTFOLIO_TAB_HREF : '/(tabs)');
   };
 
-  const isUSD = categoryId === 'yurtdisi' || categoryId === 'kripto';
+  const isUSD = isUsdNativeCategory(categoryId);
   const curr = isUSD ? '$' : '';
-  const currSuffix = isUSD ? '' : ' TL';
+  const currSuffix = isUSD ? '' : ` ${t('home.currencyTL')}`;
   const marketValue = qty * currentPrice;
-  const totalCost = qty * avgCost;
-  const totalGainLoss = avgCost > 0 ? marketValue - totalCost : 0;
+  const totalCost = qty * effectiveAvgCostUsd;
+  const totalGainLoss = qty > 0 && currentPrice > 0 ? marketValue - totalCost : 0;
   const isPositive = totalGainLoss >= 0;
+
+  const canConvertToUsd = isUSD || usdTry > 0;
+
+  const addTimePriceDisplay = useMemo(() => {
+    if (addTimePriceRaw == null || addTimePriceRaw <= 0) return null;
+    if (categoryId !== 'kripto' || usdTry <= 0) return addTimePriceRaw;
+    return kriptoStoredUnitToUsd(addTimePriceRaw, usdTry, spotCurrency, currentPrice);
+  }, [addTimePriceRaw, categoryId, usdTry, spotCurrency, currentPrice]);
+
+  /** Gerçek ortalama maliyet (implicit spot değil). */
+  const avgUnitUsdExplicit = useMemo(() => {
+    if (!canConvertToUsd || !hasExplicitAvgCost || avgCostUsd <= 0) return null;
+    return isUSD ? avgCostUsd : avgCostUsd / usdTry;
+  }, [canConvertToUsd, isUSD, hasExplicitAvgCost, avgCostUsd, usdTry]);
+
+  /** Pozisyon açılışına yakın kur; ortalama yoksa sol sütunda gösterilir. */
+  const entryUnitUsd = useMemo(() => {
+    if (!canConvertToUsd || addTimePriceDisplay == null || addTimePriceDisplay <= 0) return null;
+    return isUSD ? addTimePriceDisplay : addTimePriceDisplay / usdTry;
+  }, [canConvertToUsd, isUSD, addTimePriceDisplay, usdTry]);
+
+  const leftColUsdAvgOrEntry = avgUnitUsdExplicit ?? entryUnitUsd;
+
+  const investedTotalUsd = useMemo(() => {
+    if (!canConvertToUsd || qty <= 0 || !hasExplicitAvgCost || avgCostUsd <= 0) return null;
+    return isUSD ? qty * avgCostUsd : (qty * avgCostUsd) / usdTry;
+  }, [canConvertToUsd, isUSD, qty, hasExplicitAvgCost, avgCostUsd, usdTry]);
+
+  const marketTotalUsd = useMemo(() => {
+    if (!canConvertToUsd || qty <= 0 || currentPrice <= 0) return null;
+    return isUSD ? marketValue : marketValue / usdTry;
+  }, [canConvertToUsd, isUSD, qty, currentPrice, marketValue, usdTry]);
+
+  /** Güncel birim fiyatın USD karşılığı (pozisyon toplamı değil). */
+  const spotUnitUsd = useMemo(() => {
+    if (!canConvertToUsd || currentPrice <= 0) return null;
+    return isUSD ? currentPrice : currentPrice / usdTry;
+  }, [canConvertToUsd, isUSD, currentPrice, usdTry]);
+
+  const gainLossUsd = useMemo(() => {
+    if (!canConvertToUsd || qty <= 0 || marketTotalUsd == null) return null;
+    if (hasExplicitAvgCost && investedTotalUsd != null) {
+      return marketTotalUsd - investedTotalUsd;
+    }
+    if (!hasExplicitAvgCost && entryUnitUsd != null) {
+      return marketTotalUsd - qty * entryUnitUsd;
+    }
+    return null;
+  }, [
+    canConvertToUsd,
+    qty,
+    marketTotalUsd,
+    hasExplicitAvgCost,
+    investedTotalUsd,
+    entryUnitUsd,
+  ]);
+
+  const gainLossUsdPositive = gainLossUsd != null && gainLossUsd >= 0;
 
   const fmtVal = (v: number) => {
     const abs = Math.abs(v);
@@ -677,6 +940,46 @@ export default function AssetEntryScreen() {
     const formatted = abs.toLocaleString(numberLocale, { minimumFractionDigits: 2, maximumFractionDigits: maxDec });
     const trimmed = formatted.replace(/0+$/, '').replace(/[,.]$/, '');
     return v < 0 ? `-${trimmed}` : trimmed;
+  };
+
+  /** Pozisyonum kartı tutarları: kuruş yok, yukarı yuvarlı tam sayı. `locale` USD sütunu için `en-US`. */
+  const fmtPositionMoneyCeil = (v: number, locale: string = numberLocale) => {
+    if (!Number.isFinite(v)) {
+      return (0).toLocaleString(locale, { maximumFractionDigits: 0, minimumFractionDigits: 0 });
+    }
+    return Math.ceil(v).toLocaleString(locale, { maximumFractionDigits: 0, minimumFractionDigits: 0 });
+  };
+
+  /** Ortalama maliyet (yerel para): 3 ondalık, üst kesir yukarı. */
+  const fmtMoneyCeil3 = (v: number, locale: string = numberLocale) => {
+    if (!Number.isFinite(v)) {
+      return (0).toLocaleString(locale, { minimumFractionDigits: 3, maximumFractionDigits: 3 });
+    }
+    const neg = v < 0;
+    const av = Math.abs(v);
+    const ceiled = Math.ceil(av * 1000) / 1000;
+    const out = neg ? -ceiled : ceiled;
+    const body = Math.abs(out).toLocaleString(locale, {
+      minimumFractionDigits: 3,
+      maximumFractionDigits: 3,
+    });
+    return out < 0 ? `-${body}` : body;
+  };
+
+  /** Ortalama USD / birim USD: 4 ondalık, üst kesir yukarı (`numberLocale` ile TR’de virgül). */
+  const fmtUsdCeil4 = (v: number, locale: string = numberLocale) => {
+    if (!Number.isFinite(v)) {
+      return (0).toLocaleString(locale, { minimumFractionDigits: 4, maximumFractionDigits: 4 });
+    }
+    const neg = v < 0;
+    const av = Math.abs(v);
+    const ceiled = Math.ceil(av * 10000) / 10000;
+    const out = neg ? -ceiled : ceiled;
+    const body = Math.abs(out).toLocaleString(locale, {
+      minimumFractionDigits: 4,
+      maximumFractionDigits: 4,
+    });
+    return out < 0 ? `-${body}` : body;
   };
 
   const showPriceSection = currentPrice > 0 && categoryId !== 'mevduat';
@@ -691,23 +994,51 @@ export default function AssetEntryScreen() {
   const bigPriceText = `${curr}${fmtVal(displayPrice)}${currSuffix}`;
 
   const chartChange = useMemo(() => {
-    if (priceHistory.length < 2) {
-      if (activeTimeframe === '1D' && change24hPct != null) {
-        const prevPrice = currentPrice / (1 + change24hPct / 100);
-        return { amount: currentPrice - prevPrice, percentage: change24hPct };
+    const refClose =
+      change24hPct != null && Number.isFinite(change24hPct) && currentPrice > 0
+        ? currentPrice / (1 + change24hPct / 100)
+        : null;
+
+    /** 1G: Yahoo / CoinGecko günlük % (son işlem günü kapanışa göre); grafikteki maliyet noktası karışmasın. */
+    if (
+      activeTimeframe === '1D' &&
+      refClose != null &&
+      change24hPct != null &&
+      Number.isFinite(change24hPct)
+    ) {
+      if (selectedIdx != null && priceHistory[selectedIdx] != null) {
+        const p = priceHistory[selectedIdx];
+        const ref = refClose;
+        return {
+          amount: p - ref,
+          percentage: ref > 0 ? ((p - ref) / ref) * 100 : 0,
+        };
       }
-      return null;
+      return {
+        amount: currentPrice - refClose,
+        percentage: change24hPct,
+      };
     }
 
-    const targetIdx = selectedIdx != null ? selectedIdx : priceHistory.length - 1;
-    const targetPrice = priceHistory[targetIdx];
-    const firstNonZero = priceHistory.find((p) => p > 0) ?? 0;
+    const baseFirst = chartRangeForPct?.first;
+    if (baseFirst != null && baseFirst > 0 && priceHistory.length >= 1) {
+      const targetIdx = selectedIdx != null ? selectedIdx : priceHistory.length - 1;
+      const p = priceHistory[targetIdx];
+      if (p != null && p > 0) {
+        const diff = p - baseFirst;
+        return { amount: diff, percentage: (diff / baseFirst) * 100 };
+      }
+    }
 
-    if (firstNonZero <= 0) return null;
-    const diff = targetPrice - firstNonZero;
-    const pct = (diff / firstNonZero) * 100;
-    return { amount: diff, percentage: pct };
-  }, [priceHistory, selectedIdx, activeTimeframe, change24hPct, currentPrice]);
+    return null;
+  }, [
+    activeTimeframe,
+    change24hPct,
+    currentPrice,
+    chartRangeForPct,
+    priceHistory,
+    selectedIdx,
+  ]);
 
   const selectedDate = useMemo(() => {
     if (selectedIdx != null && chartDates[selectedIdx]) {
@@ -722,112 +1053,77 @@ export default function AssetEntryScreen() {
 
   const isChartPositive = chartChange ? chartChange.amount >= 0 : true;
 
+  const positionGainPct =
+    hasExplicitAvgCost && totalCost > 0 ? (totalGainLoss / totalCost) * 100 : null;
+
   return (
     <SafeAreaView style={styles.safeArea}>
       <ThemedView style={styles.container} lightColor="#000000" darkColor="#000000">
-        {/* Top bar: back arrow */}
-        <View style={styles.topBar}>
-          <TouchableOpacity onPress={handleBack} activeOpacity={0.8} hitSlop={12}>
-            <Ionicons name="chevron-back" size={24} color="#f9fafb" />
+        <View style={styles.obsHeader}>
+          <TouchableOpacity onPress={handleBack} activeOpacity={0.8} hitSlop={12} style={styles.obsHeaderBtn}>
+            <Ionicons name="chevron-back" size={22} color={PRIMARY} />
           </TouchableOpacity>
+          <ThemedText style={styles.obsHeaderTitle}>{t('assetEntry.screenTitle')}</ThemedText>
+          <View style={styles.obsHeaderSpacer} />
         </View>
 
         <ScrollView
           style={{ flex: 1 }}
+          contentContainerStyle={{ paddingBottom: insets.bottom + 32 }}
           showsVerticalScrollIndicator={false}
           keyboardShouldPersistTaps="handled"
           keyboardDismissMode="on-drag">
-          {/* Hero: icon + symbol + name */}
-          <View style={styles.heroSection}>
-            <View style={styles.heroIconWrap}>
-              <Ionicons name="cube-outline" size={28} color="#60a5fa" />
+          <View style={styles.heroBlock}>
+            <View style={styles.heroIdentity}>
+              <View style={styles.heroIconBox}>
+                {assetIconUrl ? (
+                  <Image source={{ uri: assetIconUrl }} style={styles.heroIconImg} contentFit="contain" />
+                ) : (
+                  <Ionicons name="cube-outline" size={26} color={PRIMARY} />
+                )}
+              </View>
+              <ThemedText style={styles.heroSymbolSmall}>{(symbol || '—').toUpperCase()}</ThemedText>
+              <ThemedText style={styles.heroNameLarge} numberOfLines={3}>
+                {name}
+              </ThemedText>
             </View>
-            <ThemedText type="subtitle" style={styles.heroSymbol}>{symbol || '—'}</ThemedText>
-            <ThemedText style={styles.heroName} numberOfLines={2}>{name}</ThemedText>
+            {showPriceSection && (
+              <View style={styles.heroQuote}>
+                <ThemedText style={styles.heroSpotPrice}>
+                  {curr}
+                  {fmtVal(currentPrice)}
+                  {currSuffix}
+                </ThemedText>
+                {dayChangeAmt != null && change24hPct != null && Number.isFinite(change24hPct) ? (
+                  <View style={styles.heroDayChangeRow}>
+                    <Ionicons
+                      name={change24hPct >= 0 ? 'caret-up' : 'caret-down'}
+                      size={16}
+                      color={change24hPct >= 0 ? CHART_GREEN : CHART_RED}
+                    />
+                    <ThemedText
+                      style={[
+                        styles.heroDayChangeText,
+                        { color: change24hPct >= 0 ? CHART_GREEN : CHART_RED },
+                      ]}>
+                      {change24hPct >= 0 ? '+' : ''}
+                      {curr}
+                      {fmtVal(Math.abs(dayChangeAmt))}
+                      {currSuffix} (
+                      {change24hPct >= 0 ? '+' : ''}
+                      {change24hPct.toLocaleString(numberLocale, { maximumFractionDigits: 2 })}%){' '}
+                      {t('assetEntry.today')}
+                    </ThemedText>
+                  </View>
+                ) : null}
+              </View>
+            )}
           </View>
 
-          {/* Stats row */}
-          <View style={styles.statsRow}>
-            <View style={styles.statItem}>
-              <ThemedText style={styles.statLabel}>{t('assetEntry.owned')}</ThemedText>
-              <ThemedText type="defaultSemiBold" style={styles.statValue}>
-                {qty > 0 ? qty.toLocaleString(numberLocale, { minimumFractionDigits: 0, maximumFractionDigits: 10 }) : '—'}
-              </ThemedText>
-            </View>
-            <View style={[styles.statItem, styles.statItemCenter]}>
-              <ThemedText style={styles.statLabel}>{t('assetEntry.marketValue')}</ThemedText>
-              <ThemedText type="defaultSemiBold" style={styles.statValue}>
-                {qty > 0 ? `${curr}${fmtVal(marketValue)}${currSuffix}` : '—'}
-              </ThemedText>
-            </View>
-            <View style={styles.statItem}>
-              <ThemedText style={styles.statLabel}>
-                {isPositive ? t('assetEntry.totalGain') : t('assetEntry.totalLoss')}
-              </ThemedText>
-              <ThemedText type="defaultSemiBold" style={[styles.statValue, avgCost > 0 && (isPositive ? styles.statPositive : styles.statNegative)]}>
-                {avgCost > 0 ? `${totalGainLoss >= 0 ? '+' : ''}${curr}${fmtVal(totalGainLoss)}${currSuffix}` : '—'}
-              </ThemedText>
-            </View>
-          </View>
-
-          {/* Maliyet satırı */}
-          <View style={styles.costRow}>
-            <ThemedText style={styles.costLabel}>{t('assetEntry.costTotal')}</ThemedText>
-            <ThemedText type="defaultSemiBold" style={styles.costValue}>
-              {avgCost > 0 ? `${curr}${fmtVal(totalCost)}${currSuffix}` : '—'}
-            </ThemedText>
-          </View>
-
-          {/* Price + Chart section */}
           {showPriceSection && (
             <>
-              <View style={styles.divider} />
-
-              <View style={styles.priceSection}>
-                <ThemedText style={styles.bigPrice}>{bigPriceText}</ThemedText>
-                {chartChange && (
-                  <View style={styles.changeRow}>
-                    <ThemedText style={isChartPositive ? styles.changeTextPositive : styles.changeTextNegative}>
-                      {isChartPositive ? '+' : ''}{curr}{fmtVal(Math.abs(chartChange.amount))}{currSuffix}
-                    </ThemedText>
-                    <View style={[styles.changeBadge, isChartPositive ? styles.changeBadgePos : styles.changeBadgeNeg]}>
-                      <ThemedText style={isChartPositive ? styles.changeBadgeTextPos : styles.changeBadgeTextNeg}>
-                        {isChartPositive ? '+' : ''}
-                        {chartChange.percentage.toLocaleString(numberLocale, {
-                          minimumFractionDigits: 2,
-                          maximumFractionDigits: 2,
-                        })}
-                        %
-                      </ThemedText>
-                    </View>
-                  </View>
-                )}
-                {selectedDate ? (
-                  <ThemedText style={styles.pointDate}>{selectedDate}</ThemedText>
-                ) : (
-                  <ThemedText style={styles.categoryBadge}>
-                    {catLabel(categoryId ?? '')}
-                  </ThemedText>
-                )}
-              </View>
-
-              {/* Timeframe buttons */}
-              <View style={styles.tfRow}>
-                {TIMEFRAMES.map((tf) => (
-                  <Pressable
-                    key={tf}
-                    style={[styles.tfBtn, activeTimeframe === tf && styles.tfBtnActive]}
-                    onPress={() => setActiveTimeframe(tf)}>
-                    <ThemedText style={[styles.tfBtnText, activeTimeframe === tf && styles.tfBtnTextActive]}>
-                      {tf}
-                    </ThemedText>
-                  </Pressable>
-                ))}
-              </View>
-
-              {/* Chart */}
               {loadingChart ? (
-                <ActivityIndicator style={{ marginVertical: 24 }} color="#60a5fa" />
+                <ActivityIndicator style={{ marginVertical: 32 }} color={PRIMARY} />
               ) : (
                 <PriceChart
                   series={priceHistory}
@@ -839,92 +1135,226 @@ export default function AssetEntryScreen() {
                   numberLocale={numberLocale}
                 />
               )}
+              {selectedIdx != null && (
+                <View style={styles.chartScrubBanner}>
+                  <ThemedText style={styles.chartScrubPrice}>{bigPriceText}</ThemedText>
+                  {selectedDate ? <ThemedText style={styles.chartScrubDate}>{selectedDate}</ThemedText> : null}
+                </View>
+              )}
+              <View style={styles.tfRowObsidian}>
+                {TIMEFRAMES.map((tf) => (
+                  <Pressable
+                    key={tf}
+                    style={[styles.tfPill, activeTimeframe === tf && styles.tfPillActive]}
+                    onPress={() => setActiveTimeframe(tf)}>
+                    <ThemedText style={[styles.tfPillText, activeTimeframe === tf && styles.tfPillTextActive]}>
+                      {tf}
+                    </ThemedText>
+                  </Pressable>
+                ))}
+              </View>
             </>
           )}
 
-          <View style={styles.divider} />
+          <ThemedText style={styles.sectionKicker}>{t('assetEntry.myPosition')}</ThemedText>
+          <View style={styles.positionCard}>
+            <View style={styles.positionCardTop}>
+              <View style={{ flex: 1 }}>
+                <ThemedText style={styles.positionCardLabel}>{t('assetEntry.positionTotalValue')}</ThemedText>
+                <ThemedText style={styles.positionCardBig}>
+                  {qty > 0 ? `${curr}${fmtPositionMoneyCeil(marketValue)}${currSuffix}` : '—'}
+                </ThemedText>
+              </View>
+              <View style={styles.positionPlBlock}>
+                <ThemedText style={styles.positionCardLabelSm}>{t('assetEntry.profitLoss')}</ThemedText>
+                <ThemedText
+                  style={[
+                    styles.positionPlAmt,
+                    hasExplicitAvgCost && (isPositive ? { color: CHART_GREEN } : { color: CHART_RED }),
+                    !hasExplicitAvgCost && { color: ON_SURFACE_MUTED },
+                  ]}>
+                  {qty > 0 && currentPrice > 0
+                    ? `${totalGainLoss >= 0 ? '+' : ''}${curr}${fmtPositionMoneyCeil(totalGainLoss)}${currSuffix}`
+                    : '—'}
+                </ThemedText>
+                {positionGainPct != null && Number.isFinite(positionGainPct) ? (
+                  <ThemedText
+                    style={[
+                      styles.positionPlPct,
+                      isPositive ? { color: CHART_GREEN } : { color: CHART_RED },
+                    ]}>
+                    ({isPositive ? '+' : ''}
+                    {positionGainPct.toLocaleString(numberLocale, { maximumFractionDigits: 2 })}%)
+                  </ThemedText>
+                ) : null}
+              </View>
+            </View>
+            <View style={styles.positionGridTopBorder}>
+              <View style={styles.positionGridCell}>
+                <ThemedText style={styles.positionCardLabelSm}>{t('assetEntry.holdings')}</ThemedText>
+                <ThemedText style={styles.positionGridValue}>
+                  {qty > 0 ? (
+                    <>
+                      {qty.toLocaleString(numberLocale, { minimumFractionDigits: 0, maximumFractionDigits: 10 })}{' '}
+                      <ThemedText style={styles.positionGridSym}>{symbol || '—'}</ThemedText>
+                    </>
+                  ) : (
+                    '—'
+                  )}
+                </ThemedText>
+              </View>
+              <View style={styles.positionGridCell}>
+                <ThemedText style={styles.positionCardLabelSm}>{t('assetEntry.averageCost')}</ThemedText>
+                <ThemedText style={styles.positionGridValue}>
+                  {effectiveAvgCostUsd > 0 ? `${curr}${fmtMoneyCeil3(effectiveAvgCostUsd)}${currSuffix}` : '—'}
+                </ThemedText>
+              </View>
+              <View style={[styles.positionGridCell, styles.positionGridCellLast]}>
+                <ThemedText style={styles.positionCardLabelSm}>{t('assetEntry.invested')}</ThemedText>
+                <ThemedText style={styles.positionGridValue}>
+                  {effectiveAvgCostUsd > 0 && qty > 0
+                    ? `${curr}${fmtPositionMoneyCeil(totalCost)}${currSuffix}`
+                    : '—'}
+                </ThemedText>
+              </View>
+            </View>
+            <View style={styles.positionGridUsdRow}>
+              <View style={styles.positionGridCell}>
+                <ThemedText style={styles.positionCardLabelSm} numberOfLines={2}>
+                  {t('assetEntry.averageCostUsd')}
+                </ThemedText>
+                <ThemedText style={styles.positionGridValueUsd}>
+                  {leftColUsdAvgOrEntry != null ? `$${fmtUsdCeil4(leftColUsdAvgOrEntry)}` : '—'}
+                </ThemedText>
+              </View>
+              <View style={styles.positionGridCell}>
+                <ThemedText style={styles.positionCardLabelSm} numberOfLines={2}>
+                  {t('assetEntry.usdValue')}
+                </ThemedText>
+                <ThemedText style={styles.positionGridValueUsd}>
+                  {spotUnitUsd != null ? `$${fmtUsdCeil4(spotUnitUsd)}` : '—'}
+                </ThemedText>
+              </View>
+              <View style={[styles.positionGridCell, styles.positionGridCellLast]}>
+                <ThemedText style={styles.positionCardLabelSm} numberOfLines={2}>
+                  {t('assetEntry.profitLossUsd')}
+                </ThemedText>
+                <ThemedText
+                  style={[
+                    styles.positionGridValueUsd,
+                    gainLossUsd != null &&
+                      (gainLossUsdPositive ? { color: CHART_GREEN } : { color: CHART_RED }),
+                    gainLossUsd == null && { color: ON_SURFACE_MUTED },
+                  ]}>
+                  {gainLossUsd != null
+                    ? `${gainLossUsdPositive ? '+' : ''}$${fmtPositionMoneyCeil(gainLossUsd, 'en-US')}`
+                    : '—'}
+                </ThemedText>
+              </View>
+            </View>
+          </View>
 
-          {/* Mode buttons */}
-          <View style={styles.modeRow}>
+          <View style={styles.transactionSection}>
+            <View style={styles.modeRowObsidian}>
             {(['add', 'reduce', 'delete'] as FormMode[]).map((m) => {
               const label =
-                m === 'add' ? t('assetEntry.modeAddCaps') : m === 'reduce' ? t('assetEntry.modeReduceCaps') : t('assetEntry.modeDeleteCaps');
+                m === 'add'
+                  ? t('assetEntry.modeAddCaps')
+                  : m === 'reduce'
+                    ? t('assetEntry.modeReduceCaps')
+                    : t('assetEntry.modeDeleteCaps');
               const active = formMode === m;
               return (
                 <TouchableOpacity
                   key={m}
-                  style={[
-                    styles.modeBtn,
-                    active && (m === 'add' ? styles.modeBtnAdd : m === 'reduce' ? styles.modeBtnReduce : styles.modeBtnDelete),
-                  ]}
-                  activeOpacity={0.8}
+                  style={[styles.modePill, active && styles.modePillActive]}
+                  activeOpacity={0.85}
                   onPress={() => {
                     setFormMode(m);
                     setInputWhole('');
                     setInputDecimal('');
                     setInputCost('');
                   }}>
-                  <ThemedText style={[styles.modeBtnText, active && styles.modeBtnTextActive]}>{label}</ThemedText>
+                  <ThemedText
+                    style={[
+                      styles.modePillText,
+                      active && styles.modePillTextActive,
+                      !active && m === 'delete' && styles.modePillTextDeleteIdle,
+                    ]}>
+                    {label}
+                  </ThemedText>
                 </TouchableOpacity>
               );
             })}
-          </View>
+            </View>
 
-          {/* Form content per mode */}
-          <View style={styles.formContainer}>
+            <View style={styles.formInner}>
             {(formMode === 'add' || formMode === 'reduce') && (
               <>
-                <ThemedText style={styles.splitLabel}>
-                  {formMode === 'add' ? 'EKLENECEK ADET' : t('assetEntry.labelQtyReduceCaps')}
+                <ThemedText style={styles.fieldLabelCaps}>
+                  {formMode === 'add' ? t('assetEntry.labelQtyAddCaps') : t('assetEntry.labelQtyReduceCaps')}
                 </ThemedText>
-                <View style={styles.splitRow}>
-                  <TextInput
-                    style={styles.splitInputLeft}
-                    keyboardType="decimal-pad"
-                    placeholder="0"
-                    placeholderTextColor="#6b7280"
-                    value={inputWhole}
-                    onChangeText={onQtyWholeChange}
-                    maxLength={20}
-                  />
-                  <ThemedText style={styles.splitComma}>,</ThemedText>
-                  <TextInput
-                    ref={qtyDecimalInputRef}
-                    style={styles.splitInputRight}
-                    keyboardType="number-pad"
-                    placeholder="0000000000"
-                    placeholderTextColor="#6b7280"
-                    maxLength={10}
-                    value={inputDecimal}
-                    onChangeText={(txt) => setInputDecimal(txt.replace(/[^0-9]/g, '').slice(0, 10))}
-                  />
+                <View style={styles.qtyInputShell}>
+                  <View style={{ flex: 1, minWidth: 0 }}>
+                    <View style={styles.splitRow}>
+                      <TextInput
+                        style={styles.splitInputObs}
+                        keyboardType="decimal-pad"
+                        placeholder="0"
+                        placeholderTextColor={ON_SURFACE_MUTED}
+                        value={inputWhole}
+                        onChangeText={onQtyWholeChange}
+                        maxLength={20}
+                      />
+                      <ThemedText style={styles.splitComma}>,</ThemedText>
+                      <TextInput
+                        ref={qtyDecimalInputRef}
+                        style={styles.splitInputObs}
+                        keyboardType="number-pad"
+                        placeholder="00"
+                        placeholderTextColor={ON_SURFACE_MUTED}
+                        maxLength={10}
+                        value={inputDecimal}
+                        onChangeText={(txt) => setInputDecimal(txt.replace(/[^0-9]/g, '').slice(0, 10))}
+                      />
+                    </View>
+                  </View>
+                  <ThemedText style={styles.qtyInputSuffixInline}>{amountUnitLabel}</ThemedText>
                 </View>
               </>
             )}
 
             {formMode === 'add' && (
               <>
-                <ThemedText style={[styles.splitLabel, { marginTop: 12 }]}>{t('assetEntry.labelUnitCostCaps')}</ThemedText>
-                <View style={styles.costInputWrapper}>
-                  <TextInput
-                    style={styles.costInput}
-                    keyboardType="numeric"
-                    placeholder="0"
-                    placeholderTextColor="#6b7280"
-                    value={inputCost}
-                    onChangeText={setInputCost}
-                  />
-                </View>
-
+                {categoryId !== 'mevduat' ? (
+                  <>
+                    <ThemedText style={[styles.fieldLabelCaps, { marginTop: 14 }]}>
+                      {t('assetEntry.labelUnitCostCaps')}
+                    </ThemedText>
+                    <TextInput
+                      style={styles.singleInputObs}
+                      keyboardType="numeric"
+                      placeholder="0"
+                      placeholderTextColor={ON_SURFACE_MUTED}
+                      value={inputCost}
+                      onChangeText={setInputCost}
+                    />
+                  </>
+                ) : null}
                 <TouchableOpacity
-                  style={[styles.actionBtn, styles.actionBtnAdd, saving && styles.actionBtnDisabled]}
-                  activeOpacity={0.85}
+                  style={[
+                    styles.confirmCta,
+                    styles.confirmCtaAdd,
+                    saving && styles.actionBtnDisabled,
+                    categoryId === 'mevduat' && { marginTop: 14 },
+                  ]}
+                  activeOpacity={0.9}
                   onPress={handleAdd}
                   disabled={saving}>
                   {saving ? (
-                    <ActivityIndicator size="small" color="#fff" />
+                    <ActivityIndicator size="small" color={ON_PRIMARY_FIXED} />
                   ) : (
-                    <ThemedText style={styles.actionBtnText}>{t('assetEntry.btnAdd')}</ThemedText>
+                    <ThemedText style={styles.confirmCtaText}>{t('assetEntry.btnAdd')}</ThemedText>
                   )}
                 </TouchableOpacity>
               </>
@@ -932,14 +1362,16 @@ export default function AssetEntryScreen() {
 
             {formMode === 'reduce' && (
               <TouchableOpacity
-                style={[styles.actionBtn, styles.actionBtnReduce, saving && styles.actionBtnDisabled]}
-                activeOpacity={0.85}
+                style={[styles.confirmCta, styles.confirmCtaAmber, saving && styles.actionBtnDisabled]}
+                activeOpacity={0.9}
                 onPress={handleReduce}
                 disabled={saving}>
                 {saving ? (
                   <ActivityIndicator size="small" color="#fff" />
                 ) : (
-                  <ThemedText style={styles.actionBtnText}>{t('assetEntry.btnReduce')}</ThemedText>
+                  <ThemedText style={[styles.confirmCtaText, { color: '#fff' }]}>
+                    {t('assetEntry.btnReduce')}
+                  </ThemedText>
                 )}
               </TouchableOpacity>
             )}
@@ -954,19 +1386,23 @@ export default function AssetEntryScreen() {
                 </ThemedText>
                 <ThemedText style={styles.deleteInfo}>
                   {t('assetEntry.deleteValue', {
-                    value: `${curr}${(qty * currentPrice).toLocaleString(numberLocale, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}${currSuffix}`,
+                    value: `${curr}${(qty * currentPrice).toLocaleString(numberLocale, {
+                      minimumFractionDigits: 2,
+                      maximumFractionDigits: 2,
+                    })}${currSuffix}`,
                   })}
                 </ThemedText>
-
                 <TouchableOpacity
-                  style={[styles.actionBtn, styles.actionBtnDeleteFull, saving && styles.actionBtnDisabled]}
-                  activeOpacity={0.85}
+                  style={[styles.confirmCta, styles.confirmCtaDanger, saving && styles.actionBtnDisabled]}
+                  activeOpacity={0.9}
                   onPress={handleDeleteConfirm}
                   disabled={saving}>
                   {saving ? (
                     <ActivityIndicator size="small" color="#fff" />
                   ) : (
-                    <ThemedText style={styles.actionBtnText}>{t('assetEntry.btnDelete')}</ThemedText>
+                    <ThemedText style={[styles.confirmCtaText, { color: '#fff' }]}>
+                      {t('assetEntry.btnDelete')}
+                    </ThemedText>
                   )}
                 </TouchableOpacity>
               </View>
@@ -975,6 +1411,7 @@ export default function AssetEntryScreen() {
             {formMode === 'delete' && !holdingId && (
               <ThemedText style={styles.deleteWarning}>{t('assetEntry.notInPortfolio')}</ThemedText>
             )}
+            </View>
           </View>
         </ScrollView>
       </ThemedView>
@@ -1002,7 +1439,7 @@ export default function AssetEntryScreen() {
                 style={styles.modalBtnCancel}
                 activeOpacity={0.8}
                 onPress={() => setShowDeleteModal(false)}>
-                <ThemedText style={styles.modalBtnCancelText}>Hayır</ThemedText>
+                <ThemedText style={styles.modalBtnCancelText}>{t('assetEntry.modalNo')}</ThemedText>
               </TouchableOpacity>
               <TouchableOpacity
                 style={styles.modalBtnConfirm}
@@ -1025,6 +1462,386 @@ const styles = StyleSheet.create({
   },
   container: {
     flex: 1,
+  },
+  obsHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: 16,
+    paddingBottom: 10,
+    backgroundColor: 'rgba(0,0,0,0.65)',
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: 'rgba(255,255,255,0.06)',
+  },
+  obsHeaderBtn: {
+    padding: 8,
+    borderRadius: 999,
+  },
+  obsHeaderTitle: {
+    fontSize: 17,
+    fontWeight: '700',
+    color: PRIMARY,
+    letterSpacing: -0.3,
+  },
+  obsHeaderSpacer: {
+    width: 38,
+  },
+  heroBlock: {
+    alignItems: 'center',
+    paddingHorizontal: 20,
+    paddingTop: 20,
+    paddingBottom: 8,
+  },
+  heroIdentity: {
+    alignItems: 'center',
+    maxWidth: '100%',
+    marginBottom: 6,
+  },
+  heroQuote: {
+    alignItems: 'center',
+    marginTop: 26,
+    width: '100%',
+    paddingTop: 4,
+  },
+  heroIconBox: {
+    width: 48,
+    height: 48,
+    borderRadius: 16,
+    backgroundColor: SURFACE_HIGH,
+    alignItems: 'center',
+    justifyContent: 'center',
+    overflow: 'hidden',
+  },
+  heroIconImg: {
+    width: 40,
+    height: 40,
+  },
+  heroSymbolSmall: {
+    fontSize: 12,
+    fontWeight: '600',
+    color: ON_SURFACE_MUTED,
+    letterSpacing: 1.2,
+    textTransform: 'uppercase',
+    textAlign: 'center',
+    marginTop: 10,
+  },
+  heroNameLarge: {
+    fontSize: 22,
+    lineHeight: 28,
+    fontWeight: '800',
+    color: '#ffffff',
+    letterSpacing: -0.6,
+    marginTop: 4,
+    marginBottom: 2,
+    textAlign: 'center',
+  },
+  heroSpotPrice: {
+    fontSize: 28,
+    lineHeight: 34,
+    fontWeight: '800',
+    color: '#ffffff',
+    letterSpacing: -1,
+    textAlign: 'center',
+    marginTop: 2,
+  },
+  heroDayChangeRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    marginTop: 8,
+    flexWrap: 'wrap',
+    justifyContent: 'center',
+    paddingHorizontal: 8,
+  },
+  heroDayChangeText: {
+    fontSize: 13,
+    fontWeight: '600',
+    flexShrink: 1,
+    textAlign: 'center',
+  },
+  chartScrubBanner: {
+    alignSelf: 'center',
+    marginTop: 8,
+    paddingHorizontal: 14,
+    paddingVertical: 8,
+    borderRadius: 14,
+    backgroundColor: 'rgba(31,31,31,0.75)',
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.06)',
+  },
+  chartScrubPrice: {
+    fontSize: 14,
+    fontWeight: '700',
+    color: '#ffffff',
+    textAlign: 'center',
+  },
+  chartScrubDate: {
+    fontSize: 11,
+    color: ON_SURFACE_MUTED,
+    textAlign: 'center',
+    marginTop: 2,
+  },
+  tfRowObsidian: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    flexWrap: 'wrap',
+    gap: 6,
+    marginHorizontal: 16,
+    marginTop: 16,
+    marginBottom: 8,
+    padding: 6,
+    borderRadius: 999,
+    backgroundColor: SURFACE_LOW,
+  },
+  tfPill: {
+    paddingHorizontal: 16,
+    paddingVertical: 10,
+    borderRadius: 999,
+  },
+  tfPillActive: {
+    backgroundColor: PRIMARY,
+    shadowColor: PRIMARY,
+    shadowOffset: { width: 0, height: 0 },
+    shadowOpacity: 0.35,
+    shadowRadius: 12,
+    elevation: 4,
+  },
+  tfPillText: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: ON_SURFACE_MUTED,
+  },
+  tfPillTextActive: {
+    color: ON_PRIMARY_FIXED,
+  },
+  sectionKicker: {
+    marginTop: 28,
+    marginBottom: 10,
+    paddingHorizontal: 22,
+    fontSize: 12,
+    fontWeight: '700',
+    color: ON_SURFACE_MUTED,
+    letterSpacing: 2,
+    textTransform: 'uppercase',
+  },
+  positionCard: {
+    marginHorizontal: 16,
+    marginBottom: 20,
+    padding: 22,
+    borderRadius: 28,
+    backgroundColor: SURFACE_LOW,
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.06)',
+  },
+  positionCardTop: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'flex-start',
+    gap: 16,
+  },
+  positionCardLabel: {
+    fontSize: 14,
+    fontWeight: '500',
+    color: ON_SURFACE_MUTED,
+    marginBottom: 6,
+  },
+  positionCardLabelSm: {
+    fontSize: 10,
+    fontWeight: '600',
+    color: ON_SURFACE_MUTED,
+    letterSpacing: 1,
+    textTransform: 'uppercase',
+    marginBottom: 6,
+  },
+  positionCardBig: {
+    fontSize: 34,
+    lineHeight: 42,
+    fontWeight: '800',
+    color: '#ffffff',
+    letterSpacing: -1,
+    marginTop: 2,
+    ...Platform.select({
+      android: { includeFontPadding: false },
+      default: {},
+    }),
+  },
+  positionPlBlock: {
+    alignItems: 'flex-end',
+  },
+  positionPlAmt: {
+    fontSize: 22,
+    lineHeight: 30,
+    fontWeight: '700',
+    color: ON_SURFACE_MUTED,
+    ...Platform.select({
+      android: { includeFontPadding: false },
+      default: {},
+    }),
+  },
+  positionPlPct: {
+    fontSize: 14,
+    fontWeight: '600',
+    marginTop: 2,
+  },
+  positionGridTopBorder: {
+    flexDirection: 'row',
+    marginTop: 22,
+    paddingTop: 18,
+    borderTopWidth: 1,
+    borderTopColor: 'rgba(255,255,255,0.1)',
+    gap: 8,
+  },
+  positionGridUsdRow: {
+    flexDirection: 'row',
+    marginTop: 14,
+    paddingTop: 16,
+    borderTopWidth: 1,
+    borderTopColor: 'rgba(255,255,255,0.08)',
+    gap: 6,
+  },
+  positionGridCell: {
+    flex: 1,
+    minWidth: 0,
+  },
+  positionGridCellLast: {
+    alignItems: 'flex-end',
+  },
+  positionGridValue: {
+    fontSize: 16,
+    fontWeight: '700',
+    color: '#ffffff',
+  },
+  positionGridSym: {
+    fontSize: 13,
+    fontWeight: '500',
+    color: ON_SURFACE_MUTED,
+  },
+  positionGridValueUsd: {
+    fontSize: 14,
+    fontWeight: '700',
+    color: '#c7d7ff',
+  },
+  transactionSection: {
+    marginHorizontal: 16,
+    marginTop: 8,
+    marginBottom: 8,
+    borderRadius: 28,
+    backgroundColor: SURFACE_HIGH,
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.08)',
+    paddingTop: 14,
+    overflow: 'hidden',
+  },
+  modeRowObsidian: {
+    flexDirection: 'row',
+    marginHorizontal: 12,
+    padding: 6,
+    borderRadius: 18,
+    backgroundColor: 'rgba(0,0,0,0.4)',
+    gap: 4,
+  },
+  modePill: {
+    flex: 1,
+    paddingVertical: 12,
+    borderRadius: 14,
+    alignItems: 'center',
+  },
+  modePillActive: {
+    backgroundColor: PRIMARY,
+  },
+  modePillText: {
+    fontSize: 11,
+    fontWeight: '700',
+    color: ON_SURFACE_MUTED,
+    letterSpacing: 0.6,
+  },
+  modePillTextActive: {
+    color: ON_PRIMARY_FIXED,
+  },
+  modePillTextDeleteIdle: {
+    color: CHART_RED,
+  },
+  formInner: {
+    paddingHorizontal: 20,
+    paddingTop: 16,
+    paddingBottom: 8,
+  },
+  fieldLabelCaps: {
+    fontSize: 10,
+    fontWeight: '700',
+    color: ON_SURFACE_MUTED,
+    letterSpacing: 2,
+    marginBottom: 8,
+    textTransform: 'uppercase',
+  },
+  qtyInputShell: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    borderRadius: 18,
+    backgroundColor: 'rgba(0,0,0,0.45)',
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.1)',
+    paddingVertical: 4,
+    paddingRight: 14,
+  },
+  splitInputObs: {
+    flex: 1,
+    fontSize: 18,
+    fontWeight: '700',
+    color: '#ffffff',
+    paddingVertical: 14,
+    paddingHorizontal: 16,
+    backgroundColor: 'transparent',
+  },
+  qtyInputSuffixInline: {
+    fontSize: 13,
+    fontWeight: '700',
+    color: ON_SURFACE_MUTED,
+    marginLeft: 4,
+  },
+  singleInputObs: {
+    borderRadius: 18,
+    backgroundColor: 'rgba(0,0,0,0.45)',
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.1)',
+    fontSize: 18,
+    fontWeight: '700',
+    color: '#ffffff',
+    paddingVertical: 16,
+    paddingHorizontal: 18,
+  },
+  confirmCta: {
+    marginTop: 18,
+    alignSelf: 'center',
+    width: '33.33%',
+    borderRadius: 18,
+    paddingVertical: 16,
+    alignItems: 'center',
+    backgroundColor: PRIMARY,
+    shadowColor: PRIMARY,
+    shadowOffset: { width: 0, height: 8 },
+    shadowOpacity: 0.35,
+    shadowRadius: 16,
+    elevation: 6,
+  },
+  confirmCtaAdd: {
+    backgroundColor: '#7ccb94',
+    shadowColor: '#3e8f5c',
+  },
+  confirmCtaAmber: {
+    backgroundColor: '#d97706',
+    shadowColor: '#d97706',
+  },
+  confirmCtaDanger: {
+    backgroundColor: '#d97070',
+    shadowColor: '#a84545',
+  },
+  confirmCtaText: {
+    fontSize: 16,
+    fontWeight: '800',
+    color: ON_PRIMARY_FIXED,
+    letterSpacing: 0.3,
   },
   topBar: {
     paddingHorizontal: 16,
@@ -1083,18 +1900,31 @@ const styles = StyleSheet.create({
   },
   statPositive: { color: '#22c55e' },
   statNegative: { color: '#ef4444' },
-  costRow: {
+  costBlock: {
+    paddingHorizontal: 20,
+    paddingVertical: 10,
+    gap: 8,
+  },
+  costRowSplit: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
     alignItems: 'center',
-    paddingVertical: 8,
+    gap: 12,
   },
   costLabel: {
     fontSize: 12,
     color: '#9ca3af',
-    marginBottom: 4,
+    flexShrink: 1,
   },
   costValue: {
     fontSize: 14,
     color: '#f9fafb',
+  },
+  costHint: {
+    fontSize: 11,
+    color: '#6b7280',
+    lineHeight: 15,
+    marginTop: 2,
   },
 
   /* ---- Price + Chart section ---- */
@@ -1170,7 +2000,7 @@ const styles = StyleSheet.create({
     borderRadius: 16,
   },
   tfBtnActive: {
-    backgroundColor: ACCENT_BLUE,
+    backgroundColor: PRIMARY,
   },
   tfBtnText: {
     fontSize: 13,
