@@ -1,10 +1,14 @@
 /**
  * Yurtdışı hisse fiyatları (Yahoo Finance):
- * - Portföyde bulunan (holdings'teki) yurtdışı (yurtdisi) varlıkların fiyatını günceller.
- * - Yahoo Finance quote ile current_price, change_24h_pct, price_updated_at yazar.
+ * - holdings modu: yalnızca portföyde bulunan yurtdışı hisseleri günceller (eski davranış)
+ * - full modu: assets(category_id='yurtdisi') içinden batch halinde günceller
+ *   (en eski price_updated_at öne alınır, holdings'tekilere öncelik verilir)
  *
- * Çalıştırma: node scripts/sync-yurtdisi-prices.js
- * Gereksinim: .env + yahoo-finance2 (npm'de mevcut)
+ * Örnek:
+ *   node scripts/sync-yurtdisi-prices.js
+ *   node scripts/sync-yurtdisi-prices.js --mode=full --batch=120 --delay=250
+ *
+ * Gereksinim: .env + yahoo-finance2
  */
 
 async function loadEnv() {
@@ -25,7 +29,93 @@ function sleep(ms) {
   return new Promise((r) => setTimeout(r, ms));
 }
 
+function parseArgs() {
+  const out = {
+    mode: 'holdings',
+    batch: 100,
+    delayMs: 220,
+  };
+  for (const arg of process.argv.slice(2)) {
+    if (arg.startsWith('--mode=')) out.mode = arg.split('=')[1] || out.mode;
+    if (arg.startsWith('--batch=')) {
+      const n = Number(arg.split('=')[1]);
+      if (Number.isFinite(n) && n > 0) out.batch = Math.floor(n);
+    }
+    if (arg.startsWith('--delay=')) {
+      const n = Number(arg.split('=')[1]);
+      if (Number.isFinite(n) && n >= 0) out.delayMs = Math.floor(n);
+    }
+  }
+  if (out.mode !== 'holdings' && out.mode !== 'full') out.mode = 'holdings';
+  return out;
+}
+
+async function getHoldingSymbols(supabase) {
+  const { data: holdings, error } = await supabase
+    .from('holdings')
+    .select('asset:assets(symbol, category_id)')
+    .not('asset', 'is', null);
+  if (error) throw new Error('Holdings select: ' + error.message);
+  const set = new Set();
+  for (const h of holdings || []) {
+    const a = Array.isArray(h.asset) ? h.asset[0] : h.asset;
+    if (a && a.category_id === 'yurtdisi' && a.symbol) set.add(a.symbol.trim().toUpperCase());
+  }
+  return set;
+}
+
+async function getSymbolsForMode(supabase, mode, batch) {
+  const holdingSet = await getHoldingSymbols(supabase);
+  if (mode === 'holdings') return Array.from(holdingSet);
+
+  const symbols = [];
+
+  // 1) Önce portföydekileri (en eski güncellenen önce)
+  if (holdingSet.size > 0) {
+    const holdingSymbols = Array.from(holdingSet);
+    const { data: inHoldings, error: hErr } = await supabase
+      .from('assets')
+      .select('symbol, price_updated_at')
+      .eq('category_id', 'yurtdisi')
+      .in('symbol', holdingSymbols)
+      .order('price_updated_at', { ascending: true, nullsFirst: true });
+    if (hErr) throw new Error('Assets (holdings) select: ' + hErr.message);
+    for (const row of inHoldings || []) {
+      if (!row.symbol) continue;
+      symbols.push(String(row.symbol).toUpperCase());
+      if (symbols.length >= batch) return symbols;
+    }
+  }
+
+  // 2) Sonra tüm evrenden (en eski güncellenen önce)
+  const needed = batch - symbols.length;
+  const pageSize = Math.max(needed * 4, 400);
+  let from = 0;
+  while (symbols.length < batch) {
+    const { data: rows, error } = await supabase
+      .from('assets')
+      .select('symbol, price_updated_at')
+      .eq('category_id', 'yurtdisi')
+      .order('price_updated_at', { ascending: true, nullsFirst: true })
+      .range(from, from + pageSize - 1);
+    if (error) throw new Error('Assets (full) select: ' + error.message);
+    if (!rows || rows.length === 0) break;
+    for (const row of rows) {
+      const s = String(row.symbol || '').toUpperCase();
+      if (!s) continue;
+      if (symbols.includes(s)) continue;
+      symbols.push(s);
+      if (symbols.length >= batch) break;
+    }
+    if (rows.length < pageSize) break;
+    from += pageSize;
+  }
+
+  return symbols.slice(0, batch);
+}
+
 async function main() {
+  const cfg = parseArgs();
   await loadEnv();
   const url = process.env.EXPO_PUBLIC_SUPABASE_URL || process.env.SUPABASE_URL;
   const key =
@@ -42,28 +132,16 @@ async function main() {
   const yahooFinance = new YahooFinance();
   const supabase = createClient(url, key);
 
-  const { data: holdings, error: holdErr } = await supabase
-    .from('holdings')
-    .select('asset_id, asset:assets(id, symbol, category_id)')
-    .not('asset_id', 'is', null);
-  if (holdErr) {
-    throw new Error('Holdings select: ' + holdErr.message);
-  }
-
-  const yurtdisiSymbols = new Set();
-  for (const h of holdings || []) {
-    const asset = Array.isArray(h.asset) ? h.asset[0] : h.asset;
-    if (asset && asset.category_id === 'yurtdisi' && asset.symbol) {
-      yurtdisiSymbols.add(asset.symbol.trim().toUpperCase());
-    }
-  }
-  const symbols = Array.from(yurtdisiSymbols);
+  const symbols = await getSymbolsForMode(supabase, cfg.mode, cfg.batch);
   if (symbols.length === 0) {
-    console.log('Portföyde yurtdışı hisse yok; fiyat güncellemesi atlanıyor.');
+    console.log('Güncellenecek yurtdışı sembol bulunamadı.');
     return;
   }
 
-  console.log('Yurtdışı fiyat güncellenecek sembol sayısı:', symbols.length, symbols.join(', '));
+  console.log(
+    `Yurtdışı fiyat sync modu=${cfg.mode}, batch=${cfg.batch}, delay=${cfg.delayMs}ms, secilen=${symbols.length}`
+  );
+  console.log(symbols.join(', '));
   const now = new Date().toISOString();
   const updates = [];
 
@@ -88,7 +166,7 @@ async function main() {
     } catch (err) {
       console.warn('Yahoo quote hatası', symbol, err?.message || err);
     }
-    if (i < symbols.length - 1) await sleep(220);
+    if (i < symbols.length - 1) await sleep(cfg.delayMs);
   }
 
   if (updates.length === 0) {

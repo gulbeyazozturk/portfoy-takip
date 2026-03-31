@@ -29,7 +29,7 @@ export default function AuthScreen() {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [info, setInfo] = useState<string | null>(null);
-  const showAppleButton = Platform.OS === 'ios' || Platform.OS === 'web';
+  const showAppleButton = Platform.OS === 'ios';
 
   const isEmailValid = useMemo(() => email.trim().includes('@') && email.trim().includes('.'), [email]);
   const isPasswordValid = useMemo(() => password.trim().length >= 6, [password]);

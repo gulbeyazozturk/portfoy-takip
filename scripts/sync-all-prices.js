@@ -11,28 +11,30 @@ const { spawnSync } = require('child_process');
 const path = require('path');
 
 const SCRIPTS = [
-  'sync-doviz-dev.js',
-  'sync-crypto-prices.js',
-  'sync-bist-scrape.js',
-  'sync-emtia-scrape.js',
-  'sync-kapalicarsi-gold.js',
-  'sync-yurtdisi-prices.js',
-  'sync-tefas-funds.js',
-  'snapshot-prices.js',
+  { file: 'sync-doviz-dev.js', args: [] },
+  { file: 'sync-crypto-prices.js', args: [] },
+  { file: 'sync-bist-scrape.js', args: [] },
+  { file: 'sync-emtia-scrape.js', args: [] },
+  { file: 'sync-kapalicarsi-gold.js', args: [] },
+  // Full evrenden kademeli güncelleme (rate-limit dostu)
+  { file: 'sync-yurtdisi-prices.js', args: ['--mode=full', '--batch=500', '--delay=180'] },
+  { file: 'sync-tefas-funds.js', args: [] },
+  { file: 'snapshot-prices.js', args: [] },
 ];
 
 const root = path.resolve(__dirname, '..');
 
-function runScript(filename) {
-  const scriptPath = path.join(__dirname, filename);
-  console.log(`\n${'='.repeat(60)}\n ${filename}\n${'='.repeat(60)}\n`);
-  const r = spawnSync(process.execPath, [scriptPath], {
+function runScript(job) {
+  const scriptPath = path.join(__dirname, job.file);
+  const args = [scriptPath, ...(job.args || [])];
+  console.log(`\n${'='.repeat(60)}\n ${job.file} ${(job.args || []).join(' ')}\n${'='.repeat(60)}\n`);
+  const r = spawnSync(process.execPath, args, {
     cwd: root,
     stdio: 'inherit',
     env: process.env,
   });
   if (r.status !== 0) {
-    console.error(`\n[sync-all-prices] ${filename} başarısız (kod: ${r.status}).`);
+    console.error(`\n[sync-all-prices] ${job.file} başarısız (kod: ${r.status}).`);
     process.exit(r.status ?? 1);
   }
 }

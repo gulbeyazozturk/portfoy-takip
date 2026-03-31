@@ -59,11 +59,5 @@ jobs:
       - name: Sync TEFAS Fonları
         run: node scripts/sync-tefas-funds.js
 
-      - name: Sync Yurtdışı liste (S&P 500)
-        run: node scripts/sync-yurtdisi-list.js
-
-      - name: Sync Yurtdışı fiyat (Yahoo)
-        run: node scripts/sync-yurtdisi-prices.js
-
       - name: Snapshot prices (grafik geçmişi)
         run: node scripts/snapshot-prices.js

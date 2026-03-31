@@ -25,6 +25,7 @@ import { usePortfolio } from '@/context/portfolio';
 import { kriptoStoredUnitToUsd, legacyCryptoStoredUnitToUsd } from '@/lib/crypto-price-usd';
 import { isUsdNativeCategory } from '@/lib/portfolio-currency';
 import { resolveBistDisplayName } from '@/lib/bist-display-name';
+import { fetchInstantUnitPrice } from '@/lib/instant-price';
 import { supabase } from '@/lib/supabase';
 import { useTranslation } from 'react-i18next';
 
@@ -61,6 +62,25 @@ function parseHoldingQtyString(raw: string | undefined): number {
   }
   const n = Number(t);
   return Number.isFinite(n) ? n : 0;
+}
+
+function parseCostDate(day: string, month: string, year: string): Date | null {
+  if (!day && !month && !year) return null;
+  if (!(day && month && year)) return null;
+  const d = Number(day);
+  const m = Number(month);
+  const y = Number(year);
+  if (!Number.isFinite(d) || !Number.isFinite(m) || !Number.isFinite(y)) return null;
+  if (y < 1900 || y > 2100) return null;
+  const dt = new Date(Date.UTC(y, m - 1, d));
+  if (
+    dt.getUTCFullYear() !== y ||
+    dt.getUTCMonth() !== m - 1 ||
+    dt.getUTCDate() !== d
+  ) {
+    return null;
+  }
+  return dt;
 }
 
 const CHART_W = 300;
@@ -336,6 +356,9 @@ export default function AssetEntryScreen() {
   const [inputWhole, setInputWhole] = useState('');
   const [inputDecimal, setInputDecimal] = useState('');
   const [inputCost, setInputCost] = useState('');
+  const [costDateDay, setCostDateDay] = useState('');
+  const [costDateMonth, setCostDateMonth] = useState('');
+  const [costDateYear, setCostDateYear] = useState('');
   const [showDeleteModal, setShowDeleteModal] = useState(false);
   const qtyDecimalInputRef = useRef<TextInput>(null);
 
@@ -345,6 +368,9 @@ export default function AssetEntryScreen() {
       setInputWhole('');
       setInputDecimal('');
       setInputCost('');
+      setCostDateDay('');
+      setCostDateMonth('');
+      setCostDateYear('');
     }, []),
   );
 
@@ -358,6 +384,7 @@ export default function AssetEntryScreen() {
   const [addTimePriceRaw, setAddTimePriceRaw] = useState<number | null>(null);
   const [selectedIdx, setSelectedIdx] = useState<number | null>(null);
   const [usdTry, setUsdTry] = useState(1);
+  const [usdTryAtCostDate, setUsdTryAtCostDate] = useState<number | null>(null);
   /** Grafik altı % / tutar: piyasa kotasyonlarının penceredeki ilk ve son değeri (maliyet noktası hariç). */
   const [chartRangeForPct, setChartRangeForPct] = useState<{ first: number; last: number } | null>(null);
 
@@ -511,6 +538,71 @@ export default function AssetEntryScreen() {
       if (data?.current_price) setUsdTry(Number(data.current_price));
     })();
   }, []);
+
+  useEffect(() => {
+    const isUsdNative = isUsdNativeCategory(categoryId);
+    if (isUsdNative || categoryId === 'mevduat') {
+      setUsdTryAtCostDate(null);
+      return;
+    }
+    const selected = parseCostDate(costDateDay, costDateMonth, costDateYear);
+    if (!selected) {
+      setUsdTryAtCostDate(null);
+      return;
+    }
+
+    let cancelled = false;
+    (async () => {
+      const { data: usdAsset } = await supabase
+        .from('assets')
+        .select('id')
+        .eq('category_id', 'doviz')
+        .eq('symbol', 'USD')
+        .maybeSingle();
+      if (cancelled || !usdAsset?.id) return;
+
+      const y = selected.getUTCFullYear();
+      const m = selected.getUTCMonth();
+      const d = selected.getUTCDate();
+      const dayStart = new Date(Date.UTC(y, m, d, 0, 0, 0)).toISOString();
+      const dayEnd = new Date(Date.UTC(y, m, d, 23, 59, 59)).toISOString();
+
+      const { data: sameDay } = await supabase
+        .from('price_history')
+        .select('price')
+        .eq('asset_id', usdAsset.id)
+        .gte('recorded_at', dayStart)
+        .lte('recorded_at', dayEnd)
+        .order('recorded_at', { ascending: false })
+        .limit(1)
+        .maybeSingle();
+      const p1 = sameDay?.price != null ? Number(sameDay.price) : NaN;
+      if (!cancelled && Number.isFinite(p1) && p1 > 0) {
+        setUsdTryAtCostDate(p1);
+        return;
+      }
+
+      const { data: before } = await supabase
+        .from('price_history')
+        .select('price')
+        .eq('asset_id', usdAsset.id)
+        .lte('recorded_at', dayEnd)
+        .order('recorded_at', { ascending: false })
+        .limit(1)
+        .maybeSingle();
+      const p2 = before?.price != null ? Number(before.price) : NaN;
+      if (!cancelled && Number.isFinite(p2) && p2 > 0) {
+        setUsdTryAtCostDate(p2);
+        return;
+      }
+
+      setUsdTryAtCostDate(null);
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [categoryId, costDateDay, costDateMonth, costDateYear]);
 
   useEffect(() => {
     if (!holdingId) {
@@ -727,12 +819,35 @@ export default function AssetEntryScreen() {
       Alert.alert(t('assetEntry.errorTitle'), t('assetEntry.invalidQty'));
       return;
     }
+    const isUsdNative = isUsdNativeCategory(categoryId);
+    const hasAnyDatePart = Boolean(costDateDay || costDateMonth || costDateYear);
+    const parsedCostDate = parseCostDate(costDateDay, costDateMonth, costDateYear);
+    if (!isUsdNative && categoryId !== 'mevduat' && hasAnyDatePart && !parsedCostDate) {
+      Alert.alert(t('assetEntry.errorTitle'), 'Satın alma tarihi geçersiz. GG-AA-YYYY formatında girin.');
+      return;
+    }
     const isMevduat = categoryId === 'mevduat';
-    const cost = isMevduat
+    let cost = isMevduat
       ? null
       : inputCost
         ? parseFloat(inputCost.replace(',', '.'))
         : null;
+    let instantUnitPrice: number | null = null;
+    if (!isMevduat) {
+      const instant = await fetchInstantUnitPrice({ categoryId, symbol });
+      if (instant != null && Number.isFinite(instant) && instant > 0) {
+        instantUnitPrice = instant;
+        if (cost == null || !Number.isFinite(cost) || cost <= 0) {
+          cost = instant;
+        }
+      }
+    }
+    // USD-native varlıklarda anlık fiyat gelirse maliyete seed et; gelmezse akış bloke edilmez.
+    if (!isMevduat && isUsdNative && (cost == null || cost <= 0)) {
+      if (instantUnitPrice != null && instantUnitPrice > 0) {
+        cost = instantUnitPrice;
+      }
+    }
     setSaving(true);
     try {
       if (holdingId) {
@@ -794,9 +909,28 @@ export default function AssetEntryScreen() {
         setAmount(String(inputQty));
         setUnitPrice(isMevduat || cost == null ? '' : String(cost));
       }
+      // Portföy satırlarında "tutar = 0" görünmemesi için ekleme anında spot fiyatı da assets'e yaz.
+      if (!isMevduat && assetId) {
+        const fallbackSpot =
+          instantUnitPrice != null && instantUnitPrice > 0
+            ? instantUnitPrice
+            : (isUsdNative && cost != null && cost > 0 ? cost : null);
+        if (fallbackSpot != null && fallbackSpot > 0) {
+        await supabase
+          .from('assets')
+          .update({
+            current_price: fallbackSpot,
+            price_updated_at: new Date().toISOString(),
+          })
+          .eq('id', assetId);
+        }
+      }
       setInputWhole('');
       setInputDecimal('');
       setInputCost('');
+      setCostDateDay('');
+      setCostDateMonth('');
+      setCostDateYear('');
     } catch (e: any) {
       Alert.alert(t('assetEntry.errorTitle'), e?.message ?? String(e));
     } finally {
@@ -874,6 +1008,7 @@ export default function AssetEntryScreen() {
   const isPositive = totalGainLoss >= 0;
 
   const canConvertToUsd = isUSD || usdTry > 0;
+  const usdTryForCost = usdTryAtCostDate && usdTryAtCostDate > 0 ? usdTryAtCostDate : usdTry;
 
   const addTimePriceDisplay = useMemo(() => {
     if (addTimePriceRaw == null || addTimePriceRaw <= 0) return null;
@@ -884,8 +1019,8 @@ export default function AssetEntryScreen() {
   /** Gerçek ortalama maliyet (implicit spot değil). */
   const avgUnitUsdExplicit = useMemo(() => {
     if (!canConvertToUsd || !hasExplicitAvgCost || avgCostUsd <= 0) return null;
-    return isUSD ? avgCostUsd : avgCostUsd / usdTry;
-  }, [canConvertToUsd, isUSD, hasExplicitAvgCost, avgCostUsd, usdTry]);
+    return isUSD ? avgCostUsd : avgCostUsd / usdTryForCost;
+  }, [canConvertToUsd, isUSD, hasExplicitAvgCost, avgCostUsd, usdTryForCost]);
 
   /** Pozisyon açılışına yakın kur; ortalama yoksa sol sütunda gösterilir. */
   const entryUnitUsd = useMemo(() => {
@@ -897,8 +1032,8 @@ export default function AssetEntryScreen() {
 
   const investedTotalUsd = useMemo(() => {
     if (!canConvertToUsd || qty <= 0 || !hasExplicitAvgCost || avgCostUsd <= 0) return null;
-    return isUSD ? qty * avgCostUsd : (qty * avgCostUsd) / usdTry;
-  }, [canConvertToUsd, isUSD, qty, hasExplicitAvgCost, avgCostUsd, usdTry]);
+    return isUSD ? qty * avgCostUsd : (qty * avgCostUsd) / usdTryForCost;
+  }, [canConvertToUsd, isUSD, qty, hasExplicitAvgCost, avgCostUsd, usdTryForCost]);
 
   const marketTotalUsd = useMemo(() => {
     if (!canConvertToUsd || qty <= 0 || currentPrice <= 0) return null;
@@ -1339,6 +1474,42 @@ export default function AssetEntryScreen() {
                       value={inputCost}
                       onChangeText={setInputCost}
                     />
+                    {!isUsdNativeCategory(categoryId) ? (
+                      <>
+                        <ThemedText style={[styles.fieldLabelCaps, { marginTop: 10 }]}>
+                          Satın Alma Tarihi (Opsiyonel)
+                        </ThemedText>
+                        <View style={styles.dateRow}>
+                          <TextInput
+                            style={styles.dateInput}
+                            keyboardType="number-pad"
+                            placeholder="GG"
+                            placeholderTextColor={ON_SURFACE_MUTED}
+                            value={costDateDay}
+                            onChangeText={(v) => setCostDateDay(v.replace(/[^0-9]/g, '').slice(0, 2))}
+                            maxLength={2}
+                          />
+                          <TextInput
+                            style={styles.dateInput}
+                            keyboardType="number-pad"
+                            placeholder="AA"
+                            placeholderTextColor={ON_SURFACE_MUTED}
+                            value={costDateMonth}
+                            onChangeText={(v) => setCostDateMonth(v.replace(/[^0-9]/g, '').slice(0, 2))}
+                            maxLength={2}
+                          />
+                          <TextInput
+                            style={[styles.dateInput, styles.dateInputYear]}
+                            keyboardType="number-pad"
+                            placeholder="YYYY"
+                            placeholderTextColor={ON_SURFACE_MUTED}
+                            value={costDateYear}
+                            onChangeText={(v) => setCostDateYear(v.replace(/[^0-9]/g, '').slice(0, 4))}
+                            maxLength={4}
+                          />
+                        </View>
+                      </>
+                    ) : null}
                   </>
                 ) : null}
                 <TouchableOpacity
@@ -1810,6 +1981,26 @@ const styles = StyleSheet.create({
     color: '#ffffff',
     paddingVertical: 16,
     paddingHorizontal: 18,
+  },
+  dateRow: {
+    flexDirection: 'row',
+    gap: 8,
+  },
+  dateInput: {
+    flex: 1,
+    borderRadius: 14,
+    backgroundColor: 'rgba(0,0,0,0.45)',
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.1)',
+    fontSize: 15,
+    fontWeight: '700',
+    color: '#ffffff',
+    paddingVertical: 12,
+    paddingHorizontal: 12,
+    textAlign: 'center',
+  },
+  dateInputYear: {
+    flex: 1.4,
   },
   confirmCta: {
     marginTop: 18,

@@ -73,6 +73,8 @@ export default function AssetListScreen() {
 
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const lastRowTapRef = useRef<{ t: number; id: string }>({ t: 0, id: '' });
+  const isBist = categoryId === 'bist';
+  const effectivePageSize = isBist ? 2500 : PAGE_SIZE;
 
   const cleanSymbol = (s: string) => s.replace(/^M\d+_/, '');
 
@@ -88,6 +90,17 @@ export default function AssetListScreen() {
     };
   };
 
+  const trLower = (s: string) =>
+    s
+      .replace(/İ/g, 'i')
+      .replace(/I/g, 'ı')
+      .replace(/Ş/g, 'ş')
+      .replace(/Ğ/g, 'ğ')
+      .replace(/Ü/g, 'ü')
+      .replace(/Ö/g, 'ö')
+      .replace(/Ç/g, 'ç')
+      .toLowerCase();
+
   const buildQuery = useCallback(
     (searchText: string, from: number, to: number) => {
       let q = supabase
@@ -97,14 +110,15 @@ export default function AssetListScreen() {
         .order('symbol', { ascending: true })
         .range(from, to);
 
-      if (searchText.trim().length > 0) {
+      // BIST'te şirket adı araması için (örn. "ford"), resolveBistDisplayName sonrası local filtre uyguluyoruz.
+      if (searchText.trim().length > 0 && !isBist) {
         const term = `%${searchText.trim()}%`;
         q = q.or(`symbol.ilike.${term},name.ilike.${term}`);
       }
 
       return q;
     },
-    [categoryId],
+    [categoryId, isBist],
   );
 
   const fetchInitial = useCallback(
@@ -119,7 +133,7 @@ export default function AssetListScreen() {
             .from('assets')
             .select('id', { count: 'exact', head: true })
             .eq('category_id', categoryId),
-          buildQuery(searchText, 0, PAGE_SIZE - 1),
+          buildQuery(searchText, 0, effectivePageSize - 1),
         ]);
 
         if (e) {
@@ -128,15 +142,23 @@ export default function AssetListScreen() {
           return;
         }
 
-        const mapped = (data ?? []).map(mapRow);
+        let mapped = (data ?? []).map(mapRow);
+        if (searchText.trim().length > 0) {
+          const qn = trLower(searchText.trim());
+          mapped = mapped.filter((a) => {
+            const sym = trLower(a.symbol);
+            const nm = trLower(a.name);
+            return sym.includes(qn) || nm.includes(qn);
+          });
+        }
         setAssets(mapped);
         setTotalCount(count);
-        setHasMore(mapped.length === PAGE_SIZE);
+        setHasMore(!isBist && mapped.length === PAGE_SIZE);
       } finally {
         setLoading(false);
       }
     },
-    [categoryId, buildQuery],
+    [categoryId, buildQuery, effectivePageSize, isBist],
   );
 
   useEffect(() => {

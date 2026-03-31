@@ -1,0 +1,50 @@
+# ABD (Yurtdışı) fiyat senkronu ayrı workflow:
+# - Master listeyi günceller
+# - 500'lük full batch fiyat çeker
+# - Holdings'te eksik kalan fiyatları backfill eder
+name: ABD Sync
+
+on:
+  schedule:
+    # 5 dakikada bir
+    - cron: "*/5 * * * *"
+  workflow_dispatch:
+
+concurrency:
+  group: us-sync
+  cancel-in-progress: true
+
+jobs:
+  sync-us:
+    runs-on: ubuntu-latest
+    env:
+      FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v5
+
+      - name: Setup Node
+        uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          package-manager-cache: false
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Export env from secrets
+        run: |
+          echo "SUPABASE_URL=${{ secrets.SUPABASE_URL }}" >> $GITHUB_ENV
+          echo "EXPO_PUBLIC_SUPABASE_URL=${{ secrets.SUPABASE_URL }}" >> $GITHUB_ENV
+          echo "EXPO_PUBLIC_SUPABASE_ANON_KEY=${{ secrets.EXPO_PUBLIC_SUPABASE_ANON_KEY }}" >> $GITHUB_ENV
+          echo "SUPABASE_SERVICE_ROLE_KEY=${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}" >> $GITHUB_ENV
+
+      - name: Sync Yurtdışı liste (S&P 500)
+        run: node scripts/sync-yurtdisi-list.js
+
+      - name: Sync Yurtdışı fiyat (Yahoo, full batch 650)
+        run: node scripts/sync-yurtdisi-prices.js --mode=full --batch=650 --delay=180
+
+      - name: Backfill eksik Yurtdışı fiyatlar (holdings)
+        run: node scripts/sync-yurtdisi-missing-prices.js --limit=160 --delay=140

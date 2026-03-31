@@ -597,6 +597,7 @@ export default function PortfolioScreen() {
                   asset.category_id === 'kripto'
                     ? kriptoStoredUnitToUsd(rawSpot, usdTry, asset.currency)
                     : rawSpot;
+                const hasLivePrice = asset.current_price != null && Number(asset.current_price) > 0;
                 const value = h.quantity * currentPrice;
                 const changePct = asset.change_24h_pct ?? null;
                 const valueCurrency = isUsdNativeCategory(asset.category_id) ? 'USD' : 'TL';
@@ -657,11 +658,12 @@ export default function PortfolioScreen() {
                     </View>
                     <View style={styles.assetRight}>
                       <Text style={[styles.assetValue, { fontFamily: fontHead700 }]}>
-                        {formatPortfolioMoneyCeil(
-                          value,
-                          valueCurrency === 'USD' ? 'en-US' : numberLocale,
-                        )}{' '}
-                        {valueCurrency}
+                        {hasLivePrice
+                          ? `${formatPortfolioMoneyCeil(
+                              value,
+                              valueCurrency === 'USD' ? 'en-US' : numberLocale,
+                            )} ${valueCurrency}`
+                          : 'Fiyat güncelleniyor...'}
                       </Text>
                       {(() => {
                         const costRaw = h.avg_price != null ? Number(h.avg_price) : null;
