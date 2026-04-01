@@ -83,6 +83,103 @@ function parseCostDate(day: string, month: string, year: string): Date | null {
   return dt;
 }
 
+function extractCostDateFromNotes(notes: string | null | undefined): string | null {
+  if (!notes) return null;
+  const m = notes.match(/\[cost_date:(\d{4}-\d{2}-\d{2})\]/);
+  return m?.[1] ?? null;
+}
+
+function upsertCostDateInNotes(notes: string | null | undefined, isoDate: string | null): string | null {
+  const base = (notes ?? '').replace(/\s*\[cost_date:\d{4}-\d{2}-\d{2}\]\s*/g, '').trim();
+  if (!isoDate) return base || null;
+  return base ? `${base} [cost_date:${isoDate}]` : `[cost_date:${isoDate}]`;
+}
+
+const usdTryHistoryCache = new Map<string, number | null>();
+
+async function fetchText(url: string): Promise<string | null> {
+  try {
+    const r = await fetch(url, { headers: { 'User-Agent': 'Mozilla/5.0' } });
+    if (!r.ok) return null;
+    return await r.text();
+  } catch {
+    return null;
+  }
+}
+
+async function fetchUsdTryHistorical(date: Date): Promise<number | null> {
+  const targetIso = date.toISOString().slice(0, 10);
+  if (usdTryHistoryCache.has(targetIso)) return usdTryHistoryCache.get(targetIso) ?? null;
+
+  const baseUrl = 'http://stooq.com/q/d/l/?s=usdtry&i=d';
+  let csv = await fetchText(baseUrl.replace('http://', 'https://'));
+  if (!csv) csv = await fetchText(`https://r.jina.ai/${baseUrl}`);
+  if (!csv) {
+    usdTryHistoryCache.set(targetIso, null);
+    return null;
+  }
+
+  const header = 'Date,Open,High,Low,Close,Volume';
+  const start = csv.indexOf(header);
+  const effective = start >= 0 ? csv.slice(start) : csv;
+  const lines = effective.split(/\r?\n/).filter(Boolean);
+  if (lines.length < 2) {
+    usdTryHistoryCache.set(targetIso, null);
+    return null;
+  }
+
+  let bestDate = '';
+  let bestClose: number | null = null;
+  for (const line of lines.slice(1)) {
+    const cols = line.split(',');
+    if (cols.length < 5) continue;
+    const d = String(cols[0] || '').trim();
+    if (!d || d > targetIso) continue;
+    const close = Number(cols[4]);
+    if (!Number.isFinite(close) || close <= 0) continue;
+    if (bestDate === '' || d > bestDate) {
+      bestDate = d;
+      bestClose = close;
+    }
+  }
+
+  usdTryHistoryCache.set(targetIso, bestClose);
+  if (bestClose != null && bestClose > 0) return bestClose;
+
+  // Stooq boş dönerse ikinci fallback: Frankfurter timeseries (USD->TRY).
+  const toIso = targetIso;
+  const from = new Date(date);
+  from.setUTCDate(from.getUTCDate() - 14);
+  const fromIso = from.toISOString().slice(0, 10);
+  const ffUrl = `https://api.frankfurter.app/${fromIso}..${toIso}?from=USD&to=TRY`;
+  try {
+    const r = await fetch(ffUrl, { headers: { 'User-Agent': 'Mozilla/5.0' } });
+    if (r.ok) {
+      const json = await r.json();
+      const rates = json?.rates && typeof json.rates === 'object' ? json.rates : null;
+      if (rates) {
+        let ffBestDate = '';
+        let ffBestRate: number | null = null;
+        for (const [d, row] of Object.entries(rates as Record<string, any>)) {
+          if (!d || d > targetIso) continue;
+          const n = Number((row as any)?.TRY);
+          if (!Number.isFinite(n) || n <= 0) continue;
+          if (ffBestDate === '' || d > ffBestDate) {
+            ffBestDate = d;
+            ffBestRate = n;
+          }
+        }
+        usdTryHistoryCache.set(targetIso, ffBestRate);
+        return ffBestRate;
+      }
+    }
+  } catch {
+    // ignore fallback failure
+  }
+
+  return bestClose;
+}
+
 const CHART_W = 300;
 const CHART_H = 165;
 /** Obsidian-style palette (HTML referans) */
@@ -349,6 +446,8 @@ export default function AssetEntryScreen() {
     () => (firstParam(params.holdingId) ? '' : (params.quantity as string | undefined)) ?? '',
   );
   const [unitPrice, setUnitPrice] = useState(() => (params.avgPrice as string | undefined) ?? '');
+  const [holdingNotes, setHoldingNotes] = useState<string | null>(null);
+  const [storedCostDateIso, setStoredCostDateIso] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
 
   type FormMode = 'add' | 'reduce' | 'delete';
@@ -361,6 +460,7 @@ export default function AssetEntryScreen() {
   const [costDateYear, setCostDateYear] = useState('');
   const [showDeleteModal, setShowDeleteModal] = useState(false);
   const qtyDecimalInputRef = useRef<TextInput>(null);
+  const [holdingRefreshSeq, setHoldingRefreshSeq] = useState(0);
 
   useFocusEffect(
     useCallback(() => {
@@ -371,7 +471,8 @@ export default function AssetEntryScreen() {
       setCostDateDay('');
       setCostDateMonth('');
       setCostDateYear('');
-    }, []),
+      setHoldingRefreshSeq((s) => s + 1);
+    }, [assetId, portfolioId, routeHoldingId]),
   );
 
   const [activeTimeframe, setActiveTimeframe] = useState<Timeframe>('1D');
@@ -441,14 +542,17 @@ export default function AssetEntryScreen() {
       if (routeHoldingId) {
         const { data, error } = await supabase
           .from('holdings')
-          .select('id, quantity, avg_price, portfolio_id')
+          .select('id, quantity, avg_price, portfolio_id, notes')
           .eq('id', routeHoldingId)
+          .eq('portfolio_id', portfolioId)
           .maybeSingle();
         if (cancelled) return;
         if (error || !data) {
           setHoldingId(undefined);
           setAmount('');
           setUnitPrice('');
+          setHoldingNotes(null);
+          setStoredCostDateIso(null);
           return;
         }
         setHoldingId(data.id);
@@ -456,12 +560,14 @@ export default function AssetEntryScreen() {
         setUnitPrice(
           categoryId === 'mevduat' ? '' : data.avg_price != null ? String(data.avg_price) : '',
         );
+        setHoldingNotes(data.notes ?? null);
+        setStoredCostDateIso(extractCostDateFromNotes(data.notes));
         return;
       }
 
       const { data, error } = await supabase
         .from('holdings')
-        .select('id, quantity, avg_price')
+        .select('id, quantity, avg_price, notes')
         .eq('asset_id', assetId)
         .eq('portfolio_id', portfolioId)
         .maybeSingle();
@@ -470,6 +576,8 @@ export default function AssetEntryScreen() {
         setHoldingId(undefined);
         setAmount('');
         setUnitPrice('');
+        setHoldingNotes(null);
+        setStoredCostDateIso(null);
         return;
       }
       if (data) {
@@ -478,16 +586,20 @@ export default function AssetEntryScreen() {
         setUnitPrice(
           categoryId === 'mevduat' ? '' : data.avg_price != null ? String(data.avg_price) : '',
         );
+        setHoldingNotes(data.notes ?? null);
+        setStoredCostDateIso(extractCostDateFromNotes(data.notes));
       } else {
         setHoldingId(undefined);
         setAmount('');
         setUnitPrice('');
+        setHoldingNotes(null);
+        setStoredCostDateIso(null);
       }
     })();
     return () => {
       cancelled = true;
     };
-  }, [assetId, portfolioId, routeHoldingId, categoryId]);
+  }, [assetId, portfolioId, routeHoldingId, categoryId, holdingRefreshSeq]);
 
   const fetchAssetQuote = useCallback(async () => {
     if (!assetId) return;
@@ -499,9 +611,27 @@ export default function AssetEntryScreen() {
     if (data?.currency != null && String(data.currency).trim() !== '') {
       setSpotCurrency(String(data.currency).trim());
     }
+    let hasValidDbPrice = false;
     if (data?.current_price != null) {
       const p = Number(data.current_price);
-      if (Number.isFinite(p) && p > 0) setLivePrice(p);
+      if (Number.isFinite(p) && p > 0) {
+        setLivePrice(p);
+        hasValidDbPrice = true;
+      }
+    }
+    // Detay ekranda anlık fiyat bulunduğunda DB'ye de yaz ki portföy listesi "Fiyat güncelleniyor..."da takılmasın.
+    if (!hasValidDbPrice && categoryId === 'yurtdisi' && symbol) {
+      const instant = await fetchInstantUnitPrice({ categoryId, symbol });
+      if (instant != null && Number.isFinite(instant) && instant > 0) {
+        setLivePrice(instant);
+        await supabase
+          .from('assets')
+          .update({
+            current_price: instant,
+            price_updated_at: new Date().toISOString(),
+          })
+          .eq('id', assetId);
+      }
     }
     if (data?.change_24h_pct != null) {
       const c = Number(data.change_24h_pct);
@@ -511,7 +641,7 @@ export default function AssetEntryScreen() {
     }
     const url = data?.icon_url;
     setAssetIconUrl(typeof url === 'string' && url.length > 0 ? url : null);
-  }, [assetId]);
+  }, [assetId, categoryId, symbol]);
 
   useEffect(() => {
     setLivePrice(0);
@@ -545,7 +675,10 @@ export default function AssetEntryScreen() {
       setUsdTryAtCostDate(null);
       return;
     }
-    const selected = parseCostDate(costDateDay, costDateMonth, costDateYear);
+    const typed = parseCostDate(costDateDay, costDateMonth, costDateYear);
+    const selected =
+      typed ??
+      (storedCostDateIso ? new Date(`${storedCostDateIso}T00:00:00.000Z`) : null);
     if (!selected) {
       setUsdTryAtCostDate(null);
       return;
@@ -595,14 +728,19 @@ export default function AssetEntryScreen() {
         setUsdTryAtCostDate(p2);
         return;
       }
-
+      // DB geçmişinde yoksa dış kaynaktan tarihsel USDTRY çek (en yakın önceki işlem günü).
+      const ext = await fetchUsdTryHistorical(selected);
+      if (!cancelled && ext != null && ext > 0) {
+        setUsdTryAtCostDate(ext);
+        return;
+      }
       setUsdTryAtCostDate(null);
     })();
 
     return () => {
       cancelled = true;
     };
-  }, [categoryId, costDateDay, costDateMonth, costDateYear]);
+  }, [categoryId, costDateDay, costDateMonth, costDateYear, storedCostDateIso]);
 
   useEffect(() => {
     if (!holdingId) {
@@ -827,6 +965,8 @@ export default function AssetEntryScreen() {
       return;
     }
     const isMevduat = categoryId === 'mevduat';
+    const costDateIso = parsedCostDate ? parsedCostDate.toISOString().slice(0, 10) : null;
+    const nextNotes = upsertCostDateInNotes(holdingNotes, costDateIso);
     let cost = isMevduat
       ? null
       : inputCost
@@ -878,10 +1018,10 @@ export default function AssetEntryScreen() {
           }
           const { data: updated, error } = await supabase
             .from('holdings')
-            .update({ quantity: newQty, avg_price: newAvg })
+            .update({ quantity: newQty, avg_price: newAvg, notes: nextNotes })
             .eq('id', holdingId)
             .eq('portfolio_id', portfolioId)
-            .select('quantity, avg_price')
+            .select('quantity, avg_price, notes')
             .maybeSingle();
           if (error) {
             Alert.alert(t('assetEntry.errorTitle'), error.message);
@@ -893,6 +1033,8 @@ export default function AssetEntryScreen() {
           }
           setAmount(String(updated.quantity ?? newQty));
           setUnitPrice(updated.avg_price != null ? String(updated.avg_price) : '');
+          setHoldingNotes(updated.notes ?? null);
+          setStoredCostDateIso(extractCostDateFromNotes(updated.notes));
         }
       } else {
         const { data, error } = await supabase.from('holdings').insert({
@@ -900,12 +1042,17 @@ export default function AssetEntryScreen() {
           asset_id: assetId,
           quantity: inputQty,
           avg_price: isMevduat ? null : cost,
-        }).select('id').single();
+          notes: nextNotes,
+        }).select('id, notes').single();
         if (error) {
           Alert.alert(t('assetEntry.errorTitle'), error.message);
           return;
         }
-        if (data) setHoldingId(data.id);
+        if (data) {
+          setHoldingId(data.id);
+          setHoldingNotes(data.notes ?? null);
+          setStoredCostDateIso(extractCostDateFromNotes(data.notes));
+        }
         setAmount(String(inputQty));
         setUnitPrice(isMevduat || cost == null ? '' : String(cost));
       }
@@ -954,9 +1101,19 @@ export default function AssetEntryScreen() {
     const newQty = qty - inputQty;
     setSaving(true);
     if (newQty <= 0) {
-      const { error } = await supabase.from('holdings').delete().eq('id', holdingId);
+      const { data: deleted, error } = await supabase
+        .from('holdings')
+        .delete()
+        .eq('id', holdingId)
+        .eq('portfolio_id', portfolioId)
+        .select('id')
+        .maybeSingle();
       setSaving(false);
       if (error) { Alert.alert(t('assetEntry.errorTitle'), error.message); return; }
+      if (!deleted) {
+        Alert.alert(t('assetEntry.errorTitle'), t('assetEntry.updateNoRow'));
+        return;
+      }
       navigateBack();
     } else {
       const { data: updated, error } = await supabase
@@ -984,9 +1141,15 @@ export default function AssetEntryScreen() {
   };
 
   const performDelete = async () => {
-    if (!holdingId) return;
+    if (!holdingId || !portfolioId) return;
     setSaving(true);
-    const { error } = await supabase.from('holdings').delete().eq('id', holdingId);
+    const { data: deleted, error } = await supabase
+      .from('holdings')
+      .delete()
+      .eq('id', holdingId)
+      .eq('portfolio_id', portfolioId)
+      .select('id')
+      .maybeSingle();
     setSaving(false);
     if (error) {
       if (Platform.OS === 'web') {
@@ -996,19 +1159,35 @@ export default function AssetEntryScreen() {
       }
       return;
     }
+    if (!deleted) {
+      if (Platform.OS === 'web') {
+        window.alert(t('assetEntry.updateNoRow'));
+      } else {
+        Alert.alert(t('assetEntry.errorTitle'), t('assetEntry.updateNoRow'));
+      }
+      return;
+    }
     router.replace(isReturnToPortfolioTab(returnTo) ? PORTFOLIO_TAB_HREF : '/(tabs)');
   };
 
   const isUSD = isUsdNativeCategory(categoryId);
   const curr = isUSD ? '$' : '';
   const currSuffix = isUSD ? '' : ` ${t('home.currencyTL')}`;
+  const hasActiveHolding = Boolean(holdingId && qty > 0);
   const marketValue = qty * currentPrice;
   const totalCost = qty * effectiveAvgCostUsd;
   const totalGainLoss = qty > 0 && currentPrice > 0 ? marketValue - totalCost : 0;
   const isPositive = totalGainLoss >= 0;
 
+  const hasValidCostDate = Boolean(parseCostDate(costDateDay, costDateMonth, costDateYear));
+  const hasAnyCostDatePart = Boolean(costDateDay || costDateMonth || costDateYear);
+  const hasStoredCostDate = Boolean(storedCostDateIso);
   const canConvertToUsd = isUSD || usdTry > 0;
-  const usdTryForCost = usdTryAtCostDate && usdTryAtCostDate > 0 ? usdTryAtCostDate : usdTry;
+  const usdTryForCost =
+    hasValidCostDate || hasAnyCostDatePart || hasStoredCostDate
+      ? (usdTryAtCostDate && usdTryAtCostDate > 0 ? usdTryAtCostDate : 0)
+      : usdTry;
+  const inputCostNum = inputCost ? parseFloat(inputCost.replace(',', '.')) || 0 : 0;
 
   const addTimePriceDisplay = useMemo(() => {
     if (addTimePriceRaw == null || addTimePriceRaw <= 0) return null;
@@ -1016,17 +1195,28 @@ export default function AssetEntryScreen() {
     return kriptoStoredUnitToUsd(addTimePriceRaw, usdTry, spotCurrency, currentPrice);
   }, [addTimePriceRaw, categoryId, usdTry, spotCurrency, currentPrice]);
 
+  /** Ekleme formunda girilen maliyet varsa USD hesapta öncelik ver (tarih kuru ile). */
+  const pendingInputAvgUnitUsd = useMemo(() => {
+    if (!hasActiveHolding) return null;
+    if (formMode !== 'add' || categoryId === 'mevduat' || inputCostNum <= 0) return null;
+    if (!canConvertToUsd) return null;
+    return isUSD ? inputCostNum : inputCostNum / usdTryForCost;
+  }, [hasActiveHolding, formMode, categoryId, inputCostNum, canConvertToUsd, isUSD, usdTryForCost]);
+
   /** Gerçek ortalama maliyet (implicit spot değil). */
   const avgUnitUsdExplicit = useMemo(() => {
+    if (!hasActiveHolding) return null;
+    if (pendingInputAvgUnitUsd != null && pendingInputAvgUnitUsd > 0) return pendingInputAvgUnitUsd;
     if (!canConvertToUsd || !hasExplicitAvgCost || avgCostUsd <= 0) return null;
     return isUSD ? avgCostUsd : avgCostUsd / usdTryForCost;
-  }, [canConvertToUsd, isUSD, hasExplicitAvgCost, avgCostUsd, usdTryForCost]);
+  }, [hasActiveHolding, pendingInputAvgUnitUsd, canConvertToUsd, isUSD, hasExplicitAvgCost, avgCostUsd, usdTryForCost]);
 
   /** Pozisyon açılışına yakın kur; ortalama yoksa sol sütunda gösterilir. */
   const entryUnitUsd = useMemo(() => {
+    if (!hasActiveHolding) return null;
     if (!canConvertToUsd || addTimePriceDisplay == null || addTimePriceDisplay <= 0) return null;
     return isUSD ? addTimePriceDisplay : addTimePriceDisplay / usdTry;
-  }, [canConvertToUsd, isUSD, addTimePriceDisplay, usdTry]);
+  }, [hasActiveHolding, canConvertToUsd, isUSD, addTimePriceDisplay, usdTry]);
 
   const leftColUsdAvgOrEntry = avgUnitUsdExplicit ?? entryUnitUsd;
 
@@ -1042,9 +1232,9 @@ export default function AssetEntryScreen() {
 
   /** Güncel birim fiyatın USD karşılığı (pozisyon toplamı değil). */
   const spotUnitUsd = useMemo(() => {
-    if (!canConvertToUsd || currentPrice <= 0) return null;
+    if (!hasActiveHolding || !canConvertToUsd || currentPrice <= 0) return null;
     return isUSD ? currentPrice : currentPrice / usdTry;
-  }, [canConvertToUsd, isUSD, currentPrice, usdTry]);
+  }, [hasActiveHolding, canConvertToUsd, isUSD, currentPrice, usdTry]);
 
   const gainLossUsd = useMemo(() => {
     if (!canConvertToUsd || qty <= 0 || marketTotalUsd == null) return null;

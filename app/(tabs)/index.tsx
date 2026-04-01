@@ -597,7 +597,7 @@ export default function PortfolioScreen() {
                   asset.category_id === 'kripto'
                     ? kriptoStoredUnitToUsd(rawSpot, usdTry, asset.currency)
                     : rawSpot;
-                const hasLivePrice = asset.current_price != null && Number(asset.current_price) > 0;
+                const hasLivePrice = Number.isFinite(currentPrice) && currentPrice > 0;
                 const value = h.quantity * currentPrice;
                 const changePct = asset.change_24h_pct ?? null;
                 const valueCurrency = isUsdNativeCategory(asset.category_id) ? 'USD' : 'TL';

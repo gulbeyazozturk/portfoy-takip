@@ -1,4 +1,5 @@
 import { Ionicons } from '@expo/vector-icons';
+import { useFocusEffect } from '@react-navigation/native';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
@@ -64,6 +65,14 @@ export default function AssetListScreen() {
     setQuery('');
     setSelectedId(null);
   }, [params._t]);
+
+  useFocusEffect(
+    useCallback(() => {
+      // Ekrana her geri dönüşte temiz liste/arama ile başla.
+      setQuery('');
+      setSelectedId(null);
+    }, []),
+  );
   const [assets, setAssets] = useState<AssetItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [loadingMore, setLoadingMore] = useState(false);
@@ -223,6 +232,7 @@ export default function AssetListScreen() {
   const onRowPress = (item: AssetItem) => {
     const now = Date.now();
     if (lastRowTapRef.current.id === item.id && now - lastRowTapRef.current.t < DOUBLE_TAP_MS) {
+      setSelectedId(item.id);
       openAssetDetail(item);
       lastRowTapRef.current = { t: 0, id: '' };
       return;
