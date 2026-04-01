@@ -34,6 +34,8 @@ function parseArgs() {
     mode: 'holdings',
     batch: 100,
     delayMs: 220,
+    cycleWindow: 0,
+    cycleEveryMinutes: 10,
   };
   for (const arg of process.argv.slice(2)) {
     if (arg.startsWith('--mode=')) out.mode = arg.split('=')[1] || out.mode;
@@ -44,6 +46,14 @@ function parseArgs() {
     if (arg.startsWith('--delay=')) {
       const n = Number(arg.split('=')[1]);
       if (Number.isFinite(n) && n >= 0) out.delayMs = Math.floor(n);
+    }
+    if (arg.startsWith('--cycle-window=')) {
+      const n = Number(arg.split('=')[1]);
+      if (Number.isFinite(n) && n > 0) out.cycleWindow = Math.floor(n);
+    }
+    if (arg.startsWith('--cycle-every-min=')) {
+      const n = Number(arg.split('=')[1]);
+      if (Number.isFinite(n) && n > 0) out.cycleEveryMinutes = Math.floor(n);
     }
   }
   if (out.mode !== 'holdings' && out.mode !== 'full') out.mode = 'holdings';
@@ -114,6 +124,43 @@ async function getSymbolsForMode(supabase, mode, batch) {
   return symbols.slice(0, batch);
 }
 
+async function getRotatingFullSymbols(supabase, batch, cycleWindow, cycleEveryMinutes) {
+  const windowSize = cycleWindow > 0 ? cycleWindow : batch;
+  const pageSize = 1000;
+  let from = 0;
+  const all = [];
+  while (true) {
+    const { data: rows, error } = await supabase
+      .from('assets')
+      .select('symbol, price_updated_at')
+      .eq('category_id', 'yurtdisi')
+      .order('price_updated_at', { ascending: true, nullsFirst: true })
+      .range(from, from + pageSize - 1);
+    if (error) throw new Error('Assets (rotate full) select: ' + error.message);
+    if (!rows || rows.length === 0) break;
+    for (const row of rows) {
+      const s = String(row.symbol || '').toUpperCase();
+      if (s) all.push(s);
+    }
+    if (rows.length < pageSize) break;
+    from += pageSize;
+  }
+
+  if (!all.length) return [];
+  const chunkCount = Math.max(1, Math.ceil(all.length / windowSize));
+  const now = Date.now();
+  const everyMs = Math.max(1, cycleEveryMinutes) * 60 * 1000;
+  const slot = Math.floor(now / everyMs);
+  const chunkIndex = slot % chunkCount;
+  const start = chunkIndex * windowSize;
+  const selected = all.slice(start, start + windowSize);
+
+  console.log(
+    `Rotating full batch: total=${all.length}, window=${windowSize}, groups=${chunkCount}, activeGroup=${chunkIndex + 1}/${chunkCount}, slot=${slot}`
+  );
+  return selected.slice(0, batch);
+}
+
 async function main() {
   const cfg = parseArgs();
   await loadEnv();
@@ -132,7 +179,10 @@ async function main() {
   const yahooFinance = new YahooFinance();
   const supabase = createClient(url, key);
 
-  const symbols = await getSymbolsForMode(supabase, cfg.mode, cfg.batch);
+  const symbols =
+    cfg.mode === 'full' && cfg.cycleWindow > 0
+      ? await getRotatingFullSymbols(supabase, cfg.batch, cfg.cycleWindow, cfg.cycleEveryMinutes)
+      : await getSymbolsForMode(supabase, cfg.mode, cfg.batch);
   if (symbols.length === 0) {
     console.log('Güncellenecek yurtdışı sembol bulunamadı.');
     return;

@@ -6,8 +6,8 @@ name: ABD Sync
 
 on:
   schedule:
-    # 5 dakikada bir
-    - cron: "*/5 * * * *"
+    # 10 dakikada bir
+    - cron: "*/10 * * * *"
   workflow_dispatch:
 
 concurrency:
@@ -43,8 +43,8 @@ jobs:
       - name: Sync Yurtdışı liste (S&P 500)
         run: node scripts/sync-yurtdisi-list.js
 
-      - name: Sync Yurtdışı fiyat (Yahoo, full batch 500)
-        run: node scripts/sync-yurtdisi-prices.js --mode=full --batch=500 --delay=180
+      - name: Sync Yurtdışı fiyat (Yahoo, rotating full batch 500)
+        run: node scripts/sync-yurtdisi-prices.js --mode=full --batch=500 --cycle-window=500 --cycle-every-min=10 --delay=180
 
       - name: Backfill eksik Yurtdışı fiyatlar (holdings)
         run: node scripts/sync-yurtdisi-missing-prices.js --limit=160 --delay=140

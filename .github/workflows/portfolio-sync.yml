@@ -59,5 +59,8 @@ jobs:
       - name: Sync TEFAS Fonları
         run: node scripts/sync-tefas-funds.js
 
+      - name: Sync ABD (yalnızca holdings)
+        run: node scripts/sync-yurtdisi-prices.js --mode=holdings --batch=500 --delay=140
+
       - name: Snapshot prices (grafik geçmişi)
         run: node scripts/snapshot-prices.js
