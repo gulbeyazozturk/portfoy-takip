@@ -967,7 +967,7 @@ export default function AssetEntryScreen() {
     }
     const pid = portfolioId ?? (await refreshPortfolios());
     if (!pid) {
-      Alert.alert(t('assetEntry.errorTitle'), t('assetEntry.missingInfo'));
+      Alert.alert(t('assetEntry.errorTitle'), t('assetEntry.portfolioUnavailable'));
       return;
     }
     Keyboard.dismiss();
@@ -1114,7 +1114,7 @@ export default function AssetEntryScreen() {
     }
     const pid = portfolioId ?? (await refreshPortfolios());
     if (!pid) {
-      Alert.alert(t('assetEntry.errorTitle'), t('assetEntry.missingInfo'));
+      Alert.alert(t('assetEntry.errorTitle'), t('assetEntry.portfolioUnavailable'));
       return;
     }
     Keyboard.dismiss();
@@ -1168,7 +1168,7 @@ export default function AssetEntryScreen() {
     if (!holdingId) return;
     const pid = portfolioId ?? (await refreshPortfolios());
     if (!pid) {
-      Alert.alert(t('assetEntry.errorTitle'), t('assetEntry.missingInfo'));
+      Alert.alert(t('assetEntry.errorTitle'), t('assetEntry.portfolioUnavailable'));
       return;
     }
     setSaving(true);

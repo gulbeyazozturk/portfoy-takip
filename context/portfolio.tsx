@@ -2,7 +2,18 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import React, { createContext, useCallback, useContext, useEffect, useRef, useState } from 'react';
 
 import { useAuth } from '@/context/auth';
+import {
+  DEFAULT_MAIN_PORTFOLIO_NAME,
+  LEGACY_DEFAULT_PORTFOLIO_NAME,
+} from '@/lib/portfolio-name-loose';
+import { portfolioNamesConflict } from '@/lib/portfolio-name-normalize';
 import { supabase } from '@/lib/supabase';
+
+function isUniqueOrDuplicateDbError(err: { code?: string; message?: string } | null | undefined): boolean {
+  if (!err) return false;
+  if (err.code === '23505') return true;
+  return (err.message ?? '').toLowerCase().includes('duplicate');
+}
 
 export type PortfolioRow = {
   id: string;
@@ -10,8 +21,8 @@ export type PortfolioRow = {
   created_at: string;
 };
 
-const LEGACY_DEFAULT_NAME = 'Portföyüm';
-export const DEFAULT_MAIN_PORTFOLIO_NAME = 'Ana Portföy';
+export { DEFAULT_MAIN_PORTFOLIO_NAME } from '@/lib/portfolio-name-loose';
+export { normalizePortfolioNameKey, portfolioNamesConflict } from '@/lib/portfolio-name-normalize';
 
 function storageKey(userId: string) {
   return `omnifolio_selected_portfolio_v1:${userId}`;
@@ -37,6 +48,8 @@ export function PortfolioProvider({ children }: { children: React.ReactNode }) {
   const { user } = useAuth();
   const portfolioIdRef = useRef<string | null>(null);
   portfolioIdRef.current = portfolioId;
+  /** Aynı anda iki refresh boş listeyi görüp çift "Ana Portföy" insert etmesin (Strict Mode vb.) */
+  const defaultPortfolioInsertRef = useRef<Promise<void> | null>(null);
 
   const resolveSelection = useCallback(
     async (list: PortfolioRow[], previousId: string | null) => {
@@ -83,10 +96,23 @@ export function PortfolioProvider({ children }: { children: React.ReactNode }) {
     setPortfoliosLoading(true);
     let selected: string | null = null;
     try {
+      let { data: sessionWrap } = await supabase.auth.getSession();
+      let session = sessionWrap.session;
+      if (!session?.user?.id) {
+        const { data: refreshed } = await supabase.auth.refreshSession();
+        session = refreshed.session ?? session;
+      }
+      if (!session?.user?.id) {
+        setPortfolioId(null);
+        setPortfolios([]);
+        return null;
+      }
+      const uid = session.user.id;
+
       let { data, error } = await supabase
         .from('portfolios')
         .select('id, name, created_at')
-        .eq('user_id', user.id)
+        .eq('user_id', uid)
         .order('created_at', { ascending: true });
 
       if (error) {
@@ -97,7 +123,7 @@ export function PortfolioProvider({ children }: { children: React.ReactNode }) {
 
       let rows: PortfolioRow[] = (data ?? []) as PortfolioRow[];
 
-      const legacy = rows.filter((p) => p.name === LEGACY_DEFAULT_NAME);
+      const legacy = rows.filter((p) => p.name === LEGACY_DEFAULT_PORTFOLIO_NAME);
       if (legacy.length > 0) {
         await Promise.all(
           legacy.map((p) =>
@@ -105,27 +131,89 @@ export function PortfolioProvider({ children }: { children: React.ReactNode }) {
           ),
         );
         rows = rows.map((p) =>
-          p.name === LEGACY_DEFAULT_NAME ? { ...p, name: DEFAULT_MAIN_PORTFOLIO_NAME } : p,
+          p.name === LEGACY_DEFAULT_PORTFOLIO_NAME ? { ...p, name: DEFAULT_MAIN_PORTFOLIO_NAME } : p,
         );
       }
 
       if (rows.length === 0) {
-        const { data: inserted, error: insertError } = await supabase
-          .from('portfolios')
-          .insert({
-            user_id: user.id,
-            name: DEFAULT_MAIN_PORTFOLIO_NAME,
-            currency: 'USD',
-          })
-          .select('id, name, created_at')
-          .single();
+        if (defaultPortfolioInsertRef.current) {
+          await defaultPortfolioInsertRef.current;
+        } else {
+          const work = (async () => {
+            try {
+              const insertRow = () =>
+                supabase
+                  .from('portfolios')
+                  .insert({
+                    user_id: uid,
+                    name: DEFAULT_MAIN_PORTFOLIO_NAME,
+                    currency: 'USD',
+                  })
+                  .select('id, name, created_at')
+                  .single();
 
-        if (insertError || !inserted) {
+              let { data: inserted, error: insertError } = await insertRow();
+              if (insertError || !inserted) {
+                await supabase.auth.refreshSession();
+                ({ data: inserted, error: insertError } = await insertRow());
+              }
+
+              if (insertError || !inserted) {
+                if (isUniqueOrDuplicateDbError(insertError)) {
+                  if (__DEV__) {
+                    console.warn(
+                      '[portfolio] default portfolio insert duplicate/violation; refetch will load existing:',
+                      insertError?.message ?? insertError,
+                    );
+                  }
+                } else if (__DEV__) {
+                  console.warn(
+                    '[portfolio] default portfolio insert failed:',
+                    insertError?.message ?? insertError,
+                  );
+                }
+              }
+            } finally {
+              defaultPortfolioInsertRef.current = null;
+            }
+          })();
+          defaultPortfolioInsertRef.current = work;
+          await work;
+        }
+
+        const { data: again, error: againErr } = await supabase
+          .from('portfolios')
+          .select('id, name, created_at')
+          .eq('user_id', uid)
+          .order('created_at', { ascending: true });
+
+        if (againErr) {
           setPortfolioId(null);
           setPortfolios([]);
           return null;
         }
-        rows = [inserted as PortfolioRow];
+
+        rows = (again ?? []) as PortfolioRow[];
+        const legacyAfter = rows.filter((p) => p.name === LEGACY_DEFAULT_PORTFOLIO_NAME);
+        if (legacyAfter.length > 0) {
+          await Promise.all(
+            legacyAfter.map((p) =>
+              supabase.from('portfolios').update({ name: DEFAULT_MAIN_PORTFOLIO_NAME }).eq('id', p.id),
+            ),
+          );
+          rows = rows.map((p) =>
+            p.name === LEGACY_DEFAULT_PORTFOLIO_NAME ? { ...p, name: DEFAULT_MAIN_PORTFOLIO_NAME } : p,
+          );
+        }
+
+        if (rows.length === 0) {
+          if (__DEV__) {
+            console.warn('[portfolio] no portfolios after default insert + refetch');
+          }
+          setPortfolioId(null);
+          setPortfolios([]);
+          return null;
+        }
       }
 
       setPortfolios(rows);
@@ -163,12 +251,37 @@ export function PortfolioProvider({ children }: { children: React.ReactNode }) {
       if (!trimmed) {
         return { error: 'empty_name' };
       }
+      let { data: sessionWrap } = await supabase.auth.getSession();
+      let session = sessionWrap.session;
+      if (!session?.user?.id) {
+        const { data: refreshed } = await supabase.auth.refreshSession();
+        session = refreshed.session ?? session;
+      }
+      const uid = session?.user?.id;
+      if (!uid) {
+        return { error: 'no_user' };
+      }
+      const { data: existing, error: selError } = await supabase
+        .from('portfolios')
+        .select('id, name')
+        .eq('user_id', uid);
+      if (selError) {
+        return { error: selError.message ?? 'fetch_failed' };
+      }
+      for (const row of (existing ?? []) as { id: string; name: string }[]) {
+        if (portfolioNamesConflict(trimmed, row.name)) {
+          return { error: 'duplicate_name' };
+        }
+      }
       const { error } = await supabase.from('portfolios').insert({
-        user_id: user.id,
+        user_id: uid,
         name: trimmed,
         currency: 'USD',
       });
       if (error) {
+        if (isUniqueOrDuplicateDbError(error)) {
+          return { error: 'duplicate_name' };
+        }
         return { error: error.message ?? 'insert_failed' };
       }
       await refresh();
@@ -186,12 +299,37 @@ export function PortfolioProvider({ children }: { children: React.ReactNode }) {
       if (!trimmed) {
         return { error: 'empty_name' };
       }
+      let { data: sessionWrap } = await supabase.auth.getSession();
+      let session = sessionWrap.session;
+      if (!session?.user?.id) {
+        const { data: refreshed } = await supabase.auth.refreshSession();
+        session = refreshed.session ?? session;
+      }
+      const uid = session?.user?.id;
+      if (!uid) {
+        return { error: 'no_user' };
+      }
+      const { data: existing, error: selError } = await supabase
+        .from('portfolios')
+        .select('id, name')
+        .eq('user_id', uid);
+      if (selError) {
+        return { error: selError.message ?? 'fetch_failed' };
+      }
+      for (const row of (existing ?? []) as { id: string; name: string }[]) {
+        if (row.id !== id && portfolioNamesConflict(trimmed, row.name)) {
+          return { error: 'duplicate_name' };
+        }
+      }
       const { error } = await supabase
         .from('portfolios')
         .update({ name: trimmed })
         .eq('id', id)
-        .eq('user_id', user.id);
+        .eq('user_id', uid);
       if (error) {
+        if (isUniqueOrDuplicateDbError(error)) {
+          return { error: 'duplicate_name' };
+        }
         return { error: error.message ?? 'update_failed' };
       }
       await refresh();

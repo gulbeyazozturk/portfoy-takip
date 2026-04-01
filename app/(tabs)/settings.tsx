@@ -112,6 +112,10 @@ export default function SettingsScreen() {
         Alert.alert(t('settings.portfolioSaveError'), t('settings.portfolioNameRequired'));
         return;
       }
+      if (res.error === 'duplicate_name') {
+        Alert.alert(t('settings.portfolioSaveError'), t('settings.portfolioDuplicateName'));
+        return;
+      }
       if (res.error) {
         Alert.alert(t('settings.portfolioSaveError'), res.error);
         return;
@@ -135,6 +139,10 @@ export default function SettingsScreen() {
       const res = await renamePortfolio(renameTarget.id, trimmed);
       if (res.error === 'empty_name') {
         Alert.alert(t('settings.portfolioSaveError'), t('settings.portfolioNameRequired'));
+        return;
+      }
+      if (res.error === 'duplicate_name') {
+        Alert.alert(t('settings.portfolioSaveError'), t('settings.portfolioDuplicateName'));
         return;
       }
       if (res.error) {

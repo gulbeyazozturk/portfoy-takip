@@ -56,6 +56,7 @@ export default {
     save: 'Kaydet',
     cancel: 'İptal',
     portfolioNameRequired: 'Lütfen bir ad girin.',
+    portfolioDuplicateName: 'Bu isimde bir portföy zaten var.',
     portfolioSaveError: 'Kaydedilemedi',
   },
   appLock: {
@@ -140,6 +141,8 @@ export default {
     valuesListError: 'Değerler listesi oluşturulurken bir hata oluştu.',
     uploadFailedTitle: 'Dosya yüklenemedi',
     needSession: 'Bu işlem için giriş yapılmış olmalıdır.',
+    defaultPortfolioFailed:
+      'Varsayılan portföy oluşturulamadı. Bağlantınızı kontrol edip tekrar deneyin.',
     portfolioCreateError: 'Portföy oluşturulamadı (“{{name}}”): {{message}}',
     errorTitle: 'Hata',
     successTitle: 'Başarılı',
@@ -199,6 +202,8 @@ export default {
     confirmTransaction: 'EKLE',
     errorTitle: 'Hata',
     missingInfo: 'Portföy veya varlık bilgisi eksik.',
+    portfolioUnavailable:
+      'Varsayılan portföy oluşturulamadı veya yüklenemedi. Bağlantınızı kontrol edip tekrar deneyin.',
     invalidQty: 'Geçerli bir miktar girin.',
     reduceTooMuch: 'Mevcut adetten ({{qty}}) fazla çıkaramazsınız.',
     reduceNoHolding:

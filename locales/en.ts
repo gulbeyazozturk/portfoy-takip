@@ -56,6 +56,7 @@ export default {
     save: 'Save',
     cancel: 'Cancel',
     portfolioNameRequired: 'Please enter a name.',
+    portfolioDuplicateName: 'A portfolio with this name already exists.',
     portfolioSaveError: 'Could not save',
   },
   appLock: {
@@ -138,6 +139,8 @@ export default {
     valuesListError: 'Could not build the values list.',
     uploadFailedTitle: 'Upload failed',
     needSession: 'You must be signed in.',
+    defaultPortfolioFailed:
+      'Could not create or load your default portfolio. Check your connection and try again.',
     portfolioCreateError: 'Could not create portfolio (“{{name}}”): {{message}}',
     errorTitle: 'Error',
     successTitle: 'Success',
@@ -196,6 +199,8 @@ export default {
     confirmTransaction: 'ADD',
     errorTitle: 'Error',
     missingInfo: 'Portfolio or asset information is missing.',
+    portfolioUnavailable:
+      'Could not create or load your default portfolio. Check your connection and try again.',
     invalidQty: 'Enter a valid quantity.',
     reduceTooMuch: 'You cannot remove more than you hold ({{qty}}).',
     reduceNoHolding:

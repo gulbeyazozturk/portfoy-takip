@@ -19,13 +19,22 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
-import { usePortfolio } from '@/context/portfolio';
+import {
+  DEFAULT_MAIN_PORTFOLIO_NAME,
+  normalizePortfolioNameKey,
+  usePortfolio,
+} from '@/context/portfolio';
 import { useAuth } from '@/context/auth';
 import { parseBulkCsvPurchaseDate } from '@/lib/bulk-csv-purchase-date';
 import { decodeCsvFileBytes } from '@/lib/decode-csv-file-bytes';
 import { resolveBistCsvToCanonicalSymbol } from '@/lib/bist-display-name';
 import { upsertCostDateInNotes } from '@/lib/holding-notes-cost-date';
 import { isUsdNativeCategory } from '@/lib/portfolio-currency';
+import {
+  findPortfolioRowByCsvName,
+  portfolioLooseExistsInList,
+  portfolioNameLooseKey,
+} from '@/lib/portfolio-name-loose';
 import { getUsdTryRateForDate } from '@/lib/usdtry-rate-for-date';
 import { supabase } from '@/lib/supabase';
 import { useTranslation } from 'react-i18next';
@@ -55,6 +64,14 @@ type HoldingRow = {
 };
 
 type PortfolioRowDb = { id: string; name: string };
+
+function isPortfolioInsertDuplicateErr(
+  err: { code?: string; message?: string } | null | undefined,
+): boolean {
+  if (!err) return false;
+  if (err.code === '23505') return true;
+  return (err.message ?? '').toLowerCase().includes('duplicate');
+}
 
 type ChangeKind = 'add' | 'update' | 'auto';
 
@@ -611,45 +628,101 @@ export default function BulkUploadScreen() {
       return;
     }
 
+    let { data: sessionWrap } = await supabase.auth.getSession();
+    let authSession = sessionWrap.session;
+    if (!authSession?.user?.id) {
+      const { data: refreshed } = await supabase.auth.refreshSession();
+      authSession = refreshed.session ?? authSession;
+    }
+    if (!authSession?.user?.id) {
+      showAlert(t('bulk.errorTitle'), t('bulk.needSession'));
+      return;
+    }
+    const uid = authSession.user.id;
+
     const { data: categories } = await supabase
       .from('categories')
       .select('id, name')
       .order('sort_order', { ascending: true });
 
+    let fallbackPortfolioId = portfolioId ?? (await refreshPortfolios());
+    if (!fallbackPortfolioId) {
+      showAlert(t('bulk.errorTitle'), t('bulk.defaultPortfolioFailed'));
+      return;
+    }
+
     const { data: portfoliosData } = await supabase
       .from('portfolios')
       .select('id, name')
-      .eq('user_id', user.id);
+      .eq('user_id', uid);
 
     let portList = (portfoliosData ?? []) as PortfolioRowDb[];
-
-    const portfolioLooseExists = (loose: string) =>
-      portList.some(
-        (x) => normalizeLoose(x.name) === loose || normalizeLoose(x.id) === loose
-      );
 
     /** Aynı portföyü farklı yazımla tekrar oluşturmayı önle (Hasim / hasim → tek kayıt) */
     const desiredPortfolioByLoose = new Map<string, string>();
     for (const r of rows) {
       const n = r.portfolioName?.trim();
       if (!n) continue;
-      const loose = normalizeLoose(n);
+      const loose = portfolioNameLooseKey(n);
       if (!desiredPortfolioByLoose.has(loose)) {
         desiredPortfolioByLoose.set(loose, n);
       }
     }
 
-    const newPortfolioNames = [...desiredPortfolioByLoose.entries()]
-      .filter(([loose]) => !portfolioLooseExists(loose))
-      .map(([, displayName]) => displayName);
+    const buildNewPortfolioNames = (list: PortfolioRowDb[]) => {
+      const defaultKey = normalizePortfolioNameKey(DEFAULT_MAIN_PORTFOLIO_NAME);
+      const userHasDefaultKey = list.some((x) => normalizePortfolioNameKey(x.name) === defaultKey);
+      const exists = (loose: string) => portfolioLooseExistsInList(list, loose);
+      return [...desiredPortfolioByLoose.entries()]
+        .filter(([loose]) => !exists(loose))
+        .filter(([, displayName]) => {
+          if (userHasDefaultKey && normalizePortfolioNameKey(displayName) === defaultKey) return false;
+          return true;
+        })
+        .map(([, displayName]) => displayName);
+    };
 
-    for (const name of newPortfolioNames) {
-      const { data: created, error: createErr } = await supabase
+    let newPortfolioNames = buildNewPortfolioNames(portList);
+
+    if (newPortfolioNames.length > 0) {
+      const { data: refetchPortfolios } = await supabase
         .from('portfolios')
-        .insert({ user_id: user.id, name: name.trim(), currency: 'USD' })
+        .select('id, name')
+        .eq('user_id', uid);
+      if (refetchPortfolios) {
+        portList = refetchPortfolios as PortfolioRowDb[];
+      }
+      newPortfolioNames = buildNewPortfolioNames(portList);
+    }
+
+    const insertPortfolioByName = (displayName: string) =>
+      supabase
+        .from('portfolios')
+        .insert({ user_id: uid, name: displayName.trim(), currency: 'USD' })
         .select('id, name')
         .single();
+
+    for (const name of newPortfolioNames) {
+      let { data: created, error: createErr } = await insertPortfolioByName(name);
       if (createErr || !created) {
+        await supabase.auth.refreshSession();
+        ({ data: created, error: createErr } = await insertPortfolioByName(name));
+      }
+      if (createErr || !created) {
+        if (isPortfolioInsertDuplicateErr(createErr)) {
+          const { data: allPf } = await supabase
+            .from('portfolios')
+            .select('id, name')
+            .eq('user_id', uid);
+          const rows = (allPf ?? []) as PortfolioRowDb[];
+          const match = rows.find(
+            (r) => normalizePortfolioNameKey(r.name) === normalizePortfolioNameKey(name),
+          );
+          if (match) {
+            portList = rows;
+            continue;
+          }
+        }
         showAlert(
           t('bulk.errorTitle'),
           t('bulk.portfolioCreateError', {
@@ -722,14 +795,10 @@ export default function BulkUploadScreen() {
 
     const resolvePortfolioId = (row: UnifiedRow): string | null => {
       if (row.portfolioName && row.portfolioName.trim()) {
-        const p = portList.find(
-          (x) =>
-            normalizeLoose(x.name) === normalizeLoose(row.portfolioName) ||
-            normalizeLoose(x.id) === normalizeLoose(row.portfolioName)
-        );
+        const p = findPortfolioRowByCsvName(portList, row.portfolioName);
         return p?.id ?? null;
       }
-      return portfolioId;
+      return fallbackPortfolioId;
     };
 
     for (const row of rows) {
