@@ -157,12 +157,12 @@ export default {
     formatTitle: 'Format kuralları',
     invalidHeaderTitle: 'Başlık satırı okunamadı',
     invalidHeaderBody:
-      'Genelde iki sebep vardır:\n\n1) Kodlama: Excel dosyayı UTF-8 değil, Türkçe Windows (ANSI) ile kaydetti. Uygulama metni yanlış okuyunca başlıklar tanınmaz.\n   → Çözüm: Excel’de Farklı Kaydet → CSV UTF-8 (virgülle ayrılmış) kullanın.\n\n2) Ayraç veya başlık adları: Türkiye’de sütunlar çoğunlukla noktalı virgül (;) ile ayrılır. İlk anlamlı satırda şu başlıklar geçmeli: Portföy; Varlık Tipi; Varlık; Adet (isteğe bağlı: Ortalama Maliyet). İlk 12 satır taranır; sayfa adı satırı varsa sorun değil.\n\nUygulamanın gördüğü özet:\n• Ayraç: {{delim}}\n• İlk satırlar:\n{{preview}}\n\nYukarıda Türkçe harfler bozuksa → mutlaka CSV UTF-8 ile kaydedin. Örnek CSV’yi indirip kıyaslayın.',
+      'Genelde iki sebep vardır:\n\n1) Kodlama: Excel dosyayı UTF-8 değil, Türkçe Windows (ANSI) ile kaydetti. Uygulama metni yanlış okuyunca başlıklar tanınmaz.\n   → Çözüm: Excel’de Farklı Kaydet → CSV UTF-8 (virgülle ayrılmış) kullanın.\n\n2) Ayraç veya başlık adları: Türkiye’de sütunlar çoğunlukla noktalı virgül (;) ile ayrılır. İlk anlamlı satırda şu başlıklar geçmeli: Portföy; Varlık Tipi; Varlık; Adet (isteğe bağlı: Ortalama Maliyet, Satın Alma Tarihi, Değişiklik Tipi). İlk 12 satır taranır; sayfa adı satırı varsa sorun değil.\n\nUygulamanın gördüğü özet:\n• Ayraç: {{delim}}\n• İlk satırlar:\n{{preview}}\n\nYukarıda Türkçe harfler bozuksa → mutlaka CSV UTF-8 ile kaydedin. Örnek CSV’yi indirip kıyaslayın.',
     delimSemicolon: 'noktalı virgül (;)',
     delimTab: 'sekme (TAB)',
     delimComma: 'virgül (,)',
     formatBody:
-      '- Excel’den CSV dışa aktarın (Türkiye’de genelde sütun ayırıcı **noktalı virgül**; ondalık **virgül**).\n- Başlık satırı zorunlu: **Portföy** (opsiyonel, boşsa seçili portföy), **Varlık Tipi**, **Varlık**, **Adet**, **Ortalama Maliyet** (opsiyonel), **Değişiklik Tipi** (opsiyonel). İlk satır sayfa adıysa başlıklar sonraki satırdan okunur.\n- **Değişiklik Tipi** yoksa veya hücre boşsa: aynı portföy+varlık satırları **tek holdinge** birleşir — adetler **toplanır**, her satırda maliyet doluysa **ağırlıklı ortalama**; eksik maliyette DB’deki ortalama **değişmez** (yeni kayıtta null).\n- **EKLE / EKLEME / ADD**: dosyadaki adet toplamı mevcut adedin **üzerine eklenir**; maliyetler uygunsa ortalama **birleştirilir**.\n- **GÜNCELLE / GÜNCELLEME / UPDATE**: pozisyon **dosyadaki en son satıra** göre ayarlanır; kayıt yoksa hata. Birden fazla satırda farklı tipler (EKLE ile GÜNCELLE vb.) aynı varlıkta **karıştırılamaz**.\n- **Portföy** adı sistemde yoksa otomatik oluşturulur.\n- **ABD** ve **Kripto** için girilen **Ortalama Maliyet** **USD** olarak kabul edilir; diğer varlık tiplerinde **TL** kabul edilir (manuel giriş ve portföy hesaplarıyla aynı).\n- **TL Mevduat** satırlarında **Ortalama Maliyet** doldurulmuş olsa bile **yok sayılır**; veritabanına yazılmaz (yalnızca adet).',
+      '- Excel’den CSV dışa aktarın (Türkiye’de genelde sütun ayırıcı **noktalı virgül**; ondalık **virgül**).\n- Başlık satırı zorunlu: **Portföy** (opsiyonel, boşsa seçili portföy), **Varlık Tipi**, **Varlık**, **Adet**, **Ortalama Maliyet** (opsiyonel), **Satın Alma Tarihi** (opsiyonel, **GG.AA.YYYY**; nokta, tire veya eğik çizgi), **Değişiklik Tipi** (opsiyonel). İlk satır sayfa adıysa başlıklar sonraki satırdan okunur.\n- **Satın Alma Tarihi** doluysa notlara `[cost_date:YYYY-MM-DD]` eklenir; aynı grupta (aynı portföy+varlık) **en son satırın** tarihi kullanılır; boş bırakılırsa mevcut notlar **silinmez**.\n- **Değişiklik Tipi** yoksa veya hücre boşsa: aynı portföy+varlık satırları **tek holdinge** birleşir — adetler **toplanır**, her satırda maliyet doluysa **ağırlıklı ortalama**; eksik maliyette DB’deki ortalama **değişmez** (yeni kayıtta null).\n- **EKLE / EKLEME / ADD**: dosyadaki adet toplamı mevcut adedin **üzerine eklenir**; maliyetler uygunsa ortalama **birleştirilir**.\n- **GÜNCELLE / GÜNCELLEME / UPDATE**: pozisyon **dosyadaki en son satıra** göre ayarlanır; kayıt yoksa hata. Birden fazla satırda farklı tipler (EKLE ile GÜNCELLE vb.) aynı varlıkta **karıştırılamaz**.\n- **Portföy** adı sistemde yoksa otomatik oluşturulur.\n- **ABD** ve **Kripto**: **Satın Alma Tarihi boşsa** **Ortalama Maliyet** **USD** kabul edilir. **Tarih doluysa** maliyet **TL** kabul edilir; o günün **USD/TRY** kuruyla **USD** birim fiyat kaydedilir (manuel varlık girişiyle uyumlu).\n- Diğer varlık tiplerinde **Ortalama Maliyet** **TL** kabul edilir.\n- **TL Mevduat** satırlarında **Ortalama Maliyet** doldurulmuş olsa bile **yok sayılır**; veritabanına yazılmaz (yalnızca adet).',
     sampleCsv: 'Örnek CSV indir',
     allValuesCsv: 'Tüm değerleri CSV indir',
     uploadsTitle: 'Yüklenen dosyalar',
@@ -171,6 +171,8 @@ export default {
     rowInvalidQty:
       'Satır {{row}}: Geçersiz adet ({{qty}}). [portföy="{{pf}}", kategori="{{cat}}", varlık="{{asset}}"]',
     rowInvalidAvgPrice: 'Satır {{row}}: Geçersiz ortalama maliyet ({{price}}).',
+    rowInvalidPurchaseDate:
+      'Satır {{row}}: Geçersiz satın alma tarihi. GG.AA.YYYY (ör. 15.03.2024) veya hücreyi boş bırakın.',
     rowPortfolioNotFound: 'Satır {{row}}: Portföy "{{name}}" bulunamadı.',
     rowCategoryNotFound: 'Satır {{row}}: Varlık tipi "{{name}}" bulunamadı.',
     rowAssetNotFound: 'Satır {{row}}: "{{asset}}" bu varlık tipinde bulunamadı.',
@@ -228,6 +230,8 @@ export default {
     labelQtyAddCaps: 'EKLENECEK ADET',
     labelQtyReduceCaps: 'ÇIKARILACAK ADET',
     labelUnitCostCaps: 'ORTALAMA MALİYET (Opsiyonel)',
+    /** Sayısal klavye üst çubuğu (iOS InputAccessory / Android) */
+    keyboardDone: 'Bitti',
     btnAdd: 'EKLE',
     btnReduce: 'AZALT',
     btnDelete: 'SİL',
@@ -239,6 +243,8 @@ export default {
     modalMessage: '{{qty}} adet {{symbol}} silinecek. Onaylıyor musunuz?',
     modalNo: 'Hayır',
     modalYes: 'Evet, sil',
+    toastAddDone: 'Ekleme tamamlandı',
+    toastReduceDone: 'Azaltma tamamlandı',
   },
   layout: {
     bulkUploadTitle: 'Toplu yükleme',

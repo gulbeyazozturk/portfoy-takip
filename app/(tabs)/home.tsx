@@ -1,5 +1,6 @@
 import { Manrope_800ExtraBold } from '@expo-google-fonts/manrope';
 import { Ionicons } from '@expo/vector-icons';
+import { useFocusEffect } from '@react-navigation/native';
 import { useFonts } from 'expo-font';
 import { type Href, useRouter } from 'expo-router';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
@@ -89,6 +90,14 @@ export default function HomeScreen() {
   } = usePortfolioCoreData();
 
   const lastGridTapRef = useRef<{ at: number; categoryId: string } | null>(null);
+
+  /** Başka sekme / sayfadan dönünce: hiçbir kategori kartı seçili kalmasın (varsayılan görünüm). */
+  useFocusEffect(
+    useCallback(() => {
+      lastGridTapRef.current = null;
+      selectAllCategories();
+    }, [selectAllCategories]),
+  );
 
   useEffect(() => {
     selectAllCategories();

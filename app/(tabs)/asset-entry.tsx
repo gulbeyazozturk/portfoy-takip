@@ -5,12 +5,16 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
   ActivityIndicator,
   Alert,
+  InputAccessoryView,
+  Keyboard,
+  KeyboardAvoidingView,
   Modal,
   Platform,
   Pressable,
   SafeAreaView,
   ScrollView,
   StyleSheet,
+  Text,
   TextInput,
   TouchableOpacity,
   View,
@@ -25,7 +29,9 @@ import { usePortfolio } from '@/context/portfolio';
 import { kriptoStoredUnitToUsd, legacyCryptoStoredUnitToUsd } from '@/lib/crypto-price-usd';
 import { isUsdNativeCategory } from '@/lib/portfolio-currency';
 import { resolveBistDisplayName } from '@/lib/bist-display-name';
+import { extractCostDateFromNotes, upsertCostDateInNotes } from '@/lib/holding-notes-cost-date';
 import { fetchInstantUnitPrice } from '@/lib/instant-price';
+import { getUsdTryRateForDate } from '@/lib/usdtry-rate-for-date';
 import { supabase } from '@/lib/supabase';
 import { useTranslation } from 'react-i18next';
 
@@ -83,103 +89,6 @@ function parseCostDate(day: string, month: string, year: string): Date | null {
   return dt;
 }
 
-function extractCostDateFromNotes(notes: string | null | undefined): string | null {
-  if (!notes) return null;
-  const m = notes.match(/\[cost_date:(\d{4}-\d{2}-\d{2})\]/);
-  return m?.[1] ?? null;
-}
-
-function upsertCostDateInNotes(notes: string | null | undefined, isoDate: string | null): string | null {
-  const base = (notes ?? '').replace(/\s*\[cost_date:\d{4}-\d{2}-\d{2}\]\s*/g, '').trim();
-  if (!isoDate) return base || null;
-  return base ? `${base} [cost_date:${isoDate}]` : `[cost_date:${isoDate}]`;
-}
-
-const usdTryHistoryCache = new Map<string, number | null>();
-
-async function fetchText(url: string): Promise<string | null> {
-  try {
-    const r = await fetch(url, { headers: { 'User-Agent': 'Mozilla/5.0' } });
-    if (!r.ok) return null;
-    return await r.text();
-  } catch {
-    return null;
-  }
-}
-
-async function fetchUsdTryHistorical(date: Date): Promise<number | null> {
-  const targetIso = date.toISOString().slice(0, 10);
-  if (usdTryHistoryCache.has(targetIso)) return usdTryHistoryCache.get(targetIso) ?? null;
-
-  const baseUrl = 'http://stooq.com/q/d/l/?s=usdtry&i=d';
-  let csv = await fetchText(baseUrl.replace('http://', 'https://'));
-  if (!csv) csv = await fetchText(`https://r.jina.ai/${baseUrl}`);
-  if (!csv) {
-    usdTryHistoryCache.set(targetIso, null);
-    return null;
-  }
-
-  const header = 'Date,Open,High,Low,Close,Volume';
-  const start = csv.indexOf(header);
-  const effective = start >= 0 ? csv.slice(start) : csv;
-  const lines = effective.split(/\r?\n/).filter(Boolean);
-  if (lines.length < 2) {
-    usdTryHistoryCache.set(targetIso, null);
-    return null;
-  }
-
-  let bestDate = '';
-  let bestClose: number | null = null;
-  for (const line of lines.slice(1)) {
-    const cols = line.split(',');
-    if (cols.length < 5) continue;
-    const d = String(cols[0] || '').trim();
-    if (!d || d > targetIso) continue;
-    const close = Number(cols[4]);
-    if (!Number.isFinite(close) || close <= 0) continue;
-    if (bestDate === '' || d > bestDate) {
-      bestDate = d;
-      bestClose = close;
-    }
-  }
-
-  usdTryHistoryCache.set(targetIso, bestClose);
-  if (bestClose != null && bestClose > 0) return bestClose;
-
-  // Stooq boş dönerse ikinci fallback: Frankfurter timeseries (USD->TRY).
-  const toIso = targetIso;
-  const from = new Date(date);
-  from.setUTCDate(from.getUTCDate() - 14);
-  const fromIso = from.toISOString().slice(0, 10);
-  const ffUrl = `https://api.frankfurter.app/${fromIso}..${toIso}?from=USD&to=TRY`;
-  try {
-    const r = await fetch(ffUrl, { headers: { 'User-Agent': 'Mozilla/5.0' } });
-    if (r.ok) {
-      const json = await r.json();
-      const rates = json?.rates && typeof json.rates === 'object' ? json.rates : null;
-      if (rates) {
-        let ffBestDate = '';
-        let ffBestRate: number | null = null;
-        for (const [d, row] of Object.entries(rates as Record<string, any>)) {
-          if (!d || d > targetIso) continue;
-          const n = Number((row as any)?.TRY);
-          if (!Number.isFinite(n) || n <= 0) continue;
-          if (ffBestDate === '' || d > ffBestDate) {
-            ffBestDate = d;
-            ffBestRate = n;
-          }
-        }
-        usdTryHistoryCache.set(targetIso, ffBestRate);
-        return ffBestRate;
-      }
-    }
-  } catch {
-    // ignore fallback failure
-  }
-
-  return bestClose;
-}
-
 const CHART_W = 300;
 const CHART_H = 165;
 /** Obsidian-style palette (HTML referans) */
@@ -192,6 +101,9 @@ const SURFACE_HIGH = '#1f1f1f';
 const ON_SURFACE_MUTED = '#ababab';
 const ON_PRIMARY_FIXED = '#000000';
 const TIMEFRAMES = ['1D', '1W', '1M', '1Y', '5Y'] as const;
+
+/** Ekleme/azaltma sayısal alanları: iOS klavye üstü / Android klavye üstü çubuk. */
+const NUMERIC_KEYBOARD_ACCESSORY_ID = 'assetEntryNumericKeyboardDone';
 type Timeframe = (typeof TIMEFRAMES)[number];
 
 function timeframeMs(tf: Timeframe): number {
@@ -459,11 +371,108 @@ export default function AssetEntryScreen() {
   const [costDateMonth, setCostDateMonth] = useState('');
   const [costDateYear, setCostDateYear] = useState('');
   const [showDeleteModal, setShowDeleteModal] = useState(false);
+  const [actionToast, setActionToast] = useState<'add' | 'reduce' | null>(null);
+  const actionToastTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const qtyDecimalInputRef = useRef<TextInput>(null);
+  const costDateDayRef = useRef<TextInput>(null);
+  const costDateMonthRef = useRef<TextInput>(null);
+  const costDateYearRef = useRef<TextInput>(null);
+  const scrollViewRef = useRef<ScrollView>(null);
+  const keyboardHeightRef = useRef(0);
+  const scrollViewLayoutHRef = useRef(0);
+  const transactionSectionTopRef = useRef(0);
+  const transactionSectionHeightRef = useRef(0);
+  const androidQtyBlurTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [holdingRefreshSeq, setHoldingRefreshSeq] = useState(0);
+  /** Klavye yüksekliği: içerik alt boşluğu + Android “Bitti” çubuğu konumu (iOS’ta da dinlenir). */
+  const [keyboardHeight, setKeyboardHeight] = useState(0);
+  /** Adet alanı: klavye aşağı kaydırma yeterli; Android üst “Bitti” çubuğunu gösterme. */
+  const [suppressAndroidNumericAccessory, setSuppressAndroidNumericAccessory] = useState(false);
+
+  const onQtyKeyboardFieldFocus = useCallback(() => {
+    if (androidQtyBlurTimerRef.current) {
+      clearTimeout(androidQtyBlurTimerRef.current);
+      androidQtyBlurTimerRef.current = null;
+    }
+    setSuppressAndroidNumericAccessory(true);
+  }, []);
+
+  const onQtyKeyboardFieldBlur = useCallback(() => {
+    androidQtyBlurTimerRef.current = setTimeout(() => {
+      setSuppressAndroidNumericAccessory(false);
+      androidQtyBlurTimerRef.current = null;
+    }, 160);
+  }, []);
+
+  const onNonQtyNumericFieldFocus = useCallback(() => {
+    if (androidQtyBlurTimerRef.current) {
+      clearTimeout(androidQtyBlurTimerRef.current);
+      androidQtyBlurTimerRef.current = null;
+    }
+    setSuppressAndroidNumericAccessory(false);
+  }, []);
+
+  const showActionToast = useCallback((kind: 'add' | 'reduce') => {
+    if (actionToastTimerRef.current) {
+      clearTimeout(actionToastTimerRef.current);
+      actionToastTimerRef.current = null;
+    }
+    setActionToast(kind);
+    actionToastTimerRef.current = setTimeout(() => {
+      setActionToast(null);
+      actionToastTimerRef.current = null;
+    }, 1000);
+  }, []);
+
+  const scrollFormFieldsIntoView = useCallback(() => {
+    const scrollEnd = () => scrollViewRef.current?.scrollToEnd({ animated: true });
+    requestAnimationFrame(() => {
+      scrollEnd();
+      setTimeout(scrollEnd, Platform.OS === 'ios' ? 120 : 80);
+      setTimeout(scrollEnd, Platform.OS === 'ios' ? 340 : 200);
+    });
+  }, []);
+
+  /** Adet girişi: Ekle (veya Azalt) CTA’sı klavyenin üstünde kalsın; mümkünse kartın üstü de görünsün. */
+  const scrollQtyFormAboveKeyboard = useCallback(() => {
+    const run = () => {
+      const scroll = scrollViewRef.current;
+      if (!scroll) return;
+      const top = transactionSectionTopRef.current;
+      const secH = transactionSectionHeightRef.current;
+      const viewH = scrollViewLayoutHRef.current;
+      const kb = keyboardHeightRef.current;
+      if (viewH <= 0) {
+        scroll.scrollTo({ y: Math.max(0, top - 8), animated: true });
+        return;
+      }
+      const usable =
+        Platform.OS === 'android'
+          ? Math.max(160, viewH - kb)
+          : Math.max(160, viewH);
+      if (secH <= 0) {
+        scroll.scrollTo({ y: Math.max(0, top - 8), animated: true });
+        return;
+      }
+      const bottom = top + secH;
+      const yForCta = bottom - usable + 24;
+      const yPreferTop = Math.max(0, top - 8);
+      scroll.scrollTo({ y: Math.max(yPreferTop, yForCta), animated: true });
+    };
+    requestAnimationFrame(() => {
+      run();
+      setTimeout(run, Platform.OS === 'ios' ? 140 : 100);
+      setTimeout(run, Platform.OS === 'ios' ? 380 : 240);
+    });
+  }, []);
 
   useFocusEffect(
     useCallback(() => {
+      if (androidQtyBlurTimerRef.current) {
+        clearTimeout(androidQtyBlurTimerRef.current);
+        androidQtyBlurTimerRef.current = null;
+      }
+      setSuppressAndroidNumericAccessory(false);
       setFormMode('add');
       setInputWhole('');
       setInputDecimal('');
@@ -473,6 +482,33 @@ export default function AssetEntryScreen() {
       setCostDateYear('');
       setHoldingRefreshSeq((s) => s + 1);
     }, [assetId, portfolioId, routeHoldingId]),
+  );
+
+  useEffect(() => {
+    const showEvent = Platform.OS === 'ios' ? 'keyboardWillShow' : 'keyboardDidShow';
+    const hideEvent = Platform.OS === 'ios' ? 'keyboardWillHide' : 'keyboardDidHide';
+    const show = Keyboard.addListener(showEvent, (e) => {
+      setKeyboardHeight(e.endCoordinates.height);
+    });
+    const hide = Keyboard.addListener(hideEvent, () => {
+      setKeyboardHeight(0);
+    });
+    return () => {
+      show.remove();
+      hide.remove();
+    };
+  }, []);
+
+  useEffect(() => {
+    keyboardHeightRef.current = keyboardHeight;
+  }, [keyboardHeight]);
+
+  useEffect(
+    () => () => {
+      if (androidQtyBlurTimerRef.current) clearTimeout(androidQtyBlurTimerRef.current);
+      if (actionToastTimerRef.current) clearTimeout(actionToastTimerRef.current);
+    },
+    [],
   );
 
   const [activeTimeframe, setActiveTimeframe] = useState<Timeframe>('1D');
@@ -684,6 +720,7 @@ export default function AssetEntryScreen() {
       return;
     }
 
+    const iso = selected.toISOString().slice(0, 10);
     let cancelled = false;
     (async () => {
       const { data: usdAsset } = await supabase
@@ -693,48 +730,12 @@ export default function AssetEntryScreen() {
         .eq('symbol', 'USD')
         .maybeSingle();
       if (cancelled || !usdAsset?.id) return;
-
-      const y = selected.getUTCFullYear();
-      const m = selected.getUTCMonth();
-      const d = selected.getUTCDate();
-      const dayStart = new Date(Date.UTC(y, m, d, 0, 0, 0)).toISOString();
-      const dayEnd = new Date(Date.UTC(y, m, d, 23, 59, 59)).toISOString();
-
-      const { data: sameDay } = await supabase
-        .from('price_history')
-        .select('price')
-        .eq('asset_id', usdAsset.id)
-        .gte('recorded_at', dayStart)
-        .lte('recorded_at', dayEnd)
-        .order('recorded_at', { ascending: false })
-        .limit(1)
-        .maybeSingle();
-      const p1 = sameDay?.price != null ? Number(sameDay.price) : NaN;
-      if (!cancelled && Number.isFinite(p1) && p1 > 0) {
-        setUsdTryAtCostDate(p1);
+      const rate = await getUsdTryRateForDate(supabase, usdAsset.id, iso);
+      if (!cancelled && rate != null && rate > 0) {
+        setUsdTryAtCostDate(rate);
         return;
       }
-
-      const { data: before } = await supabase
-        .from('price_history')
-        .select('price')
-        .eq('asset_id', usdAsset.id)
-        .lte('recorded_at', dayEnd)
-        .order('recorded_at', { ascending: false })
-        .limit(1)
-        .maybeSingle();
-      const p2 = before?.price != null ? Number(before.price) : NaN;
-      if (!cancelled && Number.isFinite(p2) && p2 > 0) {
-        setUsdTryAtCostDate(p2);
-        return;
-      }
-      // DB geçmişinde yoksa dış kaynaktan tarihsel USDTRY çek (en yakın önceki işlem günü).
-      const ext = await fetchUsdTryHistorical(selected);
-      if (!cancelled && ext != null && ext > 0) {
-        setUsdTryAtCostDate(ext);
-        return;
-      }
-      setUsdTryAtCostDate(null);
+      if (!cancelled) setUsdTryAtCostDate(null);
     })();
 
     return () => {
@@ -964,6 +965,7 @@ export default function AssetEntryScreen() {
       Alert.alert(t('assetEntry.errorTitle'), 'Satın alma tarihi geçersiz. GG-AA-YYYY formatında girin.');
       return;
     }
+    Keyboard.dismiss();
     const isMevduat = categoryId === 'mevduat';
     const costDateIso = parsedCostDate ? parsedCostDate.toISOString().slice(0, 10) : null;
     const nextNotes = upsertCostDateInNotes(holdingNotes, costDateIso);
@@ -1078,6 +1080,10 @@ export default function AssetEntryScreen() {
       setCostDateDay('');
       setCostDateMonth('');
       setCostDateYear('');
+      requestAnimationFrame(() => {
+        scrollViewRef.current?.scrollTo({ y: 0, animated: true });
+      });
+      showActionToast('add');
     } catch (e: any) {
       Alert.alert(t('assetEntry.errorTitle'), e?.message ?? String(e));
     } finally {
@@ -1098,6 +1104,7 @@ export default function AssetEntryScreen() {
       );
       return;
     }
+    Keyboard.dismiss();
     const newQty = qty - inputQty;
     setSaving(true);
     if (newQty <= 0) {
@@ -1132,6 +1139,10 @@ export default function AssetEntryScreen() {
       setAmount(String(updated.quantity ?? newQty));
       setInputWhole('');
       setInputDecimal('');
+      requestAnimationFrame(() => {
+        scrollViewRef.current?.scrollTo({ y: 0, animated: true });
+      });
+      showActionToast('reduce');
     }
   };
 
@@ -1275,6 +1286,14 @@ export default function AssetEntryScreen() {
     return Math.ceil(v).toLocaleString(locale, { maximumFractionDigits: 0, minimumFractionDigits: 0 });
   };
 
+  /** Pozisyon toplam değeri: virgülden sonra 2 hane. */
+  const fmtPositionTotalValue = (v: number, locale: string = numberLocale) => {
+    if (!Number.isFinite(v)) {
+      return (0).toLocaleString(locale, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+    }
+    return v.toLocaleString(locale, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  };
+
   /** Ortalama maliyet (yerel para): 3 ondalık, üst kesir yukarı. */
   const fmtMoneyCeil3 = (v: number, locale: string = numberLocale) => {
     if (!Number.isFinite(v)) {
@@ -1392,9 +1411,20 @@ export default function AssetEntryScreen() {
           <View style={styles.obsHeaderSpacer} />
         </View>
 
-        <ScrollView
+        <KeyboardAvoidingView
           style={{ flex: 1 }}
-          contentContainerStyle={{ paddingBottom: insets.bottom + 32 }}
+          behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+          enabled={Platform.OS === 'ios'}>
+        <ScrollView
+          ref={scrollViewRef}
+          style={{ flex: 1 }}
+          onLayout={(e) => {
+            scrollViewLayoutHRef.current = e.nativeEvent.layout.height;
+          }}
+          contentContainerStyle={{
+            paddingBottom:
+              insets.bottom + 32 + (Platform.OS === 'android' ? keyboardHeight : 0),
+          }}
           showsVerticalScrollIndicator={false}
           keyboardShouldPersistTaps="handled"
           keyboardDismissMode="on-drag">
@@ -1487,7 +1517,7 @@ export default function AssetEntryScreen() {
               <View style={{ flex: 1 }}>
                 <ThemedText style={styles.positionCardLabel}>{t('assetEntry.positionTotalValue')}</ThemedText>
                 <ThemedText style={styles.positionCardBig}>
-                  {qty > 0 ? `${curr}${fmtPositionMoneyCeil(marketValue)}${currSuffix}` : '—'}
+                  {qty > 0 ? `${curr}${fmtPositionTotalValue(marketValue)}${currSuffix}` : '—'}
                 </ThemedText>
               </View>
               <View style={styles.positionPlBlock}>
@@ -1546,18 +1576,22 @@ export default function AssetEntryScreen() {
             <View style={styles.positionGridUsdRow}>
               <View style={styles.positionGridCell}>
                 <ThemedText style={styles.positionCardLabelSm} numberOfLines={2}>
-                  {t('assetEntry.averageCostUsd')}
-                </ThemedText>
-                <ThemedText style={styles.positionGridValueUsd}>
-                  {leftColUsdAvgOrEntry != null ? `$${fmtUsdCeil4(leftColUsdAvgOrEntry)}` : '—'}
-                </ThemedText>
-              </View>
-              <View style={styles.positionGridCell}>
-                <ThemedText style={styles.positionCardLabelSm} numberOfLines={2}>
                   {t('assetEntry.usdValue')}
                 </ThemedText>
                 <ThemedText style={styles.positionGridValueUsd}>
                   {spotUnitUsd != null ? `$${fmtUsdCeil4(spotUnitUsd)}` : '—'}
+                </ThemedText>
+              </View>
+              <View style={styles.positionGridCell}>
+                <ThemedText
+                  style={styles.positionCardLabelSm}
+                  numberOfLines={1}
+                  adjustsFontSizeToFit
+                  minimumFontScale={0.68}>
+                  {t('assetEntry.averageCostUsd')}
+                </ThemedText>
+                <ThemedText style={styles.positionGridValueUsd}>
+                  {leftColUsdAvgOrEntry != null ? `$${fmtUsdCeil4(leftColUsdAvgOrEntry)}` : '—'}
                 </ThemedText>
               </View>
               <View style={[styles.positionGridCell, styles.positionGridCellLast]}>
@@ -1579,7 +1613,12 @@ export default function AssetEntryScreen() {
             </View>
           </View>
 
-          <View style={styles.transactionSection}>
+          <View
+            style={styles.transactionSection}
+            onLayout={(e) => {
+              transactionSectionTopRef.current = e.nativeEvent.layout.y;
+              transactionSectionHeightRef.current = e.nativeEvent.layout.height;
+            }}>
             <View style={styles.modeRowObsidian}>
             {(['add', 'reduce', 'delete'] as FormMode[]).map((m) => {
               const label =
@@ -1630,6 +1669,11 @@ export default function AssetEntryScreen() {
                         value={inputWhole}
                         onChangeText={onQtyWholeChange}
                         maxLength={20}
+                        onFocus={() => {
+                          onQtyKeyboardFieldFocus();
+                          scrollQtyFormAboveKeyboard();
+                        }}
+                        onBlur={onQtyKeyboardFieldBlur}
                       />
                       <ThemedText style={styles.splitComma}>,</ThemedText>
                       <TextInput
@@ -1641,6 +1685,11 @@ export default function AssetEntryScreen() {
                         maxLength={10}
                         value={inputDecimal}
                         onChangeText={(txt) => setInputDecimal(txt.replace(/[^0-9]/g, '').slice(0, 10))}
+                        onFocus={() => {
+                          onQtyKeyboardFieldFocus();
+                          scrollQtyFormAboveKeyboard();
+                        }}
+                        onBlur={onQtyKeyboardFieldBlur}
                       />
                     </View>
                   </View>
@@ -1663,6 +1712,11 @@ export default function AssetEntryScreen() {
                       placeholderTextColor={ON_SURFACE_MUTED}
                       value={inputCost}
                       onChangeText={setInputCost}
+                      onFocus={() => {
+                        onNonQtyNumericFieldFocus();
+                        scrollFormFieldsIntoView();
+                      }}
+                      inputAccessoryViewID={NUMERIC_KEYBOARD_ACCESSORY_ID}
                     />
                     {!isUsdNativeCategory(categoryId) ? (
                       <>
@@ -1671,31 +1725,68 @@ export default function AssetEntryScreen() {
                         </ThemedText>
                         <View style={styles.dateRow}>
                           <TextInput
+                            ref={costDateDayRef}
                             style={styles.dateInput}
                             keyboardType="number-pad"
                             placeholder="GG"
                             placeholderTextColor={ON_SURFACE_MUTED}
                             value={costDateDay}
-                            onChangeText={(v) => setCostDateDay(v.replace(/[^0-9]/g, '').slice(0, 2))}
+                            onChangeText={(v) => {
+                              const cleaned = v.replace(/[^0-9]/g, '').slice(0, 2);
+                              setCostDateDay(cleaned);
+                              if (cleaned.length === 2) {
+                                requestAnimationFrame(() => costDateMonthRef.current?.focus());
+                              }
+                            }}
                             maxLength={2}
+                            returnKeyType="next"
+                            blurOnSubmit={false}
+                            onFocus={() => {
+                              onNonQtyNumericFieldFocus();
+                              scrollFormFieldsIntoView();
+                            }}
+                            inputAccessoryViewID={NUMERIC_KEYBOARD_ACCESSORY_ID}
                           />
                           <TextInput
+                            ref={costDateMonthRef}
                             style={styles.dateInput}
                             keyboardType="number-pad"
                             placeholder="AA"
                             placeholderTextColor={ON_SURFACE_MUTED}
                             value={costDateMonth}
-                            onChangeText={(v) => setCostDateMonth(v.replace(/[^0-9]/g, '').slice(0, 2))}
+                            onChangeText={(v) => {
+                              const cleaned = v.replace(/[^0-9]/g, '').slice(0, 2);
+                              setCostDateMonth(cleaned);
+                              if (cleaned.length === 2) {
+                                requestAnimationFrame(() => costDateYearRef.current?.focus());
+                              }
+                            }}
                             maxLength={2}
+                            returnKeyType="next"
+                            blurOnSubmit={false}
+                            onFocus={() => {
+                              onNonQtyNumericFieldFocus();
+                              scrollFormFieldsIntoView();
+                            }}
+                            inputAccessoryViewID={NUMERIC_KEYBOARD_ACCESSORY_ID}
                           />
                           <TextInput
+                            ref={costDateYearRef}
                             style={[styles.dateInput, styles.dateInputYear]}
                             keyboardType="number-pad"
                             placeholder="YYYY"
                             placeholderTextColor={ON_SURFACE_MUTED}
                             value={costDateYear}
-                            onChangeText={(v) => setCostDateYear(v.replace(/[^0-9]/g, '').slice(0, 4))}
+                            onChangeText={(v) =>
+                              setCostDateYear(v.replace(/[^0-9]/g, '').slice(0, 4))
+                            }
                             maxLength={4}
+                            returnKeyType="done"
+                            onFocus={() => {
+                              onNonQtyNumericFieldFocus();
+                              scrollFormFieldsIntoView();
+                            }}
+                            inputAccessoryViewID={NUMERIC_KEYBOARD_ACCESSORY_ID}
                           />
                         </View>
                       </>
@@ -1775,7 +1866,44 @@ export default function AssetEntryScreen() {
             </View>
           </View>
         </ScrollView>
+        </KeyboardAvoidingView>
       </ThemedView>
+
+      {Platform.OS === 'ios' ? (
+        <InputAccessoryView nativeID={NUMERIC_KEYBOARD_ACCESSORY_ID}>
+          <View style={styles.keyboardAccessoryToolbar}>
+            <TouchableOpacity
+              onPress={() => Keyboard.dismiss()}
+              activeOpacity={0.7}
+              hitSlop={{ top: 12, bottom: 12, left: 16, right: 16 }}
+              style={styles.keyboardAccessoryBtn}>
+              <ThemedText style={styles.keyboardAccessoryBtnText} lightColor="#ffffff" darkColor="#ffffff">
+                {t('assetEntry.keyboardDone')}
+              </ThemedText>
+            </TouchableOpacity>
+          </View>
+        </InputAccessoryView>
+      ) : null}
+
+      {Platform.OS === 'android' &&
+      keyboardHeight > 0 &&
+      !suppressAndroidNumericAccessory ? (
+        <View
+          style={[styles.keyboardAccessoryAndroidWrap, { bottom: keyboardHeight }]}
+          pointerEvents="box-none">
+          <View style={styles.keyboardAccessoryToolbar}>
+            <TouchableOpacity
+              onPress={() => Keyboard.dismiss()}
+              activeOpacity={0.7}
+              hitSlop={{ top: 12, bottom: 12, left: 16, right: 16 }}
+              style={styles.keyboardAccessoryBtn}>
+              <ThemedText style={styles.keyboardAccessoryBtnText} lightColor="#ffffff" darkColor="#ffffff">
+                {t('assetEntry.keyboardDone')}
+              </ThemedText>
+            </TouchableOpacity>
+          </View>
+        </View>
+      ) : null}
 
       {/* Delete confirmation modal */}
       <Modal
@@ -1810,6 +1938,31 @@ export default function AssetEntryScreen() {
               </TouchableOpacity>
             </View>
           </View>
+        </View>
+      </Modal>
+
+      <Modal
+        visible={actionToast != null}
+        transparent
+        animationType="fade"
+        statusBarTranslucent
+        presentationStyle={Platform.OS === 'ios' ? 'overFullScreen' : undefined}
+        onRequestClose={() => {}}>
+        <View
+          pointerEvents="none"
+          style={[
+            styles.actionToastModalRoot,
+            { paddingBottom: insets.bottom + 28 },
+          ]}>
+          {actionToast ? (
+            <View style={styles.actionToastCard}>
+              <Text style={styles.actionToastText}>
+                {actionToast === 'add'
+                  ? t('assetEntry.toastAddDone')
+                  : t('assetEntry.toastReduceDone')}
+              </Text>
+            </View>
+          ) : null}
         </View>
       </Modal>
     </SafeAreaView>
@@ -2182,15 +2335,42 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(0,0,0,0.45)',
     borderWidth: 1,
     borderColor: 'rgba(255,255,255,0.1)',
-    fontSize: 15,
+    fontSize: 17,
     fontWeight: '700',
     color: '#ffffff',
-    paddingVertical: 12,
+    paddingVertical: 14,
     paddingHorizontal: 12,
     textAlign: 'center',
   },
   dateInputYear: {
     flex: 1.4,
+  },
+  keyboardAccessoryAndroidWrap: {
+    position: 'absolute',
+    left: 0,
+    right: 0,
+    zIndex: 1000,
+    elevation: 12,
+  },
+  keyboardAccessoryToolbar: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'flex-end',
+    backgroundColor: SURFACE_HIGH,
+    borderTopWidth: StyleSheet.hairlineWidth,
+    borderTopColor: 'rgba(255,255,255,0.14)',
+    paddingVertical: 10,
+    paddingHorizontal: 12,
+    minHeight: 48,
+  },
+  keyboardAccessoryBtn: {
+    paddingVertical: 6,
+    paddingHorizontal: 10,
+  },
+  keyboardAccessoryBtnText: {
+    fontSize: 17,
+    fontWeight: '600',
+    color: '#ffffff',
   },
   confirmCta: {
     marginTop: 18,
@@ -2541,6 +2721,31 @@ const styles = StyleSheet.create({
   },
 
   /* ---- Delete Modal ---- */
+  actionToastModalRoot: {
+    flex: 1,
+    justifyContent: 'flex-end',
+    alignItems: 'center',
+    backgroundColor: 'transparent',
+  },
+  actionToastCard: {
+    backgroundColor: SURFACE_HIGH,
+    paddingVertical: 14,
+    paddingHorizontal: 22,
+    borderRadius: 14,
+    maxWidth: '88%',
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: 'rgba(255,255,255,0.12)',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.35,
+    shadowRadius: 8,
+  },
+  actionToastText: {
+    fontSize: 15,
+    fontWeight: '600',
+    color: '#ffffff',
+    textAlign: 'center',
+  },
   modalOverlay: {
     flex: 1,
     backgroundColor: 'rgba(0,0,0,0.7)',

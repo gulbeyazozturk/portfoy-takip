@@ -21,8 +21,12 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { usePortfolio } from '@/context/portfolio';
 import { useAuth } from '@/context/auth';
+import { parseBulkCsvPurchaseDate } from '@/lib/bulk-csv-purchase-date';
 import { decodeCsvFileBytes } from '@/lib/decode-csv-file-bytes';
 import { resolveBistCsvToCanonicalSymbol } from '@/lib/bist-display-name';
+import { upsertCostDateInNotes } from '@/lib/holding-notes-cost-date';
+import { isUsdNativeCategory } from '@/lib/portfolio-currency';
+import { getUsdTryRateForDate } from '@/lib/usdtry-rate-for-date';
 import { supabase } from '@/lib/supabase';
 import { useTranslation } from 'react-i18next';
 
@@ -47,6 +51,7 @@ type HoldingRow = {
   quantity: number;
   avg_price: number | null;
   portfolio_id: string;
+  notes?: string | null;
 };
 
 type PortfolioRowDb = { id: string; name: string };
@@ -62,6 +67,8 @@ type ResolvedBulkLine = {
   /** Geçerli ortalama maliyet hücresi; yoksa undefined (birleştirmede maliyet atanmaz) */
   unitCost?: number;
   changeKind: ChangeKind;
+  /** YYYY-MM-DD; holding `notes` içinde `[cost_date:…]` */
+  purchaseDateIso?: string | null;
 };
 
 function holdingAggregateKey(portfolioId: string, assetId: string): string {
@@ -89,9 +96,12 @@ type UnifiedRow = {
   avgPriceInvalid?: boolean;
   changeKind?: ChangeKind;
   changeKindInvalid?: boolean;
+  /** Satın alma tarihi YYYY-MM-DD; sütun yoksa undefined */
+  purchaseDateIso?: string | null;
+  purchaseDateInvalid?: boolean;
 };
 
-type ColKey = 'portfolio' | 'category' | 'asset' | 'quantity' | 'avgCost' | 'changeType';
+type ColKey = 'portfolio' | 'category' | 'asset' | 'quantity' | 'avgCost' | 'purchaseDate' | 'changeType';
 type ColMap = Partial<Record<ColKey, number>>;
 
 const stripQuotes = (value: string) =>
@@ -237,6 +247,13 @@ const HEADER_TO_COL: Record<string, ColKey> = {
   işlem: 'changeType',
   islem: 'changeType',
   operation: 'changeType',
+  satınalmatarihi: 'purchaseDate',
+  purchasedate: 'purchaseDate',
+  purchase_date: 'purchaseDate',
+  costdate: 'purchaseDate',
+  alıştarihi: 'purchaseDate',
+  alistarihi: 'purchaseDate',
+  alimtarihi: 'purchaseDate',
 };
 
 /** Başlık hücresi: NFC, sıfır genişlik, kenar noktalama. */
@@ -360,23 +377,39 @@ export default function BulkUploadScreen() {
     // Semicolon: TR Excel; adet/maliyet ondalığı virgülle güvenli
     const delim = isEn ? ',' : ';';
     const header = isEn
-      ? ['Portfolio', 'Asset Type', 'Asset', 'Quantity', 'Average Cost', 'Change type']
-      : ['Portföy', 'Varlık Tipi', 'Varlık', 'Adet', 'Ortalama Maliyet', 'Değişiklik Tipi'];
+      ? [
+          'Portfolio',
+          'Asset Type',
+          'Asset',
+          'Quantity',
+          'Average Cost',
+          'Purchase date',
+          'Change type',
+        ]
+      : [
+          'Portföy',
+          'Varlık Tipi',
+          'Varlık',
+          'Adet',
+          'Ortalama Maliyet',
+          'Satın Alma Tarihi',
+          'Değişiklik Tipi',
+        ];
     const pf = isEn ? 'Main portfolio' : 'Ana Portföy';
     const rows = isEn
       ? [
           header,
-          [pf, 'USA', 'TSLA', '1.5', '250.25', ''],
-          [pf, 'BIST', 'TUPRS', '10', '145.50', ''],
-          [pf, 'Forex', 'GBP', '2', '38.90', ''],
-          [pf, 'Kripto', 'BTC', '0.001', '95000', ''],
+          [pf, 'USA', 'TSLA', '1.5', '250.25', '01.01.2020', 'Add'],
+          [pf, 'BIST', 'TUPRS', '10', '145.50', '15.03.2024', 'Update'],
+          [pf, 'Forex', 'GBP', '2', '38.90', '', ''],
+          [pf, 'Kripto', 'BTC', '0.001', '95000', '', ''],
         ]
       : [
           header,
-          [pf, 'ABD', 'TSLA', '1,5', '250,25', ''],
-          [pf, 'BIST', 'TUPRS', '10', '145,50', ''],
-          [pf, 'Döviz', 'GBP', '2', '38,90', ''],
-          [pf, 'Kripto', 'BTC', '0,001', '95000', ''],
+          [pf, 'ABD', 'TSLA', '1,5', '250,25', '1.01.2020', 'Ekleme'],
+          [pf, 'BIST', 'TUPRS', '10', '145,5', '15.03.2024', 'Güncelleme'],
+          [pf, 'Döviz', 'GBP', '2', '38,9', '', ''],
+          [pf, 'Kripto', 'BTC', '0,001', '95000', '', ''],
         ];
     const sample = rows.map((row) => row.join(delim)).join('\n');
     triggerCsvDownload(t('bulk.sampleFilename'), sample);
@@ -545,6 +578,15 @@ export default function BulkUploadScreen() {
         }
       }
 
+      let purchaseDateIso: string | undefined;
+      let purchaseDateInvalid = false;
+      if (colMap.purchaseDate !== undefined) {
+        const rawPd = stripQuotes(parts[colMap.purchaseDate] ?? '');
+        const parsedPd = parseBulkCsvPurchaseDate(rawPd);
+        if (parsedPd === 'invalid') purchaseDateInvalid = true;
+        else if (parsedPd !== 'empty') purchaseDateIso = parsedPd.iso;
+      }
+
       out.push({
         rowNumber: i + 1,
         portfolioName,
@@ -553,6 +595,8 @@ export default function BulkUploadScreen() {
         quantity,
         ...(avgPrice !== undefined ? { avgPrice } : {}),
         ...(avgPriceInvalid ? { avgPriceInvalid: true } : {}),
+        ...(purchaseDateIso !== undefined ? { purchaseDateIso } : {}),
+        ...(purchaseDateInvalid ? { purchaseDateInvalid: true } : {}),
         ...(changeKind !== undefined ? { changeKind } : {}),
         ...(changeKindInvalid ? { changeKindInvalid: true } : {}),
       });
@@ -657,9 +701,17 @@ export default function BulkUploadScreen() {
       portfolioIds.length > 0
         ? await supabase
             .from('holdings')
-            .select('id, asset_id, quantity, avg_price, portfolio_id')
+            .select('id, asset_id, quantity, avg_price, portfolio_id, notes')
             .in('portfolio_id', portfolioIds)
         : { data: [] as HoldingRow[] };
+
+    const { data: usdAssetForHist } = await supabase
+      .from('assets')
+      .select('id')
+      .eq('category_id', 'doviz')
+      .eq('symbol', 'USD')
+      .maybeSingle();
+    const usdAssetIdForHist = usdAssetForHist?.id ?? '';
 
     const catList = (categories ?? []) as CategoryRow[];
     const assetList = assetChunks;
@@ -725,6 +777,11 @@ export default function BulkUploadScreen() {
         continue;
       }
 
+      if (row.purchaseDateInvalid) {
+        errors.push(t('bulk.rowInvalidPurchaseDate', { row: row.rowNumber }));
+        continue;
+      }
+
       const assetCell =
         category.id === 'bist' ? resolveBistCsvToCanonicalSymbol(row.assetValue) : row.assetValue;
       const asset = assetList.find(
@@ -737,16 +794,26 @@ export default function BulkUploadScreen() {
         continue;
       }
 
+      let unitCost: number | undefined;
+      if (category.id !== 'mevduat' && row.avgPrice !== undefined && row.avgPrice !== null) {
+        if (isUsdNativeCategory(category.id) && row.purchaseDateIso && usdAssetIdForHist) {
+          const rate = await getUsdTryRateForDate(supabase, usdAssetIdForHist, row.purchaseDateIso);
+          unitCost =
+            rate != null && rate > 0 && Number.isFinite(rate) ? row.avgPrice / rate : row.avgPrice;
+        } else {
+          unitCost = row.avgPrice;
+        }
+      }
+
       const line: ResolvedBulkLine = {
         rowNumber: row.rowNumber,
         portfolioId: targetPid,
         assetId: asset.id,
         quantity: row.quantity,
         changeKind: row.changeKind ?? 'auto',
+        purchaseDateIso: row.purchaseDateIso ?? null,
       };
-      if (category.id !== 'mevduat' && row.avgPrice !== undefined && row.avgPrice !== null) {
-        line.unitCost = row.avgPrice;
-      }
+      if (unitCost !== undefined) line.unitCost = unitCost;
       resolvedLines.push(line);
     }
 
@@ -784,8 +851,18 @@ export default function BulkUploadScreen() {
       return;
     }
 
-    const inserts: { portfolioId: string; assetId: string; quantity: number; avgPrice: number | null }[] = [];
-    const updates: { holdingId: string; quantity: number; avgPrice?: number | null }[] = [];
+    const inserts: {
+      portfolioId: string;
+      assetId: string;
+      quantity: number;
+      avgPrice: number | null;
+      notes: string | null;
+    }[] = [];
+    const updates: { holdingId: string; quantity: number; avgPrice?: number | null; notes?: string | null }[] =
+      [];
+
+    const lastLineOf = (lines: ResolvedBulkLine[]) =>
+      lines.reduce((a, b) => (a.rowNumber >= b.rowNumber ? a : b));
 
     for (const [, lines] of byKey) {
       const kind = lines[0]!.changeKind;
@@ -794,14 +871,18 @@ export default function BulkUploadScreen() {
       const holding = holdingList.find(
         (h) => h.portfolio_id === lines[0]!.portfolioId && h.asset_id === lines[0]!.assetId
       );
+      const last = lastLineOf(lines);
+      const notesFromLast = last.purchaseDateIso
+        ? upsertCostDateInNotes(holding?.notes ?? null, last.purchaseDateIso)
+        : null;
 
       if (kind === 'update') {
         if (!holding) continue;
-        const last = lines.reduce((a, b) => (a.rowNumber >= b.rowNumber ? a : b));
         updates.push({
           holdingId: holding.id,
           quantity: last.quantity,
           ...(!isMevduat && last.unitCost !== undefined ? { avgPrice: last.unitCost } : {}),
+          ...(last.purchaseDateIso ? { notes: notesFromLast } : {}),
         });
         continue;
       }
@@ -812,7 +893,11 @@ export default function BulkUploadScreen() {
         if (holding) {
           const newQ = holding.quantity + fileSumQty;
           if (isMevduat) {
-            updates.push({ holdingId: holding.id, quantity: newQ });
+            updates.push({
+              holdingId: holding.id,
+              quantity: newQ,
+              ...(last.purchaseDateIso ? { notes: notesFromLast } : {}),
+            });
           } else {
             const blended = blendAvgForAddToHolding(
               holding.quantity,
@@ -824,6 +909,7 @@ export default function BulkUploadScreen() {
               holdingId: holding.id,
               quantity: newQ,
               ...(blended !== undefined ? { avgPrice: blended } : {}),
+              ...(last.purchaseDateIso ? { notes: notesFromLast } : {}),
             });
           }
         } else {
@@ -832,6 +918,7 @@ export default function BulkUploadScreen() {
             assetId: lines[0]!.assetId,
             quantity: fileSumQty,
             avgPrice: isMevduat || fileAvg === undefined ? null : fileAvg,
+            notes: last.purchaseDateIso ? upsertCostDateInNotes(null, last.purchaseDateIso) : null,
           });
         }
         continue;
@@ -844,6 +931,7 @@ export default function BulkUploadScreen() {
           holdingId: holding.id,
           quantity: sumQty,
           ...(!isMevduat && mergedAvg !== undefined ? { avgPrice: mergedAvg } : {}),
+          ...(last.purchaseDateIso ? { notes: notesFromLast } : {}),
         });
       } else {
         inserts.push({
@@ -851,6 +939,7 @@ export default function BulkUploadScreen() {
           assetId: lines[0]!.assetId,
           quantity: sumQty,
           avgPrice: isMevduat || mergedAvg === undefined ? null : mergedAvg,
+          notes: last.purchaseDateIso ? upsertCostDateInNotes(null, last.purchaseDateIso) : null,
         });
       }
     }
@@ -862,6 +951,7 @@ export default function BulkUploadScreen() {
           asset_id: i.assetId,
           quantity: i.quantity,
           avg_price: i.avgPrice,
+          notes: i.notes,
         }))
       );
       if (error) {
@@ -876,6 +966,7 @@ export default function BulkUploadScreen() {
         .update({
           quantity: u.quantity,
           ...(u.avgPrice !== undefined ? { avg_price: u.avgPrice } : {}),
+          ...(u.notes !== undefined ? { notes: u.notes } : {}),
         })
         .eq('id', u.holdingId);
       if (error) {

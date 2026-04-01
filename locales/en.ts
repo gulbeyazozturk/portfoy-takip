@@ -154,12 +154,12 @@ export default {
     formatTitle: 'Format rules',
     invalidHeaderTitle: 'Could not read the header row',
     invalidHeaderBody:
-      'Usually one of these:\n\n1) Encoding: Excel saved the file as Windows ANSI / regional encoding instead of UTF-8. We mis-read the text so column names do not match.\n   → Fix: Save As → CSV UTF-8 (comma delimited).\n\n2) Delimiter or column titles: In many locales columns are separated with semicolons (;). The first meaningful line must include: Portfolio; Asset Type; Asset; Quantity (optional: Average Cost). We scan the first 12 lines (a sheet title on line 1 is OK).\n\nWhat we detected:\n• Delimiter: {{delim}}\n• First lines:\n{{preview}}\n\nIf letters look garbled above, re-export as CSV UTF-8. Download the sample CSV and compare.',
+      'Usually one of these:\n\n1) Encoding: Excel saved the file as Windows ANSI / regional encoding instead of UTF-8. We mis-read the text so column names do not match.\n   → Fix: Save As → CSV UTF-8 (comma delimited).\n\n2) Delimiter or column titles: In many locales columns are separated with semicolons (;). The first meaningful line must include: Portfolio; Asset Type; Asset; Quantity (optional: Average Cost, Purchase date, Change type). We scan the first 12 lines (a sheet title on line 1 is OK).\n\nWhat we detected:\n• Delimiter: {{delim}}\n• First lines:\n{{preview}}\n\nIf letters look garbled above, re-export as CSV UTF-8. Download the sample CSV and compare.',
     delimSemicolon: 'semicolon (;)',
     delimTab: 'tab (TAB)',
     delimComma: 'comma (,)',
     formatBody:
-      '- Export from Excel as CSV. Turkish Excel often uses **semicolon (;)** as delimiter and **comma** for decimals.\n- A header row is required: **Portfolio** (optional; if empty the selected portfolio is used), **Asset Type**, **Asset**, **Quantity**, **Average Cost** (optional), **Change type** (optional). If line 1 is a sheet title, headers are read from the next matching line (first 12 lines scanned).\n- With **no Change type column** or an **empty** cell: rows for the same portfolio+asset merge into **one holding** — **quantities summed**; if **every** row has average cost, a **weighted average** is stored; if some omit it, average cost is **left unchanged** in the DB (null on new rows).\n- **ADD / EKLE / EKLEME**: the file’s quantity total is **added** to the current holding; averages are **blended** when costs allow.\n- **UPDATE / GÜNCELLE / …**: the position is set from the **last file row** (by row number) for that asset; **fails** if there is no holding yet. You cannot mix change types (e.g. ADD and UPDATE) on the same portfolio+asset in one upload.\n- Unknown **Portfolio** names are **created** automatically.\n- **Average Cost** is interpreted as **USD** for **USA (global stocks)** and **Crypto**, and as **TRY** for all other categories (same as manual entry and portfolio math).\n- **TL Mevduat / cash deposit** rows: **Average Cost** is **always ignored** (not saved); only **quantity** is applied.',
+      '- Export from Excel as CSV. Turkish Excel often uses **semicolon (;)** as delimiter and **comma** for decimals.\n- A header row is required: **Portfolio** (optional; if empty the selected portfolio is used), **Asset Type**, **Asset**, **Quantity**, **Average Cost** (optional), **Purchase date** (optional, **DD.MM.YYYY**; dot, slash, or hyphen), **Change type** (optional). If line 1 is a sheet title, headers are read from the next matching line (first 12 lines scanned).\n- If **Purchase date** is filled, we add `[cost_date:YYYY-MM-DD]` to notes; for merged rows (same portfolio+asset) the **last row by file order** wins; leaving it empty does **not** clear existing notes.\n- With **no Change type column** or an **empty** cell: rows for the same portfolio+asset merge into **one holding** — **quantities summed**; if **every** row has average cost, a **weighted average** is stored; if some omit it, average cost is **left unchanged** in the DB (null on new rows).\n- **ADD / EKLE / EKLEME**: the file’s quantity total is **added** to the current holding; averages are **blended** when costs allow.\n- **UPDATE / GÜNCELLE / …**: the position is set from the **last file row** (by row number) for that asset; **fails** if there is no holding yet. You cannot mix change types (e.g. ADD and UPDATE) on the same portfolio+asset in one upload.\n- Unknown **Portfolio** names are **created** automatically.\n- **USA (global stocks)** and **Crypto**: if **Purchase date** is **empty**, **Average Cost** is **USD**. If **Purchase date** is set, **Average Cost** is **TRY** and we convert to **USD** using that day’s **USD/TRY** rate (same idea as manual asset entry).\n- For all other categories, **Average Cost** is **TRY**.\n- **TL Mevduat / cash deposit** rows: **Average Cost** is **always ignored** (not saved); only **quantity** is applied.',
     sampleCsv: 'Download sample CSV',
     allValuesCsv: 'Download all values (CSV)',
     uploadsTitle: 'Uploaded files',
@@ -168,6 +168,8 @@ export default {
     rowInvalidQty:
       'Row {{row}}: Invalid quantity ({{qty}}). [portfolio="{{pf}}", category="{{cat}}", asset="{{asset}}"]',
     rowInvalidAvgPrice: 'Row {{row}}: Invalid average cost ({{price}}).',
+    rowInvalidPurchaseDate:
+      'Row {{row}}: Invalid purchase date. Use DD.MM.YYYY (e.g. 15.03.2024) or leave the cell empty.',
     rowPortfolioNotFound: 'Row {{row}}: Portfolio "{{name}}" not found.',
     rowCategoryNotFound: 'Row {{row}}: Category "{{name}}" not found.',
     rowAssetNotFound: 'Row {{row}}: "{{asset}}" not found in this category.',
@@ -225,6 +227,7 @@ export default {
     labelQtyAddCaps: 'QUANTITY TO ADD',
     labelQtyReduceCaps: 'QUANTITY TO REMOVE',
     labelUnitCostCaps: 'UNIT COST (Optional)',
+    keyboardDone: 'Done',
     btnAdd: 'ADD',
     btnReduce: 'REDUCE',
     btnDelete: 'DELETE',
@@ -236,6 +239,8 @@ export default {
     modalMessage: '{{qty}} units of {{symbol}} will be removed. Do you want to continue?',
     modalNo: 'No',
     modalYes: 'Yes, remove',
+    toastAddDone: 'Addition completed',
+    toastReduceDone: 'Reduction completed',
   },
   layout: {
     bulkUploadTitle: 'Bulk upload',
