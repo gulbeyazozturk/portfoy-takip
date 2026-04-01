@@ -12,7 +12,7 @@ on:
 
 concurrency:
   group: us-sync
-  cancel-in-progress: true
+  cancel-in-progress: false
 
 jobs:
   sync-us:
@@ -43,8 +43,8 @@ jobs:
       - name: Sync Yurtdışı liste (S&P 500)
         run: node scripts/sync-yurtdisi-list.js
 
-      - name: Sync Yurtdışı fiyat (Yahoo, full batch 650)
-        run: node scripts/sync-yurtdisi-prices.js --mode=full --batch=650 --delay=180
+      - name: Sync Yurtdışı fiyat (Yahoo, full batch 500)
+        run: node scripts/sync-yurtdisi-prices.js --mode=full --batch=500 --delay=180
 
       - name: Backfill eksik Yurtdışı fiyatlar (holdings)
         run: node scripts/sync-yurtdisi-missing-prices.js --limit=160 --delay=140
