@@ -201,6 +201,8 @@ export default {
     missingInfo: 'Portföy veya varlık bilgisi eksik.',
     invalidQty: 'Geçerli bir miktar girin.',
     reduceTooMuch: 'Mevcut adetten ({{qty}}) fazla çıkaramazsınız.',
+    reduceNoHolding:
+      'Azaltılacak kayıt bulunmuyor. Bu varlık portföyünüzde yok; önce ekleyin.',
     updateNoRow:
       'Veritabanında kayıt güncellenmedi. Seçili portföy ile bu pozisyonun aynı portföyde olduğundan emin olun; gerekirse portföy seçimini değiştirin.',
     deleteErrorWeb: 'Silme hatası: {{message}}',

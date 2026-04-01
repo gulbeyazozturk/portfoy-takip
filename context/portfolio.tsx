@@ -21,7 +21,8 @@ type PortfolioContextValue = {
   portfolioId: string | null;
   portfolios: PortfolioRow[];
   portfoliosLoading: boolean;
-  refresh: () => Promise<void>;
+  /** Portföy listesini yeniler; yoksa Ana Portföy oluşturur. Seçilen portföy id veya null döner. */
+  refresh: () => Promise<string | null>;
   selectPortfolio: (id: string) => Promise<void>;
   addPortfolio: (name: string) => Promise<{ error?: string }>;
   renamePortfolio: (id: string, name: string) => Promise<{ error?: string }>;
@@ -71,15 +72,16 @@ export function PortfolioProvider({ children }: { children: React.ReactNode }) {
     [user?.id],
   );
 
-  const refresh = useCallback(async () => {
+  const refresh = useCallback(async (): Promise<string | null> => {
     if (!user?.id) {
       setPortfolioId(null);
       setPortfolios([]);
       setPortfoliosLoading(false);
-      return;
+      return null;
     }
 
     setPortfoliosLoading(true);
+    let selected: string | null = null;
     try {
       let { data, error } = await supabase
         .from('portfolios')
@@ -90,7 +92,7 @@ export function PortfolioProvider({ children }: { children: React.ReactNode }) {
       if (error) {
         setPortfolioId(null);
         setPortfolios([]);
-        return;
+        return null;
       }
 
       let rows: PortfolioRow[] = (data ?? []) as PortfolioRow[];
@@ -121,7 +123,7 @@ export function PortfolioProvider({ children }: { children: React.ReactNode }) {
         if (insertError || !inserted) {
           setPortfolioId(null);
           setPortfolios([]);
-          return;
+          return null;
         }
         rows = [inserted as PortfolioRow];
       }
@@ -130,12 +132,14 @@ export function PortfolioProvider({ children }: { children: React.ReactNode }) {
 
       const chosen = await resolveSelection(rows, portfolioIdRef.current);
       setPortfolioId(chosen);
+      selected = chosen;
       if (chosen) {
         await persistSelection(chosen);
       }
     } finally {
       setPortfoliosLoading(false);
     }
+    return selected;
   }, [user?.id, resolveSelection, persistSelection]);
 
   useEffect(() => {

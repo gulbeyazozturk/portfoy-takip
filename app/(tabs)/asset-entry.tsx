@@ -281,7 +281,7 @@ export default function AssetEntryScreen() {
   const insets = useSafeAreaInsets();
 
   const router = useRouter();
-  const { portfolioId } = usePortfolio();
+  const { portfolioId, refresh: refreshPortfolios } = usePortfolio();
   const params = useLocalSearchParams<{
     returnTo?: string;
     returnCategoryId?: string;
@@ -950,7 +950,7 @@ export default function AssetEntryScreen() {
   };
 
   const handleAdd = async () => {
-    if (!assetId || !portfolioId) {
+    if (!assetId) {
       Alert.alert(t('assetEntry.errorTitle'), t('assetEntry.missingInfo'));
       return;
     }
@@ -963,6 +963,11 @@ export default function AssetEntryScreen() {
     const parsedCostDate = parseCostDate(costDateDay, costDateMonth, costDateYear);
     if (!isUsdNative && categoryId !== 'mevduat' && hasAnyDatePart && !parsedCostDate) {
       Alert.alert(t('assetEntry.errorTitle'), 'Satın alma tarihi geçersiz. GG-AA-YYYY formatında girin.');
+      return;
+    }
+    const pid = portfolioId ?? (await refreshPortfolios());
+    if (!pid) {
+      Alert.alert(t('assetEntry.errorTitle'), t('assetEntry.missingInfo'));
       return;
     }
     Keyboard.dismiss();
@@ -999,7 +1004,7 @@ export default function AssetEntryScreen() {
             .from('holdings')
             .update({ quantity: newQty, avg_price: null })
             .eq('id', holdingId)
-            .eq('portfolio_id', portfolioId)
+            .eq('portfolio_id', pid)
             .select('quantity, avg_price')
             .maybeSingle();
           if (error) {
@@ -1022,7 +1027,7 @@ export default function AssetEntryScreen() {
             .from('holdings')
             .update({ quantity: newQty, avg_price: newAvg, notes: nextNotes })
             .eq('id', holdingId)
-            .eq('portfolio_id', portfolioId)
+            .eq('portfolio_id', pid)
             .select('quantity, avg_price, notes')
             .maybeSingle();
           if (error) {
@@ -1040,7 +1045,7 @@ export default function AssetEntryScreen() {
         }
       } else {
         const { data, error } = await supabase.from('holdings').insert({
-          portfolio_id: portfolioId,
+          portfolio_id: pid,
           asset_id: assetId,
           quantity: inputQty,
           avg_price: isMevduat ? null : cost,
@@ -1092,7 +1097,10 @@ export default function AssetEntryScreen() {
   };
 
   const handleReduce = async () => {
-    if (!holdingId || !portfolioId) return;
+    if (!holdingId) {
+      Alert.alert(t('assetEntry.errorTitle'), t('assetEntry.reduceNoHolding'));
+      return;
+    }
     if (inputQty <= 0) {
       Alert.alert(t('assetEntry.errorTitle'), t('assetEntry.invalidQty'));
       return;
@@ -1104,6 +1112,11 @@ export default function AssetEntryScreen() {
       );
       return;
     }
+    const pid = portfolioId ?? (await refreshPortfolios());
+    if (!pid) {
+      Alert.alert(t('assetEntry.errorTitle'), t('assetEntry.missingInfo'));
+      return;
+    }
     Keyboard.dismiss();
     const newQty = qty - inputQty;
     setSaving(true);
@@ -1112,7 +1125,7 @@ export default function AssetEntryScreen() {
         .from('holdings')
         .delete()
         .eq('id', holdingId)
-        .eq('portfolio_id', portfolioId)
+        .eq('portfolio_id', pid)
         .select('id')
         .maybeSingle();
       setSaving(false);
@@ -1127,7 +1140,7 @@ export default function AssetEntryScreen() {
         .from('holdings')
         .update({ quantity: newQty })
         .eq('id', holdingId)
-        .eq('portfolio_id', portfolioId)
+        .eq('portfolio_id', pid)
         .select('quantity')
         .maybeSingle();
       setSaving(false);
@@ -1152,13 +1165,18 @@ export default function AssetEntryScreen() {
   };
 
   const performDelete = async () => {
-    if (!holdingId || !portfolioId) return;
+    if (!holdingId) return;
+    const pid = portfolioId ?? (await refreshPortfolios());
+    if (!pid) {
+      Alert.alert(t('assetEntry.errorTitle'), t('assetEntry.missingInfo'));
+      return;
+    }
     setSaving(true);
     const { data: deleted, error } = await supabase
       .from('holdings')
       .delete()
       .eq('id', holdingId)
-      .eq('portfolio_id', portfolioId)
+      .eq('portfolio_id', pid)
       .select('id')
       .maybeSingle();
     setSaving(false);

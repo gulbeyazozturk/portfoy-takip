@@ -198,6 +198,8 @@ export default {
     missingInfo: 'Portfolio or asset information is missing.',
     invalidQty: 'Enter a valid quantity.',
     reduceTooMuch: 'You cannot remove more than you hold ({{qty}}).',
+    reduceNoHolding:
+      'There is no holding to reduce. This asset is not in your portfolio yet—add it first.',
     updateNoRow:
       'Nothing was updated in the database. Make sure the selected portfolio matches this position; change the portfolio picker if needed.',
     deleteErrorWeb: 'Delete error: {{message}}',
