@@ -152,8 +152,10 @@ export default function PortfolioScreen() {
   } = useSelectedCategories();
 
   useEffect(() => {
-    selectAllCategories();
-  }, [portfolioId, selectAllCategories]);
+    // Home'dan grafik/çip üzerinden kategori set edilip ardından portföy ekranına girildiğinde
+    // (ör. emtia) bu seçim "tümü"ye çekilmesin.
+    if (filter.kind === 'all') selectAllCategories();
+  }, [portfolioId, selectAllCategories, filter.kind]);
 
   const [sortMode, setSortMode] = useState<SortMode>('todayTopGainers');
   const [isSortMenuOpen, setIsSortMenuOpen] = useState(false);
