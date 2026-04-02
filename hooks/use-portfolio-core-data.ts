@@ -128,7 +128,79 @@ export function usePortfolioCoreData() {
       setError(e.message);
       setHoldings([]);
     } else {
-      setHoldings((data as unknown as HoldingRow[]) ?? []);
+      const rawHoldings = ((data as unknown as HoldingRow[]) ?? []).slice();
+
+      // FON'larda (TEFAS o gün datası gelmediyse) assets.current_price null kalabiliyor.
+      // Bu durumda price_history'den en son kaydı (bir önceki gün) çekip current_price'a seed ediyoruz.
+      const fonMissingAssetIds = new Set<string>();
+      for (const h of rawHoldings) {
+        const a = Array.isArray(h.asset) ? h.asset[0] : h.asset;
+        if (!a) continue;
+        if (a.category_id !== 'fon') continue;
+        const p = Number(a.current_price ?? 0);
+        const ch = a.change_24h_pct;
+        const needsChange = ch == null || !Number.isFinite(Number(ch));
+        if (!Number.isFinite(p) || p <= 0 || needsChange) {
+          fonMissingAssetIds.add(String(a.id));
+        }
+      }
+
+      let updatedHoldings = rawHoldings;
+      if (fonMissingAssetIds.size > 0) {
+        const ids = Array.from(fonMissingAssetIds);
+        const { data: phRows, error: phErr } = await supabase
+          .from('price_history')
+          .select('asset_id, price, recorded_at')
+          .in('asset_id', ids)
+          .not('price', 'is', null)
+          .order('recorded_at', { ascending: false });
+        if (phErr) {
+          // Fiyat seed edilemezse mevcut (null) kalsın; UI "Fiyat güncelleniyor..." gösterebilir.
+        } else {
+          const pricesByAsset = new Map<string, number[]>();
+          for (const row of phRows ?? []) {
+            const aid = String(row.asset_id);
+            const p = Number(row.price);
+            if (!Number.isFinite(p) || p <= 0) continue;
+            if (!pricesByAsset.has(aid)) pricesByAsset.set(aid, []);
+            const arr = pricesByAsset.get(aid)!;
+            // Aynı değeri tekrar ekleme (bazı kayıtlarda tekrar olabiliyor)
+            if (!arr.length || Math.abs(arr[0] - p) > 1e-12) arr.push(p);
+            // Her asset için sadece son 2 değere ihtiyacımız var.
+            if (arr.length >= 2) continue;
+          }
+
+          updatedHoldings = rawHoldings.map((h) => {
+            const a = Array.isArray(h.asset) ? h.asset[0] : h.asset;
+            if (!a) return h;
+            if (a.category_id !== 'fon') return h;
+            const cur = Number(a.current_price ?? 0);
+            const needsCurrentSeed = !Number.isFinite(cur) || cur <= 0;
+            const needsChangeSeed = a.change_24h_pct == null || !Number.isFinite(Number(a.change_24h_pct));
+            const prices = pricesByAsset.get(String(a.id)) ?? [];
+            const latest = prices[0];
+            const prev = prices[1];
+            if (!needsCurrentSeed && !needsChangeSeed) return h;
+            if (latest == null) return h;
+
+            const nextAsset: any = { ...a };
+            if (needsCurrentSeed) nextAsset.current_price = latest;
+            if (needsChangeSeed) {
+              if (prev != null && Number.isFinite(prev) && prev > 0 && latest > 0) {
+                nextAsset.change_24h_pct = ((latest - prev) / prev) * 100;
+              } else {
+                nextAsset.change_24h_pct = null;
+              }
+            }
+            if (Array.isArray(h.asset)) {
+              return { ...h, asset: [nextAsset, ...h.asset.slice(1)] };
+            }
+            return { ...h, asset: nextAsset };
+          });
+        }
+      }
+
+      setHoldings(updatedHoldings);
     }
     setLoading(false);
   }, [portfolioId]);

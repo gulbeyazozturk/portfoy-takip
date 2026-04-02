@@ -60,10 +60,12 @@ async function initSession() {
 
 async function fetchFundsByType(fundType, cookies) {
   const today = new Date();
-  const yesterday = new Date(today);
-  yesterday.setDate(yesterday.getDate() - 1);
+  // TEFAS hafta sonu/tatil için "dün" datasını döndürmeyebilir.
+  // O yüzden son 3 takvim günü alıp en son 2 kayıttan günlük değişimi hesaplıyoruz.
+  const start = new Date(today);
+  start.setDate(start.getDate() - 3);
 
-  const bastarih = formatDate(yesterday);
+  const bastarih = formatDate(start);
   const bittarih = formatDate(today);
 
   const body = `fontip=${fundType}&fonkod=&bastarih=${bastarih}&bittarih=${bittarih}`;
@@ -86,6 +88,7 @@ async function fetchFundsByType(fundType, cookies) {
 }
 
 async function fetchAllFunds() {
+  // code -> { _fundType, entriesByTs: Map<number, item> }
   const allFunds = new Map();
 
   for (const ft of FUND_TYPES) {
@@ -97,11 +100,12 @@ async function fetchAllFunds() {
       for (const item of data) {
         const code = (item.FONKODU || '').trim().toUpperCase();
         if (!code) continue;
-        const existing = allFunds.get(code);
         const ts = item.TARIH ? parseInt(item.TARIH.substring(0, 10), 10) : 0;
-        if (!existing || ts > (existing._ts || 0)) {
-          allFunds.set(code, { ...item, _ts: ts, _fundType: ft });
-        }
+        if (!ts) continue;
+
+        const existing = allFunds.get(code) || { _fundType: ft, entriesByTs: new Map() };
+        existing.entriesByTs.set(ts, item);
+        allFunds.set(code, existing);
       }
     } catch (err) {
       console.warn(`  ${ft} hatası:`, err.message);
@@ -109,7 +113,35 @@ async function fetchAllFunds() {
     await sleep(1500);
   }
 
-  return Array.from(allFunds.values());
+  const out = [];
+  for (const [code, rec] of allFunds.entries()) {
+    const entries = Array.from(rec.entriesByTs.entries())
+      .map(([ts, item]) => ({ ...item, _ts: ts }))
+      .sort((a, b) => a._ts - b._ts);
+
+    const last = entries[entries.length - 1];
+    const prev = entries[entries.length - 2];
+
+    const todayPrice = last?.FIYAT != null ? Number(last.FIYAT) : null;
+    const prevPrice = prev?.FIYAT != null ? Number(prev.FIYAT) : null;
+
+    const hasValid =
+      todayPrice != null &&
+      prevPrice != null &&
+      Number.isFinite(todayPrice) &&
+      Number.isFinite(prevPrice) &&
+      prevPrice > 0;
+
+    const changePct = hasValid ? ((todayPrice - prevPrice) / prevPrice) * 100 : null;
+
+    out.push({
+      ...last,
+      _fundType: rec._fundType,
+      _change_24h_pct: changePct,
+    });
+  }
+
+  return out;
 }
 
 async function upsertFonAssets(supabase, funds) {
@@ -117,6 +149,8 @@ async function upsertFonAssets(supabase, funds) {
 
   const rows = funds.map((f) => {
     const code = (f.FONKODU || '').trim().toUpperCase();
+    const change_24h_pct =
+      f._change_24h_pct != null && Number.isFinite(Number(f._change_24h_pct)) ? Number(f._change_24h_pct) : null;
     return {
       category_id: 'fon',
       symbol: code,
@@ -124,7 +158,8 @@ async function upsertFonAssets(supabase, funds) {
       currency: 'TRY',
       external_id: code,
       current_price: f.FIYAT != null ? Number(f.FIYAT) : null,
-      change_24h_pct: f.PIYADEGISIM != null ? Number(f.PIYADEGISIM) : null,
+      // PIYADEGISIM TEFAS cevabında sık boş/formatlı geliyor; günlük değişimi FIYAT'tan hesaplıyoruz.
+      change_24h_pct: change_24h_pct,
       price_updated_at: now,
     };
   });
@@ -176,7 +211,7 @@ async function main() {
   funds.slice(0, 5).forEach((f) => {
     console.log(
       `  ${(f.FONKODU || '').padEnd(6)} ${(f.FONUNVAN || '').substring(0, 40).padEnd(42)} ` +
-      `Fiyat: ${f.FIYAT ?? 'N/A'}`
+      `Fiyat: ${f.FIYAT ?? 'N/A'} | 24h%: ${f._change_24h_pct ?? 'N/A'}`
     );
   });
 }
