@@ -91,6 +91,12 @@ async function fetchAllFunds() {
   // code -> { _fundType, entriesByTs: Map<number, item> }
   const allFunds = new Map();
 
+  function turkeyDateStrFromMs(ms) {
+    return new Date(ms).toLocaleDateString('en-CA', { timeZone: 'Europe/Istanbul' });
+  }
+
+  const todayTurkey = turkeyDateStrFromMs(Date.now());
+
   for (const ft of FUND_TYPES) {
     console.log(`  ${ft} fonları çekiliyor...`);
     try {
@@ -100,11 +106,12 @@ async function fetchAllFunds() {
       for (const item of data) {
         const code = (item.FONKODU || '').trim().toUpperCase();
         if (!code) continue;
-        const ts = item.TARIH ? parseInt(item.TARIH.substring(0, 10), 10) : 0;
-        if (!ts) continue;
+        // item.TARIH TEFAS'ta genelde milisaniye epoch olarak geliyor.
+        const tsMs = item.TARIH ? Number(item.TARIH) : 0;
+        if (!tsMs) continue;
 
         const existing = allFunds.get(code) || { _fundType: ft, entriesByTs: new Map() };
-        existing.entriesByTs.set(ts, item);
+        existing.entriesByTs.set(tsMs, item);
         allFunds.set(code, existing);
       }
     } catch (err) {
@@ -116,8 +123,8 @@ async function fetchAllFunds() {
   const out = [];
   for (const [code, rec] of allFunds.entries()) {
     const entries = Array.from(rec.entriesByTs.entries())
-      .map(([ts, item]) => ({ ...item, _ts: ts }))
-      .sort((a, b) => a._ts - b._ts);
+      .map(([tsMs, item]) => ({ ...item, _tsMs: tsMs }))
+      .sort((a, b) => a._tsMs - b._tsMs);
 
     const last = entries[entries.length - 1];
     const prev = entries[entries.length - 2];
@@ -125,14 +132,20 @@ async function fetchAllFunds() {
     const todayPrice = last?.FIYAT != null ? Number(last.FIYAT) : null;
     const prevPrice = prev?.FIYAT != null ? Number(prev.FIYAT) : null;
 
-    const hasValid =
-      todayPrice != null &&
-      prevPrice != null &&
-      Number.isFinite(todayPrice) &&
-      Number.isFinite(prevPrice) &&
-      prevPrice > 0;
-
-    const changePct = hasValid ? ((todayPrice - prevPrice) / prevPrice) * 100 : null;
+    const lastDateTurkey = last?._tsMs ? turkeyDateStrFromMs(last._tsMs) : null;
+    // TEFAS fonları TR saatine göre sabah bir kez fiyatlanır.
+    // Eğer son gelen kayıt "bugün" değilse (00:00-24:00 aralığında henüz güncel veri yoksa),
+    // günlük %yi 0 yazarız ki stale değerler yanıltmasın.
+    let changePct = 0;
+    if (lastDateTurkey === todayTurkey) {
+      const hasValid =
+        todayPrice != null &&
+        prevPrice != null &&
+        Number.isFinite(todayPrice) &&
+        Number.isFinite(prevPrice) &&
+        prevPrice > 0;
+      changePct = hasValid ? ((todayPrice - prevPrice) / prevPrice) * 100 : 0;
+    }
 
     out.push({
       ...last,
