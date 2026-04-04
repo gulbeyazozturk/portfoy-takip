@@ -2,7 +2,7 @@
  * Fiziki altın fiyatları (gram, çeyrek, yarım, tam, cumhuriyet):
  * - https://finans.truncgil.com/v3/today.json (Trunçgil Finans) üzerinden ALIŞ fiyatlarını çeker
  * - Supabase'de category_id = 'emtia' olan assets kayıtlarını sembole göre UPSERT eder
- *   (current_price TL; change_24h_pct API'deki Change alanından)
+ *   (current_price TL; günlük % TSİ gece yarısı referansı — scripts/emtia-midnight-tr.js, döviz ile aynı mantık)
  *
  * Çalıştırma:
  *   node scripts/sync-kapalicarsi-gold.js
@@ -63,13 +63,6 @@ function toNumber(val) {
   return Number.isFinite(num) ? num : null;
 }
 
-function parseChangePct(str) {
-  if (str == null || typeof str !== 'string') return null;
-  const cleaned = String(str).replace(/%/g, '').replace(/,/g, '.').trim();
-  const num = parseFloat(cleaned);
-  return Number.isFinite(num) ? num : null;
-}
-
 async function fetchTruncGilData() {
   const res = await fetch(TRUNC_GIL_URL, {
     headers: { 'User-Agent': 'PortfoyTakip/1.0 (altin sync)' },
@@ -85,7 +78,15 @@ async function fetchTruncGilData() {
 }
 
 async function upsertKapalicarsiGold(supabase, apiData) {
+  const {
+    getTurkeyDateStr,
+    loadEmtiaMidnightBySymbol,
+    computeEmtiaChangeWithTrMidnight,
+  } = require('./emtia-midnight-tr');
+
   const now = new Date().toISOString();
+  const todayTurkey = getTurkeyDateStr();
+  const midnightMap = await loadEmtiaMidnightBySymbol(supabase);
   const payload = [];
 
   for (const [key, meta] of Object.entries(GOLD_KEYS)) {
@@ -95,7 +96,7 @@ async function upsertKapalicarsiGold(supabase, apiData) {
     const buying = row.Buying != null ? toNumber(row.Buying) : null;
     if (buying == null) continue;
 
-    const changePct = parseChangePct(row.Change);
+    const mid = computeEmtiaChangeWithTrMidnight(buying, meta.symbol, midnightMap, todayTurkey);
 
     payload.push({
       category_id: 'emtia',
@@ -103,7 +104,9 @@ async function upsertKapalicarsiGold(supabase, apiData) {
       name: meta.name,
       currency: 'TRY',
       current_price: buying,
-      change_24h_pct: changePct,
+      change_24h_pct: mid.change_24h_pct,
+      price_at_midnight: mid.price_at_midnight,
+      price_midnight_date: mid.price_midnight_date,
       price_updated_at: now,
     });
   }

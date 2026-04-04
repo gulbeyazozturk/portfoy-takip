@@ -47,6 +47,13 @@ function sleep(ms) {
   return new Promise((r) => setTimeout(r, ms));
 }
 
+/** TEFAS bazen hata/eksik veride FIYAT=-100 döner; DB'ye yazma. */
+function sanitizeTefasFiyat(fiyat) {
+  const n = fiyat != null ? Number(fiyat) : NaN;
+  if (!Number.isFinite(n) || n <= 0 || n === -100) return null;
+  return n;
+}
+
 async function initSession() {
   const res = await fetch(TEFAS_BASE, { headers: { 'User-Agent': HEADERS['User-Agent'] } });
   const cookieHeader = res.headers.get('set-cookie') || '';
@@ -170,8 +177,8 @@ async function upsertFonAssets(supabase, funds) {
       name: (f.FONUNVAN || code).trim(),
       currency: 'TRY',
       external_id: code,
-      current_price: f.FIYAT != null ? Number(f.FIYAT) : null,
-      // PIYADEGISIM TEFAS cevabında sık boş/formatlı geliyor; günlük değişimi FIYAT'tan hesaplıyoruz.
+      current_price: sanitizeTefasFiyat(f.FIYAT),
+      // Günlük %: fetchAllFunds içinde FIYAT ile hesaplanır (PIYADEGISIM güvenilir değil).
       change_24h_pct: change_24h_pct,
       price_updated_at: now,
     };

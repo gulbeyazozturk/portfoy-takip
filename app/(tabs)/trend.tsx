@@ -18,6 +18,7 @@ import { useTranslation } from 'react-i18next';
 import { PortfolioPickerModal } from '@/components/portfolio-picker-modal';
 import type { HoldingRow } from '@/hooks/use-portfolio-core-data';
 import { normalizeAsset, usePortfolioCoreData } from '@/hooks/use-portfolio-core-data';
+import { useMinuteTick } from '@/hooks/use-minute-tick';
 import { usePortfolioHistorySeries } from '@/hooks/use-portfolio-history-series';
 import { categoryDisplayLabel } from '@/lib/category-display';
 import type { PortfolioHistoryTf } from '@/lib/portfolio-history-math';
@@ -191,6 +192,7 @@ export default function TrendScreen() {
   const [perfCurrency, setPerfCurrency] = useState<'TL' | 'USD'>('TL');
   const [chartSelectedIdx, setChartSelectedIdx] = useState<number | null>(null);
   const [chartCategoryId, setChartCategoryId] = useState<string | null>(null);
+  const minuteTick = useMinuteTick();
 
   const {
     categories,
@@ -223,8 +225,8 @@ export default function TrendScreen() {
   }, [holdings, chartCategoryId]);
 
   const performanceValues = useMemo(
-    () => computePortfolioPerformanceValues(filteredHoldings, usdTry),
-    [filteredHoldings, usdTry],
+    () => computePortfolioPerformanceValues(filteredHoldings, usdTry, { now: new Date() }),
+    [filteredHoldings, usdTry, minuteTick],
   );
 
   const historySeries = usePortfolioHistorySeries(

@@ -4,6 +4,7 @@
  * - Altın (Gold), Gümüş (Silver), Platin (Platinum), Paladyum (Palladium) için USD bazlı fiyatları okur
  * - Supabase'de category_id = 'emtia' olan assets kayıtlarını sembole göre UPSERT eder
  *   (current_price TL cinsinden: ons fiyatı USD * USDTRY)
+ * - Günlük %: döviz sync ile aynı — TSİ yeni günde price_at_midnight o anki fiyata sabitlenir (scripts/emtia-midnight-tr.js)
  *
  * Çalıştırma:
  *   node scripts/sync-emtia-scrape.js
@@ -99,13 +100,10 @@ function parseMetalRows(html) {
     const priceUsd = bid ?? ask ?? null;
     if (priceUsd == null) return;
 
-    const changePct = normalizeEnNumber(perfText);
-
     rows.push({
       symbol: meta.symbol,
       name: meta.name,
       priceUsd,
-      change_24h_pct: changePct != null ? changePct : null,
     });
   });
 
@@ -134,18 +132,29 @@ async function upsertEmtiaAssets(supabase, rows) {
     console.log('Uyarı: metal tablosunda kullanılabilir satır bulunamadı.');
     return 0;
   }
+  const {
+    getTurkeyDateStr,
+    loadEmtiaMidnightBySymbol,
+    computeEmtiaChangeWithTrMidnight,
+  } = require('./emtia-midnight-tr');
+
   const usdTry = await getUsdTryFromAssets(supabase);
   const now = new Date().toISOString();
+  const todayTurkey = getTurkeyDateStr();
+  const midnightMap = await loadEmtiaMidnightBySymbol(supabase);
 
   const payload = rows.map((r) => {
     const priceTl = Number(r.priceUsd) * usdTry;
+    const mid = computeEmtiaChangeWithTrMidnight(priceTl, r.symbol, midnightMap, todayTurkey);
     return {
       category_id: 'emtia',
       symbol: r.symbol,
       name: r.name,
       currency: 'TRY',
       current_price: priceTl,
-      change_24h_pct: r.change_24h_pct ?? null,
+      change_24h_pct: mid.change_24h_pct,
+      price_at_midnight: mid.price_at_midnight,
+      price_midnight_date: mid.price_midnight_date,
       price_updated_at: now,
     };
   });
