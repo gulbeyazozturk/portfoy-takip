@@ -9,6 +9,7 @@
     "userInterfaceStyle": "automatic",
     "newArchEnabled": true,
     "ios": {
+      "buildNumber": "16",
       "supportsTablet": true,
       "bundleIdentifier": "com.omnifolio.app",
       "usesAppleSignIn": true,
