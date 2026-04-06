@@ -7,7 +7,7 @@ Projeyi başka bir GitHub kullanıcısına ve başka bir Expo hesabına taşıya
 | Alan | Ne yapılır |
 |------|------------|
 | `expo.owner` | Yeni kişinin **Expo kullanıcı adı** (ör. `johndoe`). `YOUR_EXPO_ACCOUNT` yerine yazın. |
-| `expo.extra.githubUsername` | Yeni kişinin **GitHub kullanıcı adı**. `YOUR_GITHUB_USERNAME` yerine yazın. |
+| `expo.extra.githubUsername` | **GitHub kullanıcı adı** (şu an: `gulbeyazozturk`). Değişirse güncelleyin. |
 | `expo.extra.githubRepoSlug` | Repo GitHub’da farklı isimdeyse güncelleyin; aynıysa `portfoy-takip` kalabilir. |
 
 Gizlilik politikası linki uygulama içinde bu değerlerden üretilir:  

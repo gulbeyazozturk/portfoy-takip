@@ -58,8 +58,8 @@ npx eas build --platform ios --profile production
 1. Projeyi GitHub’a push et.  
 2. Repo → **Settings** → **Pages** → Source: **Deploy from a branch** → Branch: **main**, folder: **/docs** → Save.  
 3. Birkaç dakika sonra gizlilik sayfası şu adresten açılır:  
-   **https://YOUR_GITHUB_USERNAME.github.io/portfoy-takip/privacy-policy.html**  
-   (`YOUR_GITHUB_USERNAME` ve repo adı `app.json` → `extra` ile aynı olmalı; bkz. [HESAP-DEVRI.md](./HESAP-DEVRI.md).)  
+   **https://gulbeyazozturk.github.io/portfoy-takip/privacy-policy.html**  
+   (Repo adı farklıysa `app.json` → `extra.githubRepoSlug` ile uyumlu olmalı; bkz. [HESAP-DEVRI.md](./HESAP-DEVRI.md).)  
    (Proje içinde bu URL Ayarlar’daki “Gizlilik politikası” linkine tanımlı.)
 
 ### 5. App Store Connect’te uygulamayı oluştur
@@ -72,7 +72,7 @@ npx eas build --platform ios --profile production
    - Eğer bu Bundle ID’yi hiç kullanmadıysan, Apple Developer sayfasında bir “App ID” oluşturup bu bundle ID’yi orada da tanımlaman gerekir.
 6. **SKU:** Örn. `portfoy-takip-1`.  
 7. **Privacy Policy URL:** Yukarıdaki GitHub Pages adresini yapıştır:  
-   `https://YOUR_GITHUB_USERNAME.github.io/portfoy-takip/privacy-policy.html`  
+   `https://gulbeyazozturk.github.io/portfoy-takip/privacy-policy.html`  
 8. Kaydedip çık.
 
 App’i oluşturduktan sonra **App Information** veya **App** sayfasından **Apple ID** (sayı, örn. 1234567890) al. Bunu aşağıda kullanacağız.

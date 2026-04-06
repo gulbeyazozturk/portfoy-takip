@@ -19,7 +19,7 @@ Primary Language **Turkish** ise aşağıdaki **Türkçe** blokları kullanın. 
 
 | Alan | Değer |
 |------|--------|
-| **Support URL** | `https://github.com/YOUR_GITHUB_USERNAME/portfoy-takip` (`app.json` içindeki `githubUsername` / `githubRepoSlug` ile aynı olmalı) |
+| **Support URL** | `https://github.com/gulbeyazozturk/portfoy-takip` |
 | **Marketing URL** | *(boş bırakılabilir)* veya repo / landing sayfanız |
 | **Copyright** | `2026 Eren Bilge Öztürk` |
 
@@ -103,5 +103,5 @@ portfolio,stocks,BIST,crypto,forex,commodities,finance,assets,chart,funds,invest
 
 ## İlgili bağlantılar
 
-- Gizlilik politikası (App Store / uygulama): `https://YOUR_GITHUB_USERNAME.github.io/portfoy-takip/privacy-policy.html` — `YOUR_GITHUB_USERNAME` ve repo slug’ını `app.json` → `extra` ile eşleştirin.
+- Gizlilik politikası (App Store / uygulama): `https://gulbeyazozturk.github.io/portfoy-takip/privacy-policy.html`
 - Genel yükleme adımları: [APP-STORE-YUKLEME.md](./APP-STORE-YUKLEME.md)

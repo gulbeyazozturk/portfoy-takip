@@ -24,10 +24,10 @@ GitHub Actions içindeki `schedule` (cron) **garanti etmez**; yük nedeniyle tet
    https://api.github.com/repos/KULLANICI_ADI/REPO_ADI/actions/workflows/portfolio-sync.yml/dispatches
    ```
 
-   Örnek (repo `KULLANICI_ADI/portfoy-takip` ise — kendi GitHub kullanıcı/repo adınızı yazın):
+   Örnek (repo `gulbeyazozturk/portfoy-takip`):
 
    ```
-   https://api.github.com/repos/KULLANICI_ADI/portfoy-takip/actions/workflows/portfolio-sync.yml/dispatches
+   https://api.github.com/repos/gulbeyazozturk/portfoy-takip/actions/workflows/portfolio-sync.yml/dispatches
    ```
 
 4. **Request method:** `POST`.

@@ -33,7 +33,7 @@ type AppExtra = {
 };
 
 const extra = Constants.expoConfig?.extra as AppExtra | undefined;
-const githubUsername = extra?.githubUsername ?? 'YOUR_GITHUB_USERNAME';
+const githubUsername = extra?.githubUsername ?? 'gulbeyazozturk';
 const githubRepoSlug = extra?.githubRepoSlug ?? 'portfoy-takip';
 /** GitHub Pages: `docs/privacy-policy.html`, branch `main`, klasör `/docs` — bkz. docs/HESAP-DEVRI.md */
 const PRIVACY_POLICY_URL = `https://${githubUsername}.github.io/${githubRepoSlug}/privacy-policy.html`;
