@@ -64,10 +64,9 @@
     },
     "extra": {
       "router": {},
-      "eas": {
-        "projectId": "266f3dcd-2372-490d-83a1-300fe27fbff3"
-      }
+      "githubUsername": "YOUR_GITHUB_USERNAME",
+      "githubRepoSlug": "portfoy-takip"
     },
-    "owner": "hozturk907"
+    "owner": "YOUR_EXPO_ACCOUNT"
   }
 }

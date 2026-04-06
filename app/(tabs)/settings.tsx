@@ -23,10 +23,20 @@ import { useAuth } from '@/context/auth';
 import type { PortfolioRow } from '@/context/portfolio';
 import { usePortfolio } from '@/context/portfolio';
 import { useTranslation } from 'react-i18next';
+import Constants from 'expo-constants';
 
 const APP_VERSION = '1.0.0';
-// GitHub Pages: Repo → Settings → Pages → Source: main branch, /docs → https://<user>.github.io/portfoy-takip/privacy-policy.html
-const PRIVACY_POLICY_URL = 'https://hozturk907.github.io/portfoy-takip/privacy-policy.html';
+
+type AppExtra = {
+  githubUsername?: string;
+  githubRepoSlug?: string;
+};
+
+const extra = Constants.expoConfig?.extra as AppExtra | undefined;
+const githubUsername = extra?.githubUsername ?? 'YOUR_GITHUB_USERNAME';
+const githubRepoSlug = extra?.githubRepoSlug ?? 'portfoy-takip';
+/** GitHub Pages: `docs/privacy-policy.html`, branch `main`, klasör `/docs` — bkz. docs/HESAP-DEVRI.md */
+const PRIVACY_POLICY_URL = `https://${githubUsername}.github.io/${githubRepoSlug}/privacy-policy.html`;
 
 /** Portföy sekmesi (index) ile aynı seçim / hap paleti */
 const PRIMARY = '#89acff';

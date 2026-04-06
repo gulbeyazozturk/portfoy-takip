@@ -4,7 +4,7 @@ TestFlight benzeri “link ile kur” akışı: **EAS Build** + **`preview`** pr
 
 ## Ön koşullar
 
-- [Expo](https://expo.dev) hesabı (projede `owner: hozturk907` tanımlı).
+- [Expo](https://expo.dev) hesabı (`app.json` içinde `owner` — bkz. [HESAP-DEVRI.md](./HESAP-DEVRI.md)).
 - Bilgisayarda **Node.js** ve proje klasörü.
 - Android testçiler: Gmail ile Expo’ya davet edilebilir (isteğe bağlı; link paylaşımı da yeterli olabilir).
 
@@ -36,7 +36,7 @@ Tarayıcıda Expo hesabınla oturum aç.
 
 Uygulama `EXPO_PUBLIC_SUPABASE_URL` ve `EXPO_PUBLIC_SUPABASE_ANON_KEY` ile çalışır. **EAS build sunucusunda** bu değerler tanımlı olmalı (yerel `.env` otomatik gitmez).
 
-1. [expo.dev](https://expo.dev) → **hozturk907** → proje **omnifolio** (veya slug: omnifolio).
+1. [expo.dev](https://expo.dev) → **Expo owner** (`app.json` → `owner`) → proje **omnifolio** (slug: `omnifolio`).
 2. **Environment variables** (veya Secrets).
 3. **Preview** (ve gerekiyorsa **Production**) için şunları ekle:
    - `EXPO_PUBLIC_SUPABASE_URL`

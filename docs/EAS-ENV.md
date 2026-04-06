@@ -3,6 +3,8 @@
 `EXPO_PUBLIC_*` değişkenleri **derleme sırasında** uygulamaya gömülür.  
 Yerel `.env` dosyanız **Git’e girmez**; **EAS sunucusunda** tanımlanmazsa TestFlight’ta URL/anahtar **boş** kalır ve uygulama açılmaz veya oturum açılamaz.
 
+Expo hesabı / proje değiştiriyorsanız ortam değişkenlerini yeni projede yeniden oluşturmanız gerekir: [HESAP-DEVRI.md](./HESAP-DEVRI.md).
+
 ## Tanımlanması gerekenler
 
 | Değişken | Açıklama |

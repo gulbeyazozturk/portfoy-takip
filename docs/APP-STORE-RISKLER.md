@@ -20,7 +20,7 @@ Proje taranmış; aşağıdaki noktalar **red riskini** azaltmak için dikkate a
   - GitHub → repo → **Settings** → **Pages**
   - **Source:** Deploy from a branch
   - **Branch:** main, klasör **/docs** → Save
-  - Birkaç dakika sonra adres açılır: `https://hozturk907.github.io/portfoy-takip/privacy-policy.html`
+  - Birkaç dakika sonra adres açılır: `https://YOUR_GITHUB_USERNAME.github.io/portfoy-takip/privacy-policy.html` (`app.json` → `extra.githubUsername` ile uyumlu olmalı)
 - **App Store Connect:** Bu URL’i uygulama sayfasındaki **Privacy Policy URL** alanına yaz.
 
 ### 2. Uygulama açıklaması ve ekran görüntüleri
