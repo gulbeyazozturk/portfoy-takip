@@ -3,9 +3,12 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 
 import { usePortfolio } from '@/context/portfolio';
+import { useMinuteTick } from '@/hooks/use-minute-tick';
 import { CATEGORY_CHART_COLORS } from '@/lib/category-chart-colors';
 import { categoryDisplayLabel } from '@/lib/category-display';
 import { kriptoStoredUnitToUsd, legacyCryptoStoredUnitToUsd } from '@/lib/crypto-price-usd';
+import { effectiveChange24hPctForDisplay } from '@/lib/effective-change-24h';
+import { dailyPrevValueFromChangePct, fonUnitNativeTry } from '@/lib/fon-price-guards';
 import { isUsdNativeCategory } from '@/lib/portfolio-currency';
 import { supabase } from '@/lib/supabase';
 
@@ -32,6 +35,7 @@ export type AssetRow = {
   currency?: string | null;
   icon_url?: string | null;
   change_24h_pct?: number | null;
+  price_updated_at?: string | null;
 };
 export type HoldingRow = {
   id: string;
@@ -76,6 +80,7 @@ export function usePortfolioCoreData() {
   const [dovizSpotBySymbol, setDovizSpotBySymbol] = useState<Record<string, number>>({});
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const minuteTick = useMinuteTick();
 
   const fetchUsdRate = useCallback(async () => {
     try {
@@ -121,7 +126,7 @@ export function usePortfolioCoreData() {
     const { data, error: e } = await supabase
       .from('holdings')
       .select(
-        'id, quantity, avg_price, created_at, asset:assets(id, name, symbol, category_id, current_price, currency, change_24h_pct, icon_url)',
+        'id, quantity, avg_price, created_at, asset:assets(id, name, symbol, category_id, current_price, currency, change_24h_pct, price_updated_at, icon_url)',
       )
       .eq('portfolio_id', portfolioId);
     if (e) {
@@ -255,6 +260,8 @@ export function usePortfolioCoreData() {
     const withAsset = holdings.map((h) => ({ ...h, asset: normalizeAsset(h.asset) })).filter((h) => h.asset);
     if (withAsset.length === 0) return empty;
 
+    const now = new Date();
+
     const byCategoryTL: Record<string, number> = {};
     type CatAgg = { vTL: number; dTL: number; cTL: number; vUSD: number; dUSD: number; cUSD: number };
     const byCat: Record<string, CatAgg> = {};
@@ -276,6 +283,8 @@ export function usePortfolioCoreData() {
         } else if (h.avg_price != null) {
           unitNative = legacyCryptoStoredUnitToUsd(Number(h.avg_price), safeRate);
         }
+      } else if (asset.category_id === 'fon') {
+        unitNative = fonUnitNativeTry(asset.current_price, h.avg_price);
       } else {
         unitNative = Number(asset.current_price ?? h.avg_price ?? 0) || 0;
       }
@@ -290,9 +299,13 @@ export function usePortfolioCoreData() {
       totalValueTL += valueTL;
       totalValueUSD += valueUSD;
 
-      const pct24 = asset.change_24h_pct ?? 0;
-      const prevValue = pct24 !== 0 ? value / (1 + pct24 / 100) : value;
-      const dailyDeltaNative = pct24 !== 0 ? value - prevValue : 0;
+      const effPct = effectiveChange24hPctForDisplay(
+        asset.category_id,
+        asset.change_24h_pct,
+        asset.price_updated_at,
+        now,
+      );
+      const { prevValue, dailyDelta: dailyDeltaNative } = dailyPrevValueFromChangePct(value, effPct);
       const costUnit =
         h.avg_price != null
           ? asset.category_id === 'kripto'
@@ -412,7 +425,7 @@ export function usePortfolioCoreData() {
       },
       categoryPerformanceById,
     };
-  }, [holdings, categories, usdTry, dovizSpotBySymbol, t]);
+  }, [holdings, categories, usdTry, dovizSpotBySymbol, t, minuteTick]);
 
   return {
     categories,

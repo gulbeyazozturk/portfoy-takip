@@ -1,6 +1,8 @@
 import type { AssetRow, HoldingRow } from '@/hooks/use-portfolio-core-data';
 import { normalizeAsset } from '@/hooks/use-portfolio-core-data';
 import { kriptoStoredUnitToUsd, legacyCryptoStoredUnitToUsd } from '@/lib/crypto-price-usd';
+import { effectiveChange24hPctForDisplay } from '@/lib/effective-change-24h';
+import { dailyPrevValueFromChangePct, fonUnitNativeTry } from '@/lib/fon-price-guards';
 import { isUsdNativeCategory } from '@/lib/portfolio-currency';
 
 export type PortfolioPerformanceValues = {
@@ -24,7 +26,9 @@ type Row = HoldingRow & { asset: AssetRow };
 export function computePortfolioPerformanceValues(
   holdings: HoldingRow[],
   usdTry: number,
+  opts?: { now?: Date },
 ): PortfolioPerformanceValues {
+  const now = opts?.now ?? new Date();
   const empty: PortfolioPerformanceValues = {
     totalValueTL: 0,
     costBasisTL: 0,
@@ -63,6 +67,8 @@ export function computePortfolioPerformanceValues(
       } else if (h.avg_price != null) {
         unitNative = legacyCryptoStoredUnitToUsd(Number(h.avg_price), safeRate);
       }
+    } else if (asset.category_id === 'fon') {
+      unitNative = fonUnitNativeTry(asset.current_price, h.avg_price);
     } else {
       unitNative = Number(asset.current_price ?? h.avg_price ?? 0) || 0;
     }
@@ -81,12 +87,15 @@ export function computePortfolioPerformanceValues(
     costBasisTL += costVal * rateTL;
     totalValueUSD += value * rateUSD;
     costBasisUSD += costVal * rateUSD;
-    const pct24 = asset.change_24h_pct ?? 0;
-    if (pct24 !== 0) {
-      const prevValue = value / (1 + pct24 / 100);
-      dailyChangeTL += (value - prevValue) * rateTL;
-      dailyChangeUSD += (value - prevValue) * rateUSD;
-    }
+    const effPct = effectiveChange24hPctForDisplay(
+      asset.category_id,
+      asset.change_24h_pct,
+      asset.price_updated_at,
+      now,
+    );
+    const { dailyDelta: dailyDeltaNative } = dailyPrevValueFromChangePct(value, effPct);
+    dailyChangeTL += dailyDeltaNative * rateTL;
+    dailyChangeUSD += dailyDeltaNative * rateUSD;
   }
 
   const totalChangeAmtTL = totalValueTL - costBasisTL;

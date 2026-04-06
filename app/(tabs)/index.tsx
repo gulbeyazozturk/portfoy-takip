@@ -29,9 +29,12 @@ import {
   type AssetRow,
   type HoldingRow,
 } from '@/hooks/use-portfolio-core-data';
+import { useMinuteTick } from '@/hooks/use-minute-tick';
 import { kriptoStoredUnitToUsd, legacyCryptoStoredUnitToUsd } from '@/lib/crypto-price-usd';
 import { resolveBistDisplayName } from '@/lib/bist-display-name';
 import { categoryDisplayLabel } from '@/lib/category-display';
+import { effectiveChange24hPctForDisplay } from '@/lib/effective-change-24h';
+import { dailyPrevValueFromChangePct, fonUnitNativeTry } from '@/lib/fon-price-guards';
 import { isUsdNativeCategory } from '@/lib/portfolio-currency';
 import { useTranslation } from 'react-i18next';
 
@@ -59,12 +62,20 @@ function formatPortfolioMoneyCeil(value: number, locale: string): string {
  * Sıralama için günlük %: önce change_24h_pct; yoksa (FON vb.) liste satırıyla aynı şekilde maliyetten türetilir.
  * Eski mantıkta null hep -Infinity/Infinity sayılırdı → tüm çiftler eşit, sıra değişmezdi.
  */
-function effectiveDailyPctForSort(h: HoldingRow, asset: AssetRow, usdTry: number): number {
-  const rawSpot = Number(asset.current_price ?? h.avg_price ?? 0);
+function effectiveDailyPctForSort(h: HoldingRow, asset: AssetRow, usdTry: number, now: Date): number {
+  const rawSpot =
+    asset.category_id === 'fon'
+      ? fonUnitNativeTry(asset.current_price, h.avg_price)
+      : Number(asset.current_price ?? h.avg_price ?? 0);
   const currentPrice =
     asset.category_id === 'kripto' ? kriptoStoredUnitToUsd(rawSpot, usdTry, asset.currency) : rawSpot;
-  const changePct = asset.change_24h_pct;
-  if (changePct != null && Number.isFinite(changePct)) return changePct;
+  const chgEff = effectiveChange24hPctForDisplay(
+    asset.category_id,
+    asset.change_24h_pct,
+    asset.price_updated_at,
+    now,
+  );
+  if (chgEff != null && Number.isFinite(chgEff) && Math.abs(1 + chgEff / 100) > 1e-9) return chgEff;
 
   const costRaw = h.avg_price != null ? Number(h.avg_price) : null;
   const costPrice =
@@ -142,6 +153,7 @@ export default function PortfolioScreen() {
     selectPortfolio,
     currentPortfolioName,
   } = usePortfolioCoreData();
+  const minuteTick = useMinuteTick();
   const [portfolioPickerOpen, setPortfolioPickerOpen] = useState(false);
   const {
     filter,
@@ -199,6 +211,7 @@ export default function PortfolioScreen() {
           });
 
     const sorted = [...base];
+    const now = new Date();
 
     sorted.sort((a, b) => {
       const assetA = normalizeAsset(a.asset);
@@ -209,11 +222,15 @@ export default function PortfolioScreen() {
       const unitA =
         assetA?.category_id === 'kripto'
           ? kriptoStoredUnitToUsd(rawA, usdTry, assetA.currency)
-          : rawA;
+          : assetA?.category_id === 'fon'
+            ? fonUnitNativeTry(assetA.current_price, a.avg_price)
+            : rawA;
       const unitB =
         assetB?.category_id === 'kripto'
           ? kriptoStoredUnitToUsd(rawB, usdTry, assetB.currency)
-          : rawB;
+          : assetB?.category_id === 'fon'
+            ? fonUnitNativeTry(assetB.current_price, b.avg_price)
+            : rawB;
       const nativeA = a.quantity * unitA;
       const nativeB = b.quantity * unitB;
       const rate = usdTry > 0 ? usdTry : 1;
@@ -222,13 +239,13 @@ export default function PortfolioScreen() {
 
       switch (sortMode) {
         case 'todayTopGainers': {
-          const ca = assetA ? effectiveDailyPctForSort(a, assetA, usdTry) : Number.NEGATIVE_INFINITY;
-          const cb = assetB ? effectiveDailyPctForSort(b, assetB, usdTry) : Number.NEGATIVE_INFINITY;
+          const ca = assetA ? effectiveDailyPctForSort(a, assetA, usdTry, now) : Number.NEGATIVE_INFINITY;
+          const cb = assetB ? effectiveDailyPctForSort(b, assetB, usdTry, now) : Number.NEGATIVE_INFINITY;
           return cb - ca;
         }
         case 'todayTopLosers': {
-          const ca = assetA ? effectiveDailyPctForSort(a, assetA, usdTry) : Number.POSITIVE_INFINITY;
-          const cb = assetB ? effectiveDailyPctForSort(b, assetB, usdTry) : Number.POSITIVE_INFINITY;
+          const ca = assetA ? effectiveDailyPctForSort(a, assetA, usdTry, now) : Number.POSITIVE_INFINITY;
+          const cb = assetB ? effectiveDailyPctForSort(b, assetB, usdTry, now) : Number.POSITIVE_INFINITY;
           return ca - cb;
         }
         case 'highestValue':
@@ -245,9 +262,10 @@ export default function PortfolioScreen() {
     });
 
     return sorted;
-  }, [holdings, filter, sortMode, sortCollator, usdTry]);
+  }, [holdings, filter, sortMode, sortCollator, usdTry, minuteTick]);
 
   const summaryData = useMemo(() => {
+    const now = new Date();
     let totalUSD = 0;
     let totalTL = 0;
     let dailyAmtUSD = 0;
@@ -262,11 +280,19 @@ export default function PortfolioScreen() {
       if (!asset) continue;
       const rawSpot = Number(asset.current_price ?? h.avg_price ?? 0);
       const spotUsd =
-        asset.category_id === 'kripto' ? kriptoStoredUnitToUsd(rawSpot, usdTry, asset.currency) : rawSpot;
+        asset.category_id === 'kripto'
+          ? kriptoStoredUnitToUsd(rawSpot, usdTry, asset.currency)
+          : asset.category_id === 'fon'
+            ? fonUnitNativeTry(asset.current_price, h.avg_price)
+            : rawSpot;
       const value = h.quantity * (Number(spotUsd) || 0);
-      const pct = asset.change_24h_pct ?? 0;
-      const prevValue = pct !== 0 ? value / (1 + pct / 100) : value;
-      const daily = value - prevValue;
+      const effChg = effectiveChange24hPctForDisplay(
+        asset.category_id,
+        asset.change_24h_pct,
+        asset.price_updated_at,
+        now,
+      );
+      const { prevValue, dailyDelta: daily } = dailyPrevValueFromChangePct(value, effChg);
       const costRaw = h.avg_price != null ? Number(h.avg_price) : null;
       const unitCost =
         costRaw != null && asset.category_id === 'kripto'
@@ -338,7 +364,7 @@ export default function PortfolioScreen() {
       mergedTotalPctTL,
       mergedTotalPctUSD,
     };
-  }, [filteredHoldings, usdTry]);
+  }, [filteredHoldings, usdTry, minuteTick]);
 
   const openPortfolioPicker = () => {
     if (portfolios.length > 0) setPortfolioPickerOpen(true);
@@ -598,10 +624,18 @@ export default function PortfolioScreen() {
                 const currentPrice =
                   asset.category_id === 'kripto'
                     ? kriptoStoredUnitToUsd(rawSpot, usdTry, asset.currency)
-                    : rawSpot;
+                    : asset.category_id === 'fon'
+                      ? fonUnitNativeTry(asset.current_price, h.avg_price)
+                      : rawSpot;
                 const hasLivePrice = Number.isFinite(currentPrice) && currentPrice > 0;
                 const value = h.quantity * currentPrice;
-                const changePct = asset.change_24h_pct ?? null;
+                const changePct =
+                  effectiveChange24hPctForDisplay(
+                    asset.category_id,
+                    asset.change_24h_pct,
+                    asset.price_updated_at,
+                    new Date(),
+                  ) ?? null;
                 const valueCurrency = isUsdNativeCategory(asset.category_id) ? 'USD' : 'TL';
                 const iconStyle =
                   ASSET_ICONS[asset.symbol] ??

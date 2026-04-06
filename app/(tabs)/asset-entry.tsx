@@ -29,6 +29,7 @@ import { usePortfolio } from '@/context/portfolio';
 import { kriptoStoredUnitToUsd, legacyCryptoStoredUnitToUsd } from '@/lib/crypto-price-usd';
 import { isUsdNativeCategory } from '@/lib/portfolio-currency';
 import { resolveBistDisplayName } from '@/lib/bist-display-name';
+import { effectiveChange24hPctForDisplay } from '@/lib/effective-change-24h';
 import { extractCostDateFromNotes, upsertCostDateInNotes } from '@/lib/holding-notes-cost-date';
 import { fetchInstantUnitPrice } from '@/lib/instant-price';
 import { getUsdTryRateForDate } from '@/lib/usdtry-rate-for-date';
@@ -641,7 +642,7 @@ export default function AssetEntryScreen() {
     if (!assetId) return;
     const { data } = await supabase
       .from('assets')
-      .select('current_price, change_24h_pct, icon_url, currency')
+      .select('current_price, change_24h_pct, price_updated_at, icon_url, currency')
       .eq('id', assetId)
       .maybeSingle();
     if (data?.currency != null && String(data.currency).trim() !== '') {
@@ -669,12 +670,13 @@ export default function AssetEntryScreen() {
           .eq('id', assetId);
       }
     }
-    if (data?.change_24h_pct != null) {
-      const c = Number(data.change_24h_pct);
-      setChange24hPct(Number.isFinite(c) ? c : null);
-    } else {
-      setChange24hPct(null);
-    }
+    const eff = effectiveChange24hPctForDisplay(
+      categoryId ?? '',
+      data?.change_24h_pct,
+      data?.price_updated_at,
+      new Date(),
+    );
+    setChange24hPct(eff != null && Number.isFinite(eff) ? eff : null);
     const url = data?.icon_url;
     setAssetIconUrl(typeof url === 'string' && url.length > 0 ? url : null);
   }, [assetId, categoryId, symbol]);
