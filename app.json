@@ -9,9 +9,8 @@
     "userInterfaceStyle": "automatic",
     "newArchEnabled": true,
     "ios": {
-      "buildNumber": "17",
       "supportsTablet": true,
-      "bundleIdentifier": "com.omnifolio.app",
+      "bundleIdentifier": "com.gulbeyazozturk.omnifolio",
       "usesAppleSignIn": true,
       "config": {
         "usesNonExemptEncryption": false
@@ -22,7 +21,7 @@
       }
     },
     "android": {
-      "package": "com.omnifolio.app",
+      "package": "com.gulbeyazozturk.omnifolio",
       "adaptiveIcon": {
         "backgroundColor": "#E6F4FE",
         "foregroundImage": "./assets/images/android-icon-foreground.png",
