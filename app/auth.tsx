@@ -12,7 +12,7 @@ import { waitForSignedInAfterOAuth } from '@/lib/oauth-session-wait';
 import { supabase } from '@/lib/supabase';
 import { useTranslation } from 'react-i18next';
 
-type Mode = 'signin' | 'signup';
+type Mode = 'signin' | 'signup' | 'forgot';
 
 /** Tagline / alt başlık satır yüksekliği — “3 satır boşluk” için çarpan. */
 const AUTH_LINE_HEIGHT = 20;
@@ -22,7 +22,7 @@ export default function AuthScreen() {
   const { t } = useTranslation();
   const insets = useSafeAreaInsets();
   const router = useRouter();
-  const { signInWithEmail, signUpWithEmail, signInWithGoogle, signInWithApple } = useAuth();
+  const { signInWithEmail, signUpWithEmail, signInWithGoogle, signInWithApple, requestPasswordReset } = useAuth();
   const [mode, setMode] = useState<Mode>('signin');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -34,6 +34,7 @@ export default function AuthScreen() {
   const isEmailValid = useMemo(() => email.trim().includes('@') && email.trim().includes('.'), [email]);
   const isPasswordValid = useMemo(() => password.trim().length >= 6, [password]);
   const canSubmit = useMemo(() => isEmailValid && isPasswordValid && !busy, [isEmailValid, isPasswordValid, busy]);
+  const canSendReset = useMemo(() => isEmailValid && !busy, [isEmailValid, busy]);
 
   const withTimeout = async <T,>(promise: Promise<T>, ms = 15000): Promise<T> => {
     return await Promise.race([
@@ -91,6 +92,28 @@ export default function AuthScreen() {
     }
   };
 
+  const sendReset = async () => {
+    if (busy || !isEmailValid) {
+      setError(t('auth.invalidEmail'));
+      return;
+    }
+    setBusy(true);
+    setError(null);
+    setInfo(null);
+    try {
+      const { error: e } = await withTimeout(requestPasswordReset(email.trim()), 20000);
+      if (e) {
+        setError(e);
+        return;
+      }
+      setInfo(t('auth.resetEmailSent'));
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : t('auth.genericError'));
+    } finally {
+      setBusy(false);
+    }
+  };
+
   const social = async (provider: 'google' | 'apple') => {
     setBusy(true);
     setError(null);
@@ -138,22 +161,24 @@ export default function AuthScreen() {
         <OmnifolioBrand />
         <ThemedText style={styles.subtitle}>{t('auth.subtitle')}</ThemedText>
 
-        <View style={styles.modeRow}>
-          <TouchableOpacity
-            activeOpacity={0.85}
-            style={[styles.modeBtn, mode === 'signin' && styles.modeBtnActive]}
-            onPress={() => setMode('signin')}
-          >
-            <ThemedText style={[styles.modeText, mode === 'signin' && styles.modeTextActive]}>{t('auth.signIn')}</ThemedText>
-          </TouchableOpacity>
-          <TouchableOpacity
-            activeOpacity={0.85}
-            style={[styles.modeBtn, mode === 'signup' && styles.modeBtnActive]}
-            onPress={() => setMode('signup')}
-          >
-            <ThemedText style={[styles.modeText, mode === 'signup' && styles.modeTextActive]}>{t('auth.signUp')}</ThemedText>
-          </TouchableOpacity>
-        </View>
+        {mode !== 'forgot' ? (
+          <View style={styles.modeRow}>
+            <TouchableOpacity
+              activeOpacity={0.85}
+              style={[styles.modeBtn, mode === 'signin' && styles.modeBtnActive]}
+              onPress={() => setMode('signin')}
+            >
+              <ThemedText style={[styles.modeText, mode === 'signin' && styles.modeTextActive]}>{t('auth.signIn')}</ThemedText>
+            </TouchableOpacity>
+            <TouchableOpacity
+              activeOpacity={0.85}
+              style={[styles.modeBtn, mode === 'signup' && styles.modeBtnActive]}
+              onPress={() => setMode('signup')}
+            >
+              <ThemedText style={[styles.modeText, mode === 'signup' && styles.modeTextActive]}>{t('auth.signUp')}</ThemedText>
+            </TouchableOpacity>
+          </View>
+        ) : null}
 
         <View style={styles.card}>
           <ThemedText style={styles.label}>{t('auth.email')}</ThemedText>
@@ -167,44 +192,84 @@ export default function AuthScreen() {
             style={styles.input}
           />
 
-          <ThemedText style={[styles.label, { marginTop: 10 }]}>{t('auth.password')}</ThemedText>
-          <TextInput
-            secureTextEntry
-            placeholder={t('auth.passwordPlaceholder')}
-            placeholderTextColor="#6b7280"
-            value={password}
-            onChangeText={setPassword}
-            style={styles.input}
-          />
+          {mode !== 'forgot' ? (
+            <>
+              <ThemedText style={[styles.label, { marginTop: 10 }]}>{t('auth.password')}</ThemedText>
+              <TextInput
+                secureTextEntry
+                placeholder={t('auth.passwordPlaceholder')}
+                placeholderTextColor="#6b7280"
+                value={password}
+                onChangeText={setPassword}
+                style={styles.input}
+              />
+              {mode === 'signin' ? (
+                <TouchableOpacity
+                  style={styles.forgotLinkWrap}
+                  onPress={() => {
+                    setMode('forgot');
+                    setError(null);
+                    setInfo(null);
+                  }}
+                  disabled={busy}
+                >
+                  <ThemedText style={styles.forgotLink}>{t('auth.forgotPassword')}</ThemedText>
+                </TouchableOpacity>
+              ) : null}
+            </>
+          ) : (
+            <ThemedText style={styles.forgotHint}>{t('auth.forgotPasswordHint')}</ThemedText>
+          )}
 
           <TouchableOpacity
             activeOpacity={0.85}
             disabled={busy}
-            style={[styles.primaryBtn, (!canSubmit || busy) && styles.disabledBtn]}
-            onPress={submit}
+            style={[
+              styles.primaryBtn,
+              (mode === 'forgot' ? !canSendReset : !canSubmit) || busy ? styles.disabledBtn : null,
+            ]}
+            onPress={mode === 'forgot' ? sendReset : submit}
           >
             {busy ? (
               <ActivityIndicator color="#fff" />
             ) : (
               <ThemedText style={styles.primaryBtnText}>
-                {mode === 'signin' ? t('auth.signIn') : t('auth.signUp')}
+                {mode === 'forgot' ? t('auth.sendResetLink') : mode === 'signin' ? t('auth.signIn') : t('auth.signUp')}
               </ThemedText>
             )}
           </TouchableOpacity>
+
+          {mode === 'forgot' ? (
+            <TouchableOpacity
+              style={styles.backForgot}
+              onPress={() => {
+                setMode('signin');
+                setError(null);
+                setInfo(null);
+              }}
+              disabled={busy}
+            >
+              <ThemedText style={styles.forgotLink}>{t('auth.backToSignIn')}</ThemedText>
+            </TouchableOpacity>
+          ) : null}
         </View>
 
-        <ThemedText style={styles.orText}>{t('auth.or')}</ThemedText>
+        {mode !== 'forgot' ? <ThemedText style={styles.orText}>{t('auth.or')}</ThemedText> : null}
 
-        <TouchableOpacity activeOpacity={0.85} style={styles.socialBtn} onPress={() => social('google')} disabled={busy}>
-          <Ionicons name="logo-google" size={18} color="#e5e7eb" />
-          <ThemedText style={styles.socialText}>{t('auth.googleContinue')}</ThemedText>
-        </TouchableOpacity>
+        {mode !== 'forgot' ? (
+          <>
+            <TouchableOpacity activeOpacity={0.85} style={styles.socialBtn} onPress={() => social('google')} disabled={busy}>
+              <Ionicons name="logo-google" size={18} color="#e5e7eb" />
+              <ThemedText style={styles.socialText}>{t('auth.googleContinue')}</ThemedText>
+            </TouchableOpacity>
 
-        {showAppleButton ? (
-          <TouchableOpacity activeOpacity={0.85} style={styles.socialBtn} onPress={() => social('apple')} disabled={busy}>
-            <Ionicons name="logo-apple" size={18} color="#e5e7eb" />
-            <ThemedText style={styles.socialText}>{t('auth.appleContinue')}</ThemedText>
-          </TouchableOpacity>
+            {showAppleButton ? (
+              <TouchableOpacity activeOpacity={0.85} style={styles.socialBtn} onPress={() => social('apple')} disabled={busy}>
+                <Ionicons name="logo-apple" size={18} color="#e5e7eb" />
+                <ThemedText style={styles.socialText}>{t('auth.appleContinue')}</ThemedText>
+              </TouchableOpacity>
+            ) : null}
+          </>
         ) : null}
 
         {error ? <ThemedText style={styles.errorText}>{error}</ThemedText> : null}
@@ -287,4 +352,8 @@ const styles = StyleSheet.create({
   socialText: { color: '#e5e7eb', fontWeight: '600' },
   errorText: { color: '#ef4444', marginTop: 8, textAlign: 'center', fontSize: 13 },
   infoText: { color: '#22c55e', marginTop: 8, textAlign: 'center', fontSize: 13 },
+  forgotLinkWrap: { alignSelf: 'flex-end', marginTop: 8 },
+  forgotLink: { color: '#60a5fa', fontSize: 13, fontWeight: '600' },
+  forgotHint: { color: '#9ca3af', fontSize: 13, marginTop: 10, lineHeight: 18 },
+  backForgot: { marginTop: 12, alignItems: 'center' },
 });

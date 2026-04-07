@@ -56,7 +56,7 @@ export default function RootLayout() {
 
 function RootNavigator() {
   const { t } = useTranslation();
-  const { loading, session } = useAuth();
+  const { loading, session, passwordRecoveryPending } = useAuth();
 
   if (loading) {
     return (
@@ -66,11 +66,20 @@ function RootNavigator() {
     );
   }
 
+  if (session && passwordRecoveryPending) {
+    return (
+      <Stack>
+        <Stack.Screen name="reset-password" options={{ headerShown: false }} />
+      </Stack>
+    );
+  }
+
   if (!session) {
     return (
       <Stack>
         <Stack.Screen name="auth" options={{ headerShown: false }} />
         <Stack.Screen name="oauth-callback" options={{ headerShown: false }} />
+        <Stack.Screen name="reset-password" options={{ headerShown: false }} />
       </Stack>
     );
   }

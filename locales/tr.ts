@@ -18,6 +18,19 @@ export default {
     sessionFailed: 'Oturum oluşturulamadı. Bir süre bekleyip tekrar dene veya uygulamayı yeniden aç.',
     socialError: 'Giriş sırasında bir hata oluştu.',
     timeout: 'İstek zaman aşımına uğradı. Lütfen tekrar dene.',
+    forgotPassword: 'Şifremi unuttum',
+    sendResetLink: 'Sıfırlama linki gönder',
+    resetEmailSent:
+      'Bu e-posta için bir hesap varsa, kısa süre içinde şifre sıfırlama linki alırsın.',
+    forgotPasswordHint: 'E-postanı gir; yeni şifre belirlemen için sana link gönderelim.',
+    resetPasswordTitle: 'Yeni şifre belirle',
+    resetPasswordHint: 'Başka yerde kullanmadığın güçlü bir şifre seç.',
+    resetPasswordConfirm: 'Şifre tekrar',
+    resetPasswordSubmit: 'Şifreyi güncelle',
+    resetLinkInvalid:
+      'Bu sıfırlama linki geçersiz veya süresi dolmuş. Giriş ekranından yeniden talep et.',
+    backToSignIn: 'Girişe dön',
+    resetPasswordMismatch: 'Şifreler eşleşmiyor.',
   },
   brand: {
     tagline: 'Portföy ve varlık takibi — tek ekranda.',
