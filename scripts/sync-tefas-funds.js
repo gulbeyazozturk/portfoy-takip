@@ -51,6 +51,45 @@ function sleep(ms) {
   return new Promise((r) => setTimeout(r, ms));
 }
 
+function describeFetchError(err) {
+  const e = err || {};
+  const parts = [];
+  const msg = e.message || String(e);
+  if (msg) parts.push(msg);
+  const c = e.cause || {};
+  if (c && typeof c === 'object') {
+    if (c.code) parts.push(`code=${c.code}`);
+    if (c.errno) parts.push(`errno=${c.errno}`);
+    if (c.syscall) parts.push(`syscall=${c.syscall}`);
+    if (c.address) parts.push(`addr=${c.address}`);
+    if (c.port) parts.push(`port=${c.port}`);
+  }
+  return parts.join(' | ');
+}
+
+async function fetchWithRetry(url, options, cfg = {}) {
+  const retries = cfg.retries ?? 3;
+  const timeoutMs = cfg.timeoutMs ?? 20000;
+  const backoffMs = cfg.backoffMs ?? 1200;
+  let lastErr = null;
+
+  for (let i = 0; i <= retries; i++) {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), timeoutMs);
+    try {
+      const res = await fetch(url, { ...options, signal: controller.signal });
+      clearTimeout(timeout);
+      return res;
+    } catch (err) {
+      clearTimeout(timeout);
+      lastErr = err;
+      if (i >= retries) break;
+      await sleep(backoffMs * (i + 1));
+    }
+  }
+  throw lastErr;
+}
+
 /** TEFAS bazen hata/eksik veride FIYAT=-100 döner; DB'ye yazma. */
 function sanitizeTefasFiyat(fiyat) {
   const n = fiyat != null ? Number(fiyat) : NaN;
@@ -92,17 +131,25 @@ async function warmTefasCookies() {
   const jar = new Map();
   const ua = { 'User-Agent': HEADERS['User-Agent'], 'Accept-Language': HEADERS['Accept-Language'] };
 
-  let r = await fetch(`${TEFAS_BASE}/`, { redirect: 'follow', headers: ua });
+  let r = await fetchWithRetry(
+    `${TEFAS_BASE}/`,
+    { redirect: 'follow', headers: ua },
+    { retries: 2, timeoutMs: 15000, backoffMs: 800 },
+  );
   absorbSetCookiesIntoJar(r, jar);
 
-  r = await fetch(`${TEFAS_BASE}/TarihselVeriler.aspx`, {
-    redirect: 'follow',
-    headers: {
-      ...ua,
-      Accept: 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
-      ...(jar.size ? { Cookie: jarToCookieHeader(jar) } : {}),
+  r = await fetchWithRetry(
+    `${TEFAS_BASE}/TarihselVeriler.aspx`,
+    {
+      redirect: 'follow',
+      headers: {
+        ...ua,
+        Accept: 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+        ...(jar.size ? { Cookie: jarToCookieHeader(jar) } : {}),
+      },
     },
-  });
+    { retries: 2, timeoutMs: 15000, backoffMs: 800 },
+  );
   absorbSetCookiesIntoJar(r, jar);
 
   return jarToCookieHeader(jar);
@@ -125,11 +172,20 @@ async function fetchFundsByType(fundType, cookieHeader) {
     ...(cookieHeader ? { Cookie: cookieHeader } : {}),
   };
 
-  const res = await fetch(INFO_ENDPOINT, {
-    method: 'POST',
-    headers,
-    body,
-  });
+  let res;
+  try {
+    res = await fetchWithRetry(
+      INFO_ENDPOINT,
+      {
+        method: 'POST',
+        headers,
+        body,
+      },
+      { retries: 3, timeoutMs: 25000, backoffMs: 1200 },
+    );
+  } catch (err) {
+    throw new Error(`TEFAS ${fundType} fetch failed: ${describeFetchError(err)}`);
+  }
 
   if (!res.ok) {
     const text = await res.text();
@@ -169,7 +225,7 @@ async function fetchAllFunds() {
     cookieHeader = await warmTefasCookies();
     if (cookieHeader) console.log('  TEFAS çerez oturumu alındı.');
   } catch (e) {
-    console.warn('  TEFAS çerez oturumu kurulamadı:', e.message);
+    console.warn('  TEFAS çerez oturumu kurulamadı:', describeFetchError(e));
   }
 
   for (const ft of FUND_TYPES) {
@@ -187,13 +243,13 @@ async function fetchAllFunds() {
         break;
       } catch (err) {
         lastErr = err;
-        const msg = String(err.message || err);
+        const msg = String((err && err.message) || err);
         if (attempt === 0 && msg.includes('HTML')) continue;
         break;
       }
     }
     if (lastErr) {
-      console.warn(`  ${ft} hatası:`, lastErr.message);
+      console.warn(`  ${ft} hatası:`, describeFetchError(lastErr));
     } else {
       console.log(`  ${ft}: ${data.length} kayıt`);
       for (const item of data) {
