@@ -14,12 +14,16 @@ const INFO_ENDPOINT = `${TEFAS_BASE}/api/DB/BindHistoryInfo`;
 
 const FUND_TYPES = ['YAT', 'EMK', 'BYF'];
 
+/** Tarayıcıya yakın UA; TEFAS/WAF bazen datacenter/GitHub IP’lerinde HTML “engel” sayfası döndürür. */
 const HEADERS = {
   'X-Requested-With': 'XMLHttpRequest',
-  'Origin': TEFAS_BASE,
-  'Referer': `${TEFAS_BASE}/TarihselVeriler.aspx`,
+  Accept: 'application/json, text/javascript, */*;q=0.01',
+  'Accept-Language': 'tr-TR,tr;q=0.9,en-US;q=0.8,en;q=0.7',
+  Origin: TEFAS_BASE,
+  Referer: `${TEFAS_BASE}/TarihselVeriler.aspx`,
   'Content-Type': 'application/x-www-form-urlencoded',
-  'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko)',
+  'User-Agent':
+    'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36',
 };
 
 async function loadEnv() {
@@ -54,18 +58,57 @@ function sanitizeTefasFiyat(fiyat) {
   return n;
 }
 
-async function initSession() {
-  const res = await fetch(TEFAS_BASE, { headers: { 'User-Agent': HEADERS['User-Agent'] } });
-  const cookieHeader = res.headers.get('set-cookie') || '';
-  const cookies = cookieHeader
-    .split(',')
-    .map((c) => c.split(';')[0].trim())
-    .filter(Boolean)
-    .join('; ');
-  return cookies;
+/** Set-Cookie satırlarından name=value parçalarını toplar (aynı isim son değerle ezilir). */
+function absorbSetCookiesIntoJar(res, jar) {
+  const lines =
+    typeof res.headers.getSetCookie === 'function' ? res.headers.getSetCookie() : [];
+  for (const line of lines) {
+    const nv = String(line).split(';')[0].trim();
+    const eq = nv.indexOf('=');
+    if (eq <= 0) continue;
+    jar.set(nv.slice(0, eq), nv);
+  }
+  if (lines.length === 0) {
+    const raw = res.headers.get('set-cookie');
+    if (!raw) return;
+    for (const part of raw.split(/,(?=[^;]+=[^;]*)/)) {
+      const nv = part.split(';')[0].trim();
+      const eq = nv.indexOf('=');
+      if (eq <= 0) continue;
+      jar.set(nv.slice(0, eq), nv);
+    }
+  }
 }
 
-async function fetchFundsByType(fundType, cookies) {
+function jarToCookieHeader(jar) {
+  if (!jar || jar.size === 0) return '';
+  return [...jar.values()].join('; ');
+}
+
+/**
+ * Ana sayfa + TarihselVeriler GET ile çerez toplar; POST öncesi şart (aksi halde sık sık HTML hata sayfası).
+ */
+async function warmTefasCookies() {
+  const jar = new Map();
+  const ua = { 'User-Agent': HEADERS['User-Agent'], 'Accept-Language': HEADERS['Accept-Language'] };
+
+  let r = await fetch(`${TEFAS_BASE}/`, { redirect: 'follow', headers: ua });
+  absorbSetCookiesIntoJar(r, jar);
+
+  r = await fetch(`${TEFAS_BASE}/TarihselVeriler.aspx`, {
+    redirect: 'follow',
+    headers: {
+      ...ua,
+      Accept: 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+      ...(jar.size ? { Cookie: jarToCookieHeader(jar) } : {}),
+    },
+  });
+  absorbSetCookiesIntoJar(r, jar);
+
+  return jarToCookieHeader(jar);
+}
+
+async function fetchFundsByType(fundType, cookieHeader) {
   const today = new Date();
   // TEFAS hafta sonu/tatil için "dün" datasını döndürmeyebilir.
   // O yüzden son 3 takvim günü alıp en son 2 kayıttan günlük değişimi hesaplıyoruz.
@@ -77,9 +120,14 @@ async function fetchFundsByType(fundType, cookies) {
 
   const body = `fontip=${fundType}&fonkod=&bastarih=${bastarih}&bittarih=${bittarih}`;
 
+  const headers = {
+    ...HEADERS,
+    ...(cookieHeader ? { Cookie: cookieHeader } : {}),
+  };
+
   const res = await fetch(INFO_ENDPOINT, {
     method: 'POST',
-    headers: HEADERS,
+    headers,
     body,
   });
 
@@ -90,7 +138,19 @@ async function fetchFundsByType(fundType, cookies) {
 
   const text = await res.text();
   if (!text || text.length < 2) return [];
-  const json = JSON.parse(text);
+  const lead = text.trimStart();
+  if (lead.startsWith('<') || lead.startsWith('<!')) {
+    throw new Error(
+      `TEFAS ${fundType}: JSON yerine HTML döndü (WAF/bot/oturum). GitHub Actions IP’leri bazen engellenir; ` +
+        `docs/SYNC-SCHEDULE.md — ilk 60 karakter: ${lead.slice(0, 60).replace(/\s+/g, ' ')}`,
+    );
+  }
+  let json;
+  try {
+    json = JSON.parse(text);
+  } catch (e) {
+    throw new Error(`TEFAS ${fundType} JSON parse: ${e.message}`);
+  }
   return json.data || [];
 }
 
@@ -104,12 +164,38 @@ async function fetchAllFunds() {
 
   const todayTurkey = turkeyDateStrFromMs(Date.now());
 
+  let cookieHeader = '';
+  try {
+    cookieHeader = await warmTefasCookies();
+    if (cookieHeader) console.log('  TEFAS çerez oturumu alındı.');
+  } catch (e) {
+    console.warn('  TEFAS çerez oturumu kurulamadı:', e.message);
+  }
+
   for (const ft of FUND_TYPES) {
     console.log(`  ${ft} fonları çekiliyor...`);
-    try {
-      const data = await fetchFundsByType(ft);
+    let data = [];
+    let lastErr = null;
+    for (let attempt = 0; attempt < 2; attempt++) {
+      try {
+        if (attempt > 0) {
+          await sleep(2500);
+          cookieHeader = await warmTefasCookies();
+        }
+        data = await fetchFundsByType(ft, cookieHeader);
+        lastErr = null;
+        break;
+      } catch (err) {
+        lastErr = err;
+        const msg = String(err.message || err);
+        if (attempt === 0 && msg.includes('HTML')) continue;
+        break;
+      }
+    }
+    if (lastErr) {
+      console.warn(`  ${ft} hatası:`, lastErr.message);
+    } else {
       console.log(`  ${ft}: ${data.length} kayıt`);
-
       for (const item of data) {
         const code = (item.FONKODU || '').trim().toUpperCase();
         if (!code) continue;
@@ -121,8 +207,6 @@ async function fetchAllFunds() {
         existing.entriesByTs.set(tsMs, item);
         allFunds.set(code, existing);
       }
-    } catch (err) {
-      console.warn(`  ${ft} hatası:`, err.message);
     }
     await sleep(1500);
   }
