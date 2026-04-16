@@ -1,0 +1,25 @@
+# Senaryo 2 — Edge case: geçersiz e-posta → kırmızı hata metni
+# Kod: primary buton disabled=busy; canSubmit sadece stil — onPress yine çalışır, submit() içi validation tetiklenir.
+# Dil İngilizce seçiliyse metinleri locales/en ile değiştirin.
+
+appId: com.omnifolio.app
+---
+- launchApp:
+    clearState: true
+    clearKeychain: true
+- extendedWaitUntil:
+    visible:
+      text: "Giriş yap"
+    timeout: 30000
+- tapOn: "ornek@mail.com"
+- inputText: "bademail"
+- tapOn: "En az 6 karakter"
+- inputText: "secret12"
+# İlk "Giriş yap" = üst mod seçici; ikinci = yeşil ana buton (kart içi)
+- tapOn:
+    text: "Giriş yap"
+    index: 1
+- extendedWaitUntil:
+    visible:
+      text: "Geçerli bir e-posta adresi gir."
+    timeout: 10000

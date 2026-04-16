@@ -1,0 +1,15 @@
+# Senaryo 1 — Oturum yokken giriş ekranı açılır (smoke)
+# Önkoşul: Uygulama yüklü; cihazda oturum TEMİZ (çıkış yapılmış veya ilk kurulum).
+# Çalıştır: maestro test maestro/flows/01_auth_screen_smoke.yaml
+
+appId: com.omnifolio.app
+---
+- launchApp:
+    clearState: true
+    clearKeychain: true
+- extendedWaitUntil:
+    visible:
+      text: "Hesabına giriş yap veya yeni hesap oluştur."
+    timeout: 30000
+- assertVisible: "Giriş yap"
+- assertVisible: "Üye ol"

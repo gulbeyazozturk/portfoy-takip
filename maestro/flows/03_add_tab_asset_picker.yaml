@@ -1,0 +1,15 @@
+# Senaryo 3 — Oturum AÇIKKEN: alt sekmeden "Ekle" → varlık türü seçim ekranı
+# Önkoşul: Cihazda ZATEN giriş yapılmış test kullanıcısı (clearState KULLANMAYIN).
+# İlk çalıştırmadan önce manuel giriş yapın VEYA ayrı bir login flow yazın.
+# Çalıştır: maestro test maestro/flows/03_add_tab_asset_picker.yaml
+
+appId: com.omnifolio.app
+---
+- launchApp
+- extendedWaitUntil:
+    visible:
+      text: "Ana sayfa"
+    timeout: 30000
+- tapOn: "Ekle"
+- assertVisible: "Hangi varlık türünü arıyorsunuz?"
+- assertVisible: "BIST"
