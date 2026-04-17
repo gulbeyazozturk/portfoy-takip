@@ -40,6 +40,12 @@ function getPasswordRecoveryRedirectUrl(): string {
   return Linking.createURL('reset-password');
 }
 
+function isPasswordRecoveryPath(url: string | null): boolean {
+  if (!url) return false;
+  // Legacy / farklı template'lerden gelebilen path adlarını da kabul et.
+  return /(reset-password|update-password|password-reset|resetPassword)/i.test(url);
+}
+
 type AuthContextValue = {
   loading: boolean;
   session: Session | null;
@@ -62,7 +68,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [passwordRecoveryPending, setPasswordRecoveryPending] = useState(false);
 
   const handleRecoveryUrl = useCallback(async (url: string | null) => {
-    if (!url || !url.includes('reset-password')) return;
+    if (!isPasswordRecoveryPath(url)) return;
     const params = parseAuthCallbackParams(url);
     if (params.code) {
       setPasswordRecoveryPending(true);

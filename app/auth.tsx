@@ -239,6 +239,12 @@ export default function AuthScreen() {
             )}
           </TouchableOpacity>
 
+          {mode === 'forgot' && info ? (
+            <View style={styles.infoBox}>
+              <ThemedText style={styles.infoBoxText}>{info}</ThemedText>
+            </View>
+          ) : null}
+
           {mode === 'forgot' ? (
             <TouchableOpacity
               style={styles.backForgot}
@@ -273,7 +279,7 @@ export default function AuthScreen() {
         ) : null}
 
         {error ? <ThemedText style={styles.errorText}>{error}</ThemedText> : null}
-        {info ? <ThemedText style={styles.infoText}>{info}</ThemedText> : null}
+        {mode !== 'forgot' && info ? <ThemedText style={styles.infoText}>{info}</ThemedText> : null}
       </View>
     </SafeAreaView>
   );
@@ -352,6 +358,16 @@ const styles = StyleSheet.create({
   socialText: { color: '#e5e7eb', fontWeight: '600' },
   errorText: { color: '#ef4444', marginTop: 8, textAlign: 'center', fontSize: 13 },
   infoText: { color: '#22c55e', marginTop: 8, textAlign: 'center', fontSize: 13 },
+  infoBox: {
+    marginTop: 10,
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: 'rgba(34,197,94,0.45)',
+    backgroundColor: 'rgba(34,197,94,0.12)',
+    paddingHorizontal: 10,
+    paddingVertical: 8,
+  },
+  infoBoxText: { color: '#86efac', textAlign: 'center', fontSize: 12 },
   forgotLinkWrap: { alignSelf: 'flex-end', marginTop: 8 },
   forgotLink: { color: '#60a5fa', fontSize: 13, fontWeight: '600' },
   forgotHint: { color: '#9ca3af', fontSize: 13, marginTop: 10, lineHeight: 18 },

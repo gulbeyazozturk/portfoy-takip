@@ -70,6 +70,9 @@ function RootNavigator() {
     return (
       <Stack>
         <Stack.Screen name="reset-password" options={{ headerShown: false }} />
+        <Stack.Screen name="update-password" options={{ headerShown: false }} />
+        <Stack.Screen name="password-reset" options={{ headerShown: false }} />
+        <Stack.Screen name="resetPassword" options={{ headerShown: false }} />
       </Stack>
     );
   }
@@ -80,6 +83,9 @@ function RootNavigator() {
         <Stack.Screen name="auth" options={{ headerShown: false }} />
         <Stack.Screen name="oauth-callback" options={{ headerShown: false }} />
         <Stack.Screen name="reset-password" options={{ headerShown: false }} />
+        <Stack.Screen name="update-password" options={{ headerShown: false }} />
+        <Stack.Screen name="password-reset" options={{ headerShown: false }} />
+        <Stack.Screen name="resetPassword" options={{ headerShown: false }} />
       </Stack>
     );
   }
