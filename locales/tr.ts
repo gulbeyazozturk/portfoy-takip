@@ -12,6 +12,7 @@ export default {
     appleContinue: 'Apple ile devam et',
     invalidEmail: 'Geçerli bir e-posta adresi gir.',
     passwordShort: 'Şifre en az 6 karakter olmalı.',
+    invalidCredentials: 'E-posta ya da şifre hatalı.',
     signupThenSignIn: 'Kaydın oluşturuldu. Giriş için "Giriş yap" sekmesinden devam et.',
     signupSuccess: 'Kaydın oluşturuldu ve giriş yapıldı.',
     genericError: 'İşlem sırasında bir hata oluştu.',
@@ -71,6 +72,19 @@ export default {
     portfolioNameRequired: 'Lütfen bir ad girin.',
     portfolioDuplicateName: 'Bu isimde bir portföy zaten var.',
     portfolioSaveError: 'Kaydedilemedi',
+    deleteAccountAction: 'Hesabı sil',
+    deleteAccountHint:
+      'Hesabınızı ve ilişkili portföy verilerinizi kalıcı olarak siler. Bu işlem geri alınamaz.',
+    deleteAccountConfirmTitle: 'Hesabı silmek istiyor musunuz?',
+    deleteAccountConfirmBody:
+      'Bu işlem hesabınızı ve verilerinizi kalıcı olarak siler. Devam ederseniz geri alınamaz.',
+    deleteAccountConfirmContinue: 'Devam et',
+    deleteAccountLastConfirmTitle: 'Son onay',
+    deleteAccountLastConfirmBody: 'Hesap silme işlemini şimdi başlatmak istediğinize emin misiniz?',
+    deleteAccountDoneTitle: 'Hesap silindi',
+    deleteAccountDoneBody: 'Hesabınız kalıcı olarak silindi.',
+    deleteAccountErrorTitle: 'Hesap silinemedi',
+    deleteAccountErrorBody: 'Hesap silme sırasında bir hata oluştu. Lütfen tekrar deneyin.',
   },
   appLock: {
     title: 'Kilitli',

@@ -20,6 +20,8 @@
     "diagnose-db": "node ./scripts/diagnose-db.js",
     "ensure-portfolio": "node ./scripts/ensure-user-portfolio.js",
     "delete-user": "node ./scripts/delete-user-by-email.js",
+    "confirm-user-email": "node ./scripts/confirm-user-email.js",
+    "set-user-password": "node ./scripts/set-user-password.js",
     "reset-for-csv": "node ./scripts/reset-for-csv-import.js",
     "delete-kripto-assets": "node ./scripts/delete-kripto-assets.js",
     "sync-bist-scrape": "node ./scripts/sync-bist-scrape.js",

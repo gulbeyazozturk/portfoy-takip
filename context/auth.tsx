@@ -62,6 +62,14 @@ type AuthContextValue = {
 
 const AuthContext = createContext<AuthContextValue | null>(null);
 
+function mapAuthSignInError(message: string): string {
+  const normalized = (message || '').toLowerCase();
+  if (normalized.includes('invalid login credentials')) {
+    return i18n.t('auth.invalidCredentials');
+  }
+  return message;
+}
+
 export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [loading, setLoading] = useState(true);
   const [session, setSession] = useState<Session | null>(null);
@@ -139,7 +147,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   const signInWithEmail = useCallback(async (email: string, password: string) => {
     const { error } = await supabase.auth.signInWithPassword({ email, password });
-    if (error) return { error: error.message, hasSession: false };
+    if (error) return { error: mapAuthSignInError(error.message), hasSession: false };
 
     const { data } = await supabase.auth.getSession();
     const hasSession = !!data.session;

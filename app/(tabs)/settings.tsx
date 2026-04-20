@@ -22,6 +22,7 @@ import { useAppLock } from '@/context/app-lock';
 import { useAuth } from '@/context/auth';
 import type { PortfolioRow } from '@/context/portfolio';
 import { usePortfolio } from '@/context/portfolio';
+import { supabase } from '@/lib/supabase';
 import { useTranslation } from 'react-i18next';
 import Constants from 'expo-constants';
 
@@ -53,6 +54,7 @@ export default function SettingsScreen() {
   const { appLockEnabled, setAppLockEnabled, biometricSupported, refreshBiometricSupport } = useAppLock();
   const { portfolios, refresh, addPortfolio, renamePortfolio } = usePortfolio();
   const [signingOut, setSigningOut] = useState(false);
+  const [deletingAccount, setDeletingAccount] = useState(false);
   const [lockBusy, setLockBusy] = useState(false);
 
   const [addModalOpen, setAddModalOpen] = useState(false);
@@ -78,6 +80,53 @@ export default function SettingsScreen() {
     } finally {
       setSigningOut(false);
     }
+  };
+
+  const performDeleteAccount = async () => {
+    try {
+      setDeletingAccount(true);
+      const { error } = await supabase.rpc('delete_my_account');
+      if (error) {
+        Alert.alert(t('settings.deleteAccountErrorTitle'), error.message || t('settings.deleteAccountErrorBody'));
+        return;
+      }
+      await signOut();
+      router.replace('/auth');
+      Alert.alert(t('settings.deleteAccountDoneTitle'), t('settings.deleteAccountDoneBody'));
+    } catch (e: any) {
+      Alert.alert(t('settings.deleteAccountErrorTitle'), e?.message ?? t('settings.deleteAccountErrorBody'));
+    } finally {
+      setDeletingAccount(false);
+    }
+  };
+
+  const handleDeleteAccount = () => {
+    if (deletingAccount) return;
+    Alert.alert(
+      t('settings.deleteAccountConfirmTitle'),
+      t('settings.deleteAccountConfirmBody'),
+      [
+        { text: t('settings.cancel'), style: 'cancel' },
+        {
+          text: t('settings.deleteAccountConfirmContinue'),
+          style: 'destructive',
+          onPress: () => {
+            Alert.alert(
+              t('settings.deleteAccountLastConfirmTitle'),
+              t('settings.deleteAccountLastConfirmBody'),
+              [
+                { text: t('settings.cancel'), style: 'cancel' },
+                {
+                  text: t('settings.deleteAccountAction'),
+                  style: 'destructive',
+                  onPress: () => void performDeleteAccount(),
+                },
+              ],
+            );
+          },
+        },
+      ],
+    );
   };
 
   const handleAppLockToggle = async (value: boolean) => {
@@ -245,6 +294,17 @@ export default function SettingsScreen() {
               <ThemedText style={styles.signOutText}>{t('settings.signOut')}</ThemedText>
             )}
           </Pressable>
+          <Pressable
+            style={[styles.deleteAccountBtn, deletingAccount && styles.deleteAccountBtnDisabled]}
+            onPress={handleDeleteAccount}
+            disabled={deletingAccount}>
+            {deletingAccount ? (
+              <ActivityIndicator color="#fff" />
+            ) : (
+              <ThemedText style={styles.deleteAccountText}>{t('settings.deleteAccountAction')}</ThemedText>
+            )}
+          </Pressable>
+          <ThemedText style={styles.deleteAccountHint}>{t('settings.deleteAccountHint')}</ThemedText>
         </ScrollView>
 
         <Modal visible={addModalOpen} transparent animationType="fade" onRequestClose={() => setAddModalOpen(false)}>
@@ -405,6 +465,26 @@ const styles = StyleSheet.create({
     paddingVertical: 10,
   },
   signOutText: { color: '#fff', fontWeight: '700' },
+  deleteAccountBtn: {
+    marginTop: 8,
+    backgroundColor: '#991b1b',
+    borderRadius: 10,
+    paddingHorizontal: 18,
+    paddingVertical: 10,
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.15)',
+  },
+  deleteAccountBtnDisabled: {
+    opacity: 0.7,
+  },
+  deleteAccountText: { color: '#fff', fontWeight: '700' },
+  deleteAccountHint: {
+    color: '#9ca3af',
+    fontSize: 12,
+    textAlign: 'center',
+    maxWidth: 360,
+    lineHeight: 17,
+  },
   modalBackdrop: {
     flex: 1,
     backgroundColor: 'rgba(0,0,0,0.7)',

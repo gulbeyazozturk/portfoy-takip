@@ -12,6 +12,7 @@ export default {
     appleContinue: 'Continue with Apple',
     invalidEmail: 'Enter a valid email address.',
     passwordShort: 'Password must be at least 6 characters.',
+    invalidCredentials: 'Incorrect email or password.',
     signupThenSignIn: 'Account created. Continue from the “Sign in” tab.',
     signupSuccess: 'Account created and you are signed in.',
     genericError: 'Something went wrong.',
@@ -69,6 +70,19 @@ export default {
     portfolioNameRequired: 'Please enter a name.',
     portfolioDuplicateName: 'A portfolio with this name already exists.',
     portfolioSaveError: 'Could not save',
+    deleteAccountAction: 'Delete account',
+    deleteAccountHint:
+      'Permanently deletes your account and related portfolio data. This action cannot be undone.',
+    deleteAccountConfirmTitle: 'Delete your account?',
+    deleteAccountConfirmBody:
+      'This will permanently delete your account and data. If you continue, it cannot be undone.',
+    deleteAccountConfirmContinue: 'Continue',
+    deleteAccountLastConfirmTitle: 'Final confirmation',
+    deleteAccountLastConfirmBody: 'Are you sure you want to start account deletion now?',
+    deleteAccountDoneTitle: 'Account deleted',
+    deleteAccountDoneBody: 'Your account has been permanently deleted.',
+    deleteAccountErrorTitle: 'Could not delete account',
+    deleteAccountErrorBody: 'Something went wrong while deleting your account. Please try again.',
   },
   appLock: {
     title: 'Locked',
