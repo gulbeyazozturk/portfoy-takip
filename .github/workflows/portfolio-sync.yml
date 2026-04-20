@@ -56,8 +56,7 @@ jobs:
       - name: Sync Kapalıçarşı Altın
         run: node scripts/sync-kapalicarsi-gold.js
 
-      # TEFAS geçici olarak GitHub scheduled akışından çıkarıldı.
-      # Not: TEFAS senkronu lokalden manuel/ayrı cron ile çalıştırılmalı.
+      # TEFAS ayrı workflow: .github/workflows/tefas-sync.yml (TSİ 08:00–13:00 saatte bir + workflow_dispatch).
 
       - name: Sync ABD (yalnızca holdings)
         run: node scripts/sync-yurtdisi-prices.js --mode=holdings --batch=500 --delay=140
