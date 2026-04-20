@@ -31,6 +31,16 @@ npx supabase secrets set --project-ref <PROJECT_REF> "ABD_CRON_SECRET=<uzun-rast
 npx supabase functions deploy sync-abd-prices --project-ref <PROJECT_REF>
 ```
 
+## Sorun giderme: `{"error":"unauthorized"}`
+
+Deploy ettiğin sürümde `reason` alanı var:
+
+- **`ABD_CRON_SECRET_edge_secret_missing`** → Edge’e secret hiç gitmemiş veya yanlış projede set edilmiş.  
+  `npx supabase secrets set --project-ref <PROJECT_REF> "ABD_CRON_SECRET=..."` sonra **`npx supabase functions deploy sync-abd-prices --project-ref <PROJECT_REF>`** tekrar çalıştır.
+- **`x_abd_cron_mismatch`** → `curl`’daki `x-abd-cron` değeri, secret’taki ile aynı değil (boşluk, yanlış kopya, JWT yanlışlıkla kullanımı vb.).
+
+Header adı tam olarak: **`x-abd-cron`** (TEFAS’taki `x-tefas-cron` değil).
+
 ## 4) Manuel test (PowerShell, tek satır)
 
 ```powershell

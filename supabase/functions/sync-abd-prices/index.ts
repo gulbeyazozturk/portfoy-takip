@@ -109,10 +109,13 @@ Deno.serve(async (req) => {
     return json({ error: 'method_not_allowed' }, 405);
   }
 
-  const expected = Deno.env.get('ABD_CRON_SECRET');
-  const got = req.headers.get('x-abd-cron') || '';
-  if (!expected || got !== expected) {
-    return json({ error: 'unauthorized' }, 401);
+  const expected = (Deno.env.get('ABD_CRON_SECRET') || '').trim();
+  const got = (req.headers.get('x-abd-cron') || '').trim();
+  if (!expected) {
+    return json({ error: 'unauthorized', reason: 'ABD_CRON_SECRET_edge_secret_missing' }, 401);
+  }
+  if (got !== expected) {
+    return json({ error: 'unauthorized', reason: 'x_abd_cron_mismatch' }, 401);
   }
 
   const url = Deno.env.get('SUPABASE_URL');
