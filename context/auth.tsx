@@ -6,6 +6,7 @@ import React, { createContext, useCallback, useContext, useEffect, useMemo, useS
 import { Platform } from 'react-native';
 
 import { parseAuthCallbackParams } from '@/lib/auth-callback-params';
+import { mapAuthErrorMessage } from '@/lib/auth-error-map';
 import i18n from '@/lib/i18n';
 import { waitForSupabaseSessionAfterBrowser } from '@/lib/oauth-session-wait';
 import { isSupabaseConfigured, supabase } from '@/lib/supabase';
@@ -61,14 +62,6 @@ type AuthContextValue = {
 };
 
 const AuthContext = createContext<AuthContextValue | null>(null);
-
-function mapAuthSignInError(message: string): string {
-  const normalized = (message || '').toLowerCase();
-  if (normalized.includes('invalid login credentials')) {
-    return i18n.t('auth.invalidCredentials');
-  }
-  return message;
-}
 
 export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [loading, setLoading] = useState(true);
@@ -142,12 +135,12 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       password,
       options: { emailRedirectTo: getOAuthRedirectUrl() },
     });
-    return { error: error?.message ?? null };
+    return { error: error ? mapAuthErrorMessage(error.message) : null };
   }, []);
 
   const signInWithEmail = useCallback(async (email: string, password: string) => {
     const { error } = await supabase.auth.signInWithPassword({ email, password });
-    if (error) return { error: mapAuthSignInError(error.message), hasSession: false };
+    if (error) return { error: mapAuthErrorMessage(error.message), hasSession: false };
 
     const { data } = await supabase.auth.getSession();
     const hasSession = !!data.session;
@@ -162,7 +155,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     const { error } = await supabase.auth.resetPasswordForEmail(email.trim(), {
       redirectTo,
     });
-    return { error: error?.message ?? null };
+    return { error: error ? mapAuthErrorMessage(error.message) : null };
   }, []);
 
   const signInWithOAuth = useCallback(async (provider: 'google' | 'apple') => {
@@ -173,7 +166,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         provider,
         options: { redirectTo, skipBrowserRedirect: true },
       });
-      if (error) return { error: error.message ?? null };
+      if (error) return { error: mapAuthErrorMessage(error.message) };
       if (data?.url && typeof window !== 'undefined') {
         window.location.assign(data.url);
         return { error: null };
@@ -185,7 +178,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       provider,
       options: { redirectTo, skipBrowserRedirect: true },
     });
-    if (error || !data?.url) return { error: error?.message ?? i18n.t('errors.oauthStart') };
+    if (error || !data?.url) return { error: error ? mapAuthErrorMessage(error.message) : i18n.t('errors.oauthStart') };
 
     let result: WebBrowser.WebBrowserAuthSessionResult;
     try {
@@ -224,7 +217,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
     if (params.error) {
       const raw = params.error_description ?? params.error;
-      return { error: raw.replace(/\+/g, ' ') };
+      return { error: mapAuthErrorMessage(raw.replace(/\+/g, ' ')) };
     }
 
     try {
@@ -245,7 +238,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           const { data: late } = await supabase.auth.getSession();
           if (late.session) return { error: null };
         }
-        return { error: exchangeError.message ?? null };
+        return { error: mapAuthErrorMessage(exchangeError.message) };
       }
 
       {
@@ -266,10 +259,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       }
 
       const { error: setSessionError } = await supabase.auth.setSession({ access_token, refresh_token });
-      return { error: setSessionError?.message ?? null };
+      return { error: setSessionError ? mapAuthErrorMessage(setSessionError.message) : null };
     } catch (e: unknown) {
       const msg = e instanceof Error ? e.message : String(e);
-      return { error: msg || i18n.t('errors.oauthIncomplete') };
+      return { error: mapAuthErrorMessage(msg || i18n.t('errors.oauthIncomplete')) };
     }
   }, []);
 
@@ -296,14 +289,14 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
             token: credential.identityToken,
           });
 
-          return { error: error?.message ?? null };
+          return { error: error ? mapAuthErrorMessage(error.message) : null };
         } catch (e: unknown) {
           const code = e && typeof e === 'object' && 'code' in e ? String((e as { code?: string }).code) : '';
           if (code === 'ERR_REQUEST_CANCELED' || code === 'ERR_CANCELED') {
             return { error: i18n.t('errors.oauthCancelled') };
           }
           const msg = e instanceof Error ? e.message : i18n.t('errors.appleNativeFailed');
-          return { error: msg };
+          return { error: mapAuthErrorMessage(msg) };
         }
       }
     }

@@ -13,6 +13,7 @@ import { useTranslation } from 'react-i18next';
 import { OmnifolioBrand } from '@/components/omnifolio-brand';
 import { ThemedText } from '@/components/themed-text';
 import { useAuth } from '@/context/auth';
+import { mapAuthErrorMessage } from '@/lib/auth-error-map';
 import { supabase } from '@/lib/supabase';
 
 export default function ResetPasswordScreen() {
@@ -45,13 +46,13 @@ export default function ResetPasswordScreen() {
     try {
       const { error: upd } = await supabase.auth.updateUser({ password });
       if (upd) {
-        setError(upd.message);
+        setError(mapAuthErrorMessage(upd.message));
         return;
       }
       completePasswordRecoveryFlow();
       router.replace('/(tabs)');
     } catch (e: unknown) {
-      setError(e instanceof Error ? e.message : t('auth.genericError'));
+      setError(mapAuthErrorMessage(e instanceof Error ? e.message : t('auth.genericError')));
     } finally {
       setBusy(false);
     }
