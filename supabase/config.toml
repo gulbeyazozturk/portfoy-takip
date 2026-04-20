@@ -1,0 +1,5 @@
+# Supabase CLI: `supabase link --project-ref <PROJECT_REF>` ile proje bağlanır.
+# Edge Function JWT: zamanlayıcı (pg_net) isteğinde kullanıcı JWT’si olmayabilir; sync-tefas için kapalı.
+
+[functions.sync-tefas]
+verify_jwt = false

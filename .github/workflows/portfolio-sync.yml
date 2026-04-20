@@ -56,7 +56,7 @@ jobs:
       - name: Sync Kapalıçarşı Altın
         run: node scripts/sync-kapalicarsi-gold.js
 
-      # TEFAS: GitHub IP’leri TEFAS’ta engellenebiliyor; harici scheduler (docs/SYNC-SCHEDULE.md) + npm run sync-tefas-funds.
+      # TEFAS: GitHub IP engeli — Supabase Edge + pg_cron: docs/SUPABASE-TEFAS-EDGE.md
 
       - name: Sync ABD (yalnızca holdings)
         run: node scripts/sync-yurtdisi-prices.js --mode=holdings --batch=500 --delay=140

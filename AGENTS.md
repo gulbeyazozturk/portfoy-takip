@@ -18,6 +18,7 @@ Bu dosya Cursor ve benzeri araçlar için **proje özgü** kısa kurallar içeri
 
 ## Sync ve script’ler
 - Node script’leri `scripts/` altında; fonksiyonel isimler (`sync-tefas-funds.js`, `reset-for-csv-import.js`, vb.).
+- TEFAS (GitHub Actions IP engeli): üretimde `supabase/functions/sync-tefas` + `docs/SUPABASE-TEFAS-EDGE.md` (pg_cron + pg_net).
 - Kullanıcı verisini silme/temizlik: `reset-for-csv-import.js` (master `assets` silmez); tam kullanıcı silme: `delete-user-by-email.js`.
 
 ## Veritabanı
