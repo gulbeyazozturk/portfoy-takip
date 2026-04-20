@@ -36,11 +36,11 @@ import { getUsdTryRateForDate } from '@/lib/usdtry-rate-for-date';
 import { supabase } from '@/lib/supabase';
 import { useTranslation } from 'react-i18next';
 
-/** Portföy sekmesi (`index.tsx`); `(tabs)` grupları URL’de yok — kök path portföy listesine gider. */
-const PORTFOLIO_TAB_HREF = '/' as Href;
+/** Portföy sekmesi (`portfolio.tsx`). */
+const PORTFOLIO_TAB_HREF = '/portfolio' as Href;
 
 function isReturnToPortfolioTab(returnTo: string | undefined): boolean {
-  return returnTo === '/' || returnTo === '/(tabs)/index';
+  return returnTo === '/' || returnTo === '/(tabs)/index' || returnTo === '/portfolio' || returnTo === '/(tabs)/portfolio';
 }
 
 /** Expo Router aynı param anahtarını bazen string[] döndürebilir. */

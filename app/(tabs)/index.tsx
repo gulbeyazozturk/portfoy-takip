@@ -6,7 +6,7 @@ import {
 import { Ionicons } from '@expo/vector-icons';
 import { useScrollToTop } from '@react-navigation/native';
 import { useFonts } from 'expo-font';
-import { useRouter } from 'expo-router';
+import { Redirect, useRouter } from 'expo-router';
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator,
@@ -120,7 +120,7 @@ function formatAmountCeiling(value: number, locale: string): string {
   return n.toLocaleString(locale, { minimumFractionDigits: 0, maximumFractionDigits: 0 });
 }
 
-export default function PortfolioScreen() {
+export function PortfolioScreen() {
   const { t, i18n } = useTranslation();
   const numberLocale = i18n.language?.toLowerCase().startsWith('en') ? 'en-US' : 'tr-TR';
   const sortCollator = i18n.language?.toLowerCase().startsWith('en') ? 'en' : 'tr';
@@ -653,7 +653,8 @@ export default function PortfolioScreen() {
                       router.push({
                         pathname: '/(tabs)/asset-entry',
                         params: {
-                          returnTo: '/',
+                          returnTo: '/portfolio',
+                          
                           holdingId: h.id,
                           assetId: asset.id,
                           name: assetDisplayName,
@@ -758,6 +759,10 @@ export default function PortfolioScreen() {
       </SafeAreaView>
     </View>
   );
+}
+
+export default function TabsIndexRedirect() {
+  return <Redirect href="/home" />;
 }
 
 const styles = StyleSheet.create({

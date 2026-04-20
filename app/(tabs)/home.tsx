@@ -49,7 +49,7 @@ const CATEGORY_ICONS: Record<string, keyof typeof Ionicons.glyphMap> = {
 };
 
 /** Portföy sekmesi; `(tabs)` URL’de yok, `index` rotası `/` ile eşleşir. */
-const PORTFOLIO_TAB_HREF = '/' as Href;
+const PORTFOLIO_TAB_HREF = '/portfolio' as Href;
 
 export default function HomeScreen() {
   const { t, i18n } = useTranslation();
