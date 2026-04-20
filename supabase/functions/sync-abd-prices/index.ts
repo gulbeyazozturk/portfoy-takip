@@ -1,11 +1,12 @@
 /**
- * ABD (yurtdisi) hisse fiyatları — Yahoo Finance batch quote + assets upsert.
- * Her çağrıda en fazla 1000 sembol; `abd_sync_cursor` ile sırayla döner (baştan sona, sonra başa).
+ * ABD (yurtdisi) hisse fiyatları.
+ *
+ * Varsayılan: Yahoo batch quote + `assets` upsert (her çağrıda en fazla 1000 sembol; `abd_sync_cursor`).
+ * Yahoo, Supabase Edge IP’lerinde sık 401 verir — o zaman `ABD_PRICE_SOURCE=github_dispatch` kullan.
  *
  * Secrets: SERVICE_ROLE_KEY, ABD_CRON_SECRET
+ * İsteğe bağlı (github_dispatch): GITHUB_DISPATCH_PAT, GITHUB_DISPATCH_REPO (örn. owner/repo)
  * Header: x-abd-cron: <ABD_CRON_SECRET>
- *
- * Not: GitHub `us-sync.yml` ile çakıştırmamak için ayrı tetikleyici kullanın (pg_cron).
  */
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.49.1';
 
@@ -75,10 +76,20 @@ async function yahooQuotesChunk(symbols: string[]): Promise<
     `https://query1.finance.yahoo.com/v7/finance/quote?symbols=` +
     encodeURIComponent(symbols.join(','));
   const res = await fetch(url, {
-    headers: { 'User-Agent': YAHOO_UA, Accept: 'application/json' },
+    headers: {
+      'User-Agent': YAHOO_UA,
+      Accept: 'application/json',
+      Referer: 'https://finance.yahoo.com/',
+      Origin: 'https://finance.yahoo.com',
+    },
   });
   if (!res.ok) {
     const t = await res.text();
+    if (res.status === 401) {
+      throw new Error(
+        `Yahoo HTTP 401 (datacenter engeli). Edge’den Yahoo genelde çalışmaz. Çözüm: ABD_PRICE_SOURCE=github_dispatch + GITHUB_DISPATCH_PAT + GITHUB_DISPATCH_REPO — veya fiyatı yalnızca GitHub us-sync ile çek. Detay: ${t.slice(0, 120)}`,
+      );
+    }
     throw new Error(`Yahoo HTTP ${res.status}: ${t.slice(0, 200)}`);
   }
   const body = (await res.json()) as {
@@ -104,6 +115,26 @@ async function yahooQuotesChunk(symbols: string[]): Promise<
   return out;
 }
 
+async function dispatchGithubAbdWorkflow(): Promise<{ ok: boolean; status: number; body: string | null }> {
+  const pat = (Deno.env.get('GITHUB_DISPATCH_PAT') || '').trim();
+  const repo = (Deno.env.get('GITHUB_DISPATCH_REPO') || '').trim();
+  if (!pat || !repo) {
+    return { ok: false, status: 0, body: 'missing GITHUB_DISPATCH_PAT or GITHUB_DISPATCH_REPO' };
+  }
+  const res = await fetch(`https://api.github.com/repos/${repo}/actions/workflows/us-sync.yml/dispatches`, {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${pat}`,
+      Accept: 'application/vnd.github+json',
+      'X-GitHub-Api-Version': '2022-11-28',
+      'User-Agent': 'supabase-edge-sync-abd-prices',
+    },
+    body: JSON.stringify({ ref: 'main' }),
+  });
+  const body = res.ok ? null : await res.text();
+  return { ok: res.ok, status: res.status, body: body?.slice(0, 400) ?? null };
+}
+
 Deno.serve(async (req) => {
   if (req.method !== 'POST' && req.method !== 'GET') {
     return json({ error: 'method_not_allowed' }, 405);
@@ -126,8 +157,25 @@ Deno.serve(async (req) => {
 
   const supabase = createClient(url, key);
   const now = new Date().toISOString();
+  const priceSource = (Deno.env.get('ABD_PRICE_SOURCE') || 'yahoo').trim().toLowerCase();
 
   try {
+    if (priceSource === 'github_dispatch') {
+      const gh = await dispatchGithubAbdWorkflow();
+      return json(
+        {
+          ok: gh.ok,
+          mode: 'github_dispatch',
+          github_http: gh.status,
+          github_body: gh.body,
+          hint: gh.ok
+            ? 'GitHub Actions ABD Sync kuyruğa alındı (birkaç dk içinde çalışır).'
+            : 'PAT yetkisi (repo + workflow) veya repo adını kontrol et.',
+        },
+        gh.ok ? 200 : 502,
+      );
+    }
+
     const { count: totalCount, error: cErr } = await supabase
       .from('assets')
       .select('*', { count: 'exact', head: true })
