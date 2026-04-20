@@ -76,7 +76,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [passwordRecoveryPending, setPasswordRecoveryPending] = useState(false);
 
   const handleRecoveryUrl = useCallback(async (url: string | null) => {
-    if (!isPasswordRecoveryPath(url)) return;
+    if (!url || !isPasswordRecoveryPath(url)) return;
     const params = parseAuthCallbackParams(url);
     if (params.code) {
       setPasswordRecoveryPending(true);
