@@ -3,3 +3,6 @@
 
 [functions.sync-tefas]
 verify_jwt = false
+
+[functions.sync-abd-prices]
+verify_jwt = false
