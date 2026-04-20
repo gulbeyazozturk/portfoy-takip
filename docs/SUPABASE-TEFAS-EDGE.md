@@ -13,14 +13,15 @@ GitHub Actions IP’leri TEFAS’ta **Request Rejected** ile engellenebiliyor. B
 Terminal (proje kökünde):
 
 ```bash
-supabase secrets set --project-ref <PROJECT_REF> SUPABASE_SERVICE_ROLE_KEY="<service_role_key>"
-supabase secrets set --project-ref <PROJECT_REF> TEFAS_CRON_SECRET="<uzun-rastgele-string>"
+npx supabase secrets set --project-ref <PROJECT_REF> "SERVICE_ROLE_KEY=<Dashboard service_role değeri>"
+npx supabase secrets set --project-ref <PROJECT_REF> "TEFAS_CRON_SECRET=<uzun-rastgele-string>"
 ```
 
-- `SUPABASE_SERVICE_ROLE_KEY`: Dashboard → **Settings → API → service_role** (asla istemciye koyma).
-- `TEFAS_CRON_SECRET`: Senin ürettiğin gizli değer; aşağıdaki `pg_net` isteğinde header olarak kullanılacak.
+- **`SERVICE_ROLE_KEY`**: Dashboard → **Settings → API → `service_role` (secret)** ile **aynı metin**.  
+  Neden bu isim: Supabase CLI, `SUPABASE_` ile başlayan secret isimlerini **manuel set etmeye izin vermez** (`SUPABASE_SERVICE_ROLE_KEY` yazınca atlanır).
+- **`TEFAS_CRON_SECRET`**: Senin ürettiğin gizli değer; `pg_net` isteğinde `x-tefas-cron` header’ı olarak kullanılacak.
 
-`SUPABASE_URL` Edge ortamında zaten tanımlıdır; ayrıca set etmene gerek yok.
+`SUPABASE_URL` (ve genelde `SUPABASE_ANON_KEY`) Edge ortamında zaten tanımlıdır; ayrıca set etmene gerek yok.
 
 ## 2) Fonksiyonu deploy et
 

@@ -2,9 +2,9 @@
  * TEFAS fon fiyatları → Supabase `assets` (category_id = fon) upsert.
  * Node script `scripts/sync-tefas-funds.js` ile aynı mantık (Deno / Edge).
  *
- * Gizliler: Dashboard veya `supabase secrets set`:
- *   SUPABASE_SERVICE_ROLE_KEY  (zorunlu; RLS bypass ile upsert)
- *   TEFAS_CRON_SECRET          (zorunlu; dışarıdan rastgele çağrıyı engeller)
+ * Gizliler: Dashboard veya `supabase secrets set` (CLI `SUPABASE_` prefix’li isimlere izin vermez):
+ *   SERVICE_ROLE_KEY   (zorunlu; Dashboard’taki service_role ile aynı değer — upsert için)
+ *   TEFAS_CRON_SECRET  (zorunlu; dışarıdan rastgele çağrıyı engeller)
  *
  * İstek: POST + header `x-tefas-cron: <TEFAS_CRON_SECRET>` (pg_net örneği dokümanda).
  */
@@ -316,7 +316,8 @@ Deno.serve(async (req) => {
   }
 
   const url = Deno.env.get('SUPABASE_URL');
-  const key = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY');
+  // CLI `supabase secrets set` SUPABASE_* isimlerine izin vermez; service_role burada.
+  const key = Deno.env.get('SERVICE_ROLE_KEY');
   if (!url || !key) {
     return json({ error: 'missing_supabase_env' }, 500);
   }
