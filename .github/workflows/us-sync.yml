@@ -2,12 +2,12 @@
 # - Master listeyi günceller
 # - 500'lük full batch fiyat çeker
 # - Holdings'te eksik kalan fiyatları backfill eder
+#
+# Zamanlama GitHub cron ile değil: Supabase pg_cron (~15 dk) → Edge sync-abd-prices
+# (ABD_PRICE_SOURCE=github_dispatch) → bu workflow workflow_dispatch ile tetiklenir.
 name: ABD Sync
 
 on:
-  schedule:
-    # 10 dakikada bir
-    - cron: "*/10 * * * *"
   workflow_dispatch:
 
 concurrency:

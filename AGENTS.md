@@ -18,8 +18,9 @@ Bu dosya Cursor ve benzeri araçlar için **proje özgü** kısa kurallar içeri
 
 ## Sync ve script’ler
 - Node script’leri `scripts/` altında; fonksiyonel isimler (`sync-tefas-funds.js`, `reset-for-csv-import.js`, vb.).
-- TEFAS (GitHub Actions IP engeli): üretimde `supabase/functions/sync-tefas` + `docs/SUPABASE-TEFAS-EDGE.md` (pg_cron + pg_net).
-- ABD (yurtdışı) fiyatları (isteğe bağlı Edge): `supabase/functions/sync-abd-prices` + `docs/SUPABASE-ABD-SYNC.md` — GitHub `us-sync.yml` ile aynı dosyaya dokunulmadan paralel tetiklenebilir.
+- TEFAS (GitHub Actions IP engeli): üretimde `supabase/functions/sync-tefas` + `docs/SUPABASE-TEFAS-EDGE.md` (pg_cron + pg_net). Yerel Windows zamanlama (ör. 07:30–12:30): `scripts/windows/register-tefas-morning-task.ps1` + `docs/LOCAL-TEFAS-WINDOWS-SCHEDULE.md`.
+- ABD (yurtdışı) fiyatları: Yahoo GitHub runner’da (`us-sync.yml`); periyot **Supabase** `pg_cron` → Edge `sync-abd-prices` (`github_dispatch`). GitHub’da `schedule` yok: `docs/SUPABASE-ABD-SYNC.md`.
+- **Portfolio sync** (kripto/BIST/döviz/emtıa/holdings yurtdışı/snapshot): `portfolio-sync.yml`; periyot **Supabase** `pg_cron` → Edge `dispatch-portfolio-sync`: `docs/SUPABASE-PORTFOLIO-SYNC.md`.
 - Kullanıcı verisini silme/temizlik: `reset-for-csv-import.js` (master `assets` silmez); tam kullanıcı silme: `delete-user-by-email.js`.
 
 ## Veritabanı

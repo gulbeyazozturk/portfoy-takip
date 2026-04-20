@@ -1,51 +1,40 @@
-# Portföy senkronu – 15 dakikada bir çalıştırma
+# Portföy senkronu — 15 dakikada bir tetikleme
 
-GitHub Actions içindeki `schedule` (cron) **garanti etmez**; yük nedeniyle tetikleme 2–3 saate kadar gecikebiliyor. Gerçekten **her 15 dakikada bir** çalışmasını istiyorsanız aşağıdaki yöntemi kullanın.
+GitHub Actions **`schedule`** güvenilir değil; yük nedeniyle tetikleme saatlerce gecikebiliyor. Bu repoda **Portfolio sync** ve **ABD Sync** için GitHub cron **kapalı**; periyot **Supabase** üzerinden yönetilir.
 
-## Yöntem: Dış cron ile workflow tetikleme
+## Önerilen: Supabase `pg_cron` + Edge
 
-Ücretsiz bir “cron” servisi (ör. [cron-job.org](https://cron-job.org)) kullanarak her 15 dakikada bir GitHub API’ye istek atıp `Portfolio sync` workflow’unu tetikleyebilirsiniz.
+- **Portfolio sync:** Edge `dispatch-portfolio-sync` → `portfolio-sync.yml` — `docs/SUPABASE-PORTFOLIO-SYNC.md`
+- **ABD Sync:** Edge `sync-abd-prices` (`ABD_PRICE_SOURCE=github_dispatch`) → `us-sync.yml` — `docs/SUPABASE-ABD-SYNC.md`
+
+Her ikisi de aynı GitHub PAT/repo secret’larını (`GITHUB_DISPATCH_PAT`, `GITHUB_DISPATCH_REPO`) kullanabilir; cron doğrulama header’ları ayrıdır (`x-portfolio-cron` / `x-abd-cron`).
+
+## Alternatif: Harici cron (ör. cron-job.org)
+
+Kendi Supabase cron’unuzu kullanmak istemezseniz, üçüncü parti bir cron servisiyle doğrudan GitHub API’ye `POST` atarak `workflow_dispatch` tetikleyebilirsiniz.
 
 ### 1. GitHub Personal Access Token (PAT)
 
 1. GitHub → **Settings** → **Developer settings** → **Personal access tokens** → **Tokens (classic)**.
 2. **Generate new token (classic)**.
-3. İsim verin (örn. `portfoy-sync-cron`).
-4. Scope: **repo** (tümü) ve **workflow** (Actions’ı tetiklemek için) işaretleyin.
-5. Token’ı oluşturup **bir yere kopyalayın** (bir daha gösterilmez).
+3. Scope: **repo** ve **workflow** (Actions tetiklemek için).
 
 ### 2. cron-job.org ayarı
 
-1. [cron-job.org](https://cron-job.org) ücretsiz hesap açın.
-2. **Create cronjob**.
-3. **URL** kısmına şunu yazın (kendi kullanıcı adı ve repo adınızı yazın):
+1. **Create cronjob**.
+2. **URL:**
 
    ```
    https://api.github.com/repos/KULLANICI_ADI/REPO_ADI/actions/workflows/portfolio-sync.yml/dispatches
    ```
 
-   Örnek (repo `gulbeyazozturk/portfoy-takip`):
-
-   ```
-   https://api.github.com/repos/gulbeyazozturk/portfoy-takip/actions/workflows/portfolio-sync.yml/dispatches
-   ```
-
-4. **Request method:** `POST`.
-5. **Request headers** ekleyin:
-   - `Authorization`: `token BURAYA_PAT_YAPIŞTIRIN`
+3. **Request method:** `POST`.
+4. **Headers:**
+   - `Authorization`: `token <PAT>`
    - `Accept`: `application/vnd.github.v3+json`
-6. **Request body:** `{"ref":"main"}`  
-   (Varsayılan branch farklıysa, örn. `master` ise `"ref":"master"` yazın.)
-7. **Schedule:** Her 15 dakika → **Every 15 minutes** veya `*/15 * * * *` (cron ifadesi destekleniyorsa).
-8. Kaydedin.
-
-Bundan sonra bu cron job her 15 dakikada bir GitHub’a istek atacak ve **Portfolio sync** workflow’u tetiklenecektir.
+5. **Body:** `{"ref":"main"}` (branch farklıysa uyarlayın.)
+6. **Schedule:** Her 15 dakika.
 
 ### 3. Kontrol
 
-- GitHub repo → **Actions** sekmesinde “Portfolio sync” çalışmalarının yaklaşık 15 dakika arayla başladığını kontrol edin.
-- cron-job.org panelinde son tetiklemeleri ve HTTP yanıt kodlarını görebilirsiniz (204 veya 200 başarılı sayılır).
-
----
-
-**Not:** Workflow dosyasındaki `schedule` (5,20,35,50. dakikalar) yine de duruyor; GitHub tetiklemeyi geciktirse bile bazen çalışır. Dış cron, **garanti** için ek bir yöntemdir.
+GitHub → **Actions** → “Portfolio sync” çalışmalarının beklenen aralıkla başladığını doğrulayın. Başarılı yanıt genelde **204**.

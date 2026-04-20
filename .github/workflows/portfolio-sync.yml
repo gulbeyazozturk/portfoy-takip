@@ -1,12 +1,10 @@
-# 15 dakikada bir çalışması hedefleniyor. GitHub Actions zamanlanmış işleri
-# yük nedeniyle geciktirebiliyor (2–3 saate kadar). Garanti için dış cron
-# kullanın: docs/SYNC-SCHEDULE.md
+# Senkron: kripto, BIST scrape, döviz, emtia, altın, yurtdışı holdings, snapshot.
+#
+# Zamanlama GitHub cron ile değil: Supabase pg_cron (~15 dk) → Edge dispatch-portfolio-sync
+# → bu workflow workflow_dispatch ile tetiklenir. Dış servis alternatifi: docs/SYNC-SCHEDULE.md
 name: Portfolio sync
 
 on:
-  schedule:
-    # Saat başı (0,15,30,45) yerine 5,20,35,50 — GitHub'da o saatler daha az yüklü
-    - cron: "5,20,35,50 * * * *"
   workflow_dispatch:
 
 concurrency:

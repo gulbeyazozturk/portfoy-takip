@@ -1,27 +1,15 @@
-# ABD (yurtdışı) fiyat senkronu — Supabase Edge Function
+# ABD (yurtdışı) fiyat senkronu — Supabase tetikler, GitHub çalıştırır
 
-GitHub’daki **ABD Sync** workflow’una dokunmadan, aynı veri kaynağı mantığıyla (`assets` / Yahoo) **Supabase Edge** üzerinden periyodik güncelleme.
+**Üretim modeli:** Supabase’de **~15 dakikada bir** `pg_cron` → Edge **`sync-abd-prices`** → GitHub API **`workflow_dispatch`** → `.github/workflows/us-sync.yml` (Yahoo ve script’ler **yalnızca GitHub runner**’da).
 
-## Davranış
+GitHub workflow’unda **`on.schedule` yok**; çift tetik ve Yahoo’ya iki kat yük oluşmaması için zamanlama burada toplanır.
 
-- Fonksiyon: **`sync-abd-prices`**
-- Her çağrıda en fazla **1000** `yurtdisi` sembolü işlenir (`symbol` sırasına göre sabit sıra).
-- `public.abd_sync_cursor` tablosundaki `symbol_offset` ile **bir sonraki 1000’lik dilime** geçilir; liste sonunda **başa sarar**.
-- Yahoo: `query1.finance.yahoo.com/v7/finance/quote` — semboller **45’lik** gruplar halinde istenir (rate limit için kısa gecikme).
+## Edge fonksiyonu (`sync-abd-prices`)
 
-## Yahoo `401` / “User is unable to access this feature”
+- **`ABD_PRICE_SOURCE=github_dispatch`** (önerilen): Yahoo’yu Edge’de çağırmaz; `us-sync.yml` dosyasını dispatch eder.
+- Eski alternatif: Yahoo’yu Edge’den batch (1000’lik dilim + `abd_sync_cursor`) — Edge IP’lerinde Yahoo sık **401** verir; pratikte `github_dispatch` kullan.
 
-Yahoo Finance, **Supabase Edge** (ve çoğu bulut çıkış IP’si) üzerinden gelen bu tip istekleri **bilinçli olarak reddedebilir**. Bu, senin kodunun hatası değil; **TEFAS’taki WAF ile aynı sınıf** bir kısıt.
-
-**Seçenekler:**
-
-1. **Önerilen (Edge cron’u koruyacaksan):** Edge’de Yahoo çağırma; GitHub’daki mevcut **ABD Sync** workflow’unu tetikle (`ABD_PRICE_SOURCE=github_dispatch` — aşağıda).
-2. Fiyatı **yalnızca GitHub** `us-sync.yml` ile çekmeye devam et; Supabase’deki `pg_cron` satırını **kaldırma / ekleme**.
-3. Ücretli/anahtarlı başka bir fiyat API’si (şu an bu repoda yok).
-
-### Mod: `github_dispatch` (Yahoo’yu Edge’de çalıştırmaz)
-
-Edge fonksiyonu, GitHub API ile **`us-sync.yml`** dosyasını **workflow_dispatch** eder (Yahoo yine GitHub runner’da çalışır).
+### Mod: `github_dispatch`
 
 Ek secret’lar:
 
@@ -34,56 +22,38 @@ npx supabase secrets set --project-ref <PROJECT_REF> "GITHUB_DISPATCH_PAT=ghp_..
 **PAT:** GitHub → Settings → Developer settings → Fine-grained token veya classic PAT.  
 İzinler: ilgili repo için **Contents: Read** (veya repo erişimi) + **Workflows: Read and write** (dispatch için).
 
-Sonra deploy:
-
-```bash
-npx supabase functions deploy sync-abd-prices --project-ref <PROJECT_REF>
-```
-
-Bu modda **`abd_sync_cursor` kullanılmaz** (fiyat güncellemesi tamamen GitHub job’ına bırakılır).  
-Aynı repo için **hem GitHub `schedule` hem Edge dispatch** açıksa job’lar üst üste binebilir; birini kapat veya Edge sıklığını düşür.
-
-## 1) Veritabanı migration
-
-SQL Editor’da çalıştır veya CLI migration ile uygula:
-
-`database/migrations/013_abd_sync_cursor.sql`
-
-## 2) Edge secret’lar
-
-`SERVICE_ROLE_KEY` zaten TEFAS Edge’i için set edildiyse **aynı** kalabilir.
-
-Ek secret:
+Ortak secret’lar (cron doğrulama + servis erişimi ihtiyacına göre):
 
 ```bash
 npx supabase secrets set --project-ref <PROJECT_REF> "ABD_CRON_SECRET=<uzun-rastgele-metin>"
+npx supabase secrets set --project-ref <PROJECT_REF> "SERVICE_ROLE_KEY=<service_role>"
 ```
 
-## 3) Deploy
+Deploy:
 
 ```bash
 npx supabase functions deploy sync-abd-prices --project-ref <PROJECT_REF>
 ```
 
-## Sorun giderme: `{"error":"unauthorized"}`
+Bu modda **`abd_sync_cursor` kullanılmaz** (fiyat güncellemesi tamamen GitHub job’ına bırakılır).
 
-Deploy ettiğin sürümde `reason` alanı var:
+## Yahoo `401` / “User is unable to access this feature” (Edge’den doğrudan Yahoo)
 
-- **`ABD_CRON_SECRET_edge_secret_missing`** → Edge’e secret hiç gitmemiş veya yanlış projede set edilmiş.  
-  `npx supabase secrets set --project-ref <PROJECT_REF> "ABD_CRON_SECRET=..."` sonra **`npx supabase functions deploy sync-abd-prices --project-ref <PROJECT_REF>`** tekrar çalıştır.
-- **`x_abd_cron_mismatch`** → `curl`’daki `x-abd-cron` değeri, secret’taki ile aynı değil (boşluk, yanlış kopya, JWT yanlışlıkla kullanımı vb.).
+Yahoo Finance, **Supabase Edge** çıkış IP’lerinden bu tip istekleri reddedebilir. Edge’de Yahoo kullanacaksan migration `013` gerekir; günlük kullanımda **`github_dispatch`** yeterli.
 
-Header adı tam olarak: **`x-abd-cron`** (TEFAS’taki `x-tefas-cron` değil).
+## Veritabanı (yalnızca Edge’de Yahoo modu)
 
-## 4) Manuel test (PowerShell, tek satır)
+`database/migrations/013_abd_sync_cursor.sql` — Yahoo’yu Edge’den çalıştırırken `abd_sync_cursor` için.
+
+## Manuel test (PowerShell)
 
 ```powershell
 curl.exe -s -X POST "https://<PROJECT_REF>.supabase.co/functions/v1/sync-abd-prices" -H "x-abd-cron: <ABD_CRON_SECRET>" -H "Content-Type: application/json" -d "{}"
 ```
 
-## 5) Zamanlayıcı — 15 dakikada bir (UTC)
+## Zamanlayıcı — 15 dakikada bir (UTC)
 
-`pg_cron` + `pg_net` + Vault (TEFAS dokümanındaki gibi). Örnek cron:
+`pg_cron` + `pg_net` + Vault (TEFAS dokümanındaki gibi). Örnek:
 
 ```text
 */15 * * * *
@@ -94,7 +64,7 @@ Vault’ta örneğin:
 - `abd_project_url` → `https://<PROJECT_REF>.supabase.co`
 - `abd_cron_secret` → `ABD_CRON_SECRET` ile **aynı** metin
 
-Örnek job (job adını değiştirebilirsin):
+Örnek job:
 
 ```sql
 select cron.schedule(
@@ -116,11 +86,24 @@ select cron.schedule(
 
 İptal: `select cron.unschedule('abd_prices_edge_every_15m');`
 
-## GitHub ABD Sync ile birlikte
+## Sorun giderme: `{"error":"unauthorized"}`
 
-- `.github/workflows/us-sync.yml` **değiştirilmedi**.
-- İkisi aynı anda çalışırsa Yahoo’ya iki kat istek gider; genelde **birini** zamanlayıcı olarak bırakmak daha güvenli (ya GitHub ya Supabase cron).
+Deploy ettiğin sürümde `reason` alanı var:
+
+- **`ABD_CRON_SECRET_edge_secret_missing`** → Edge’e secret set + fonksiyonu yeniden deploy.
+- **`x_abd_cron_mismatch`** → `x-abd-cron` header’ı secret ile birebir aynı (trim/boşluk).
+
+Header adı: **`x-abd-cron`**.
+
+## GitHub tarafı
+
+- `.github/workflows/us-sync.yml`: yalnızca **`workflow_dispatch`**; Actions sekmesinden veya Edge dispatch ile çalışır.
+- Eski **GitHub `schedule`** kapatıldı; periyot Supabase cron ile yönetilir.
+
+## İlişkili
+
+- **Portfolio sync** (kripto/BIST/döviz vb.) GitHub tetiklemesi: `docs/SUPABASE-PORTFOLIO-SYNC.md`
 
 ## Kaynak
 
-- Zamanlama modeli: [Scheduling Edge Functions](https://supabase.com/docs/guides/functions/schedule-functions)
+- [Scheduling Edge Functions](https://supabase.com/docs/guides/functions/schedule-functions)
