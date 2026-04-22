@@ -16,6 +16,7 @@ const TRUNC_GIL_URL = 'https://finans.truncgil.com/v3/today.json';
 const TRUNCGIL_TIMEOUT_MS = Number(process.env.TRUNCGIL_TIMEOUT_MS || 20000);
 const TRUNCGIL_RETRY_COUNT = Number(process.env.TRUNCGIL_RETRY_COUNT || 3);
 const TRUNCGIL_RETRY_DELAY_MS = Number(process.env.TRUNCGIL_RETRY_DELAY_MS || 2000);
+const TRUNCGIL_CONNECT_TIMEOUT_MS = Number(process.env.TRUNCGIL_CONNECT_TIMEOUT_MS || 30000);
 
 // Trunçgil API anahtarı -> symbol + görünen isim (alış fiyatı kullanılıyor)
 const GOLD_KEYS = {
@@ -67,6 +68,10 @@ function toNumber(val) {
 }
 
 async function fetchTruncGilData() {
+  const { Agent } = require('undici');
+  const dispatcher = new Agent({
+    connect: { timeout: TRUNCGIL_CONNECT_TIMEOUT_MS },
+  });
   let lastError = null;
 
   for (let attempt = 1; attempt <= TRUNCGIL_RETRY_COUNT; attempt += 1) {
@@ -76,6 +81,7 @@ async function fetchTruncGilData() {
       const res = await fetch(TRUNC_GIL_URL, {
         headers: { 'User-Agent': 'PortfoyTakip/1.0 (altin sync)' },
         signal: controller.signal,
+        dispatcher,
       });
 
       if (!res.ok) {
@@ -99,6 +105,15 @@ async function fetchTruncGilData() {
     } finally {
       clearTimeout(timeout);
     }
+  }
+
+  if (process.env.TRUNCGIL_ALLOW_FAILURE === '1') {
+    console.warn(
+      `[kapalicarsi-gold] Trunçgil geçici olarak erişilemedi (son hata: ${
+        lastError?.message || lastError
+      }). TRUNCGIL_ALLOW_FAILURE=1 olduğu için adım hata vermeden geçiliyor.`,
+    );
+    return {};
   }
 
   throw lastError || new Error('Trunçgil verisi alınamadı.');
