@@ -19,6 +19,8 @@ jobs:
     runs-on: ubuntu-latest
     env:
       FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+      TRUNCGIL_CONNECT_TIMEOUT_MS: "30000"
+      TRUNCGIL_ALLOW_FAILURE: "1"
 
     steps:
       - name: Checkout repo
