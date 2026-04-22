@@ -15,7 +15,8 @@ const SCRIPTS = [
   { file: 'sync-crypto-prices.js', args: [] },
   { file: 'sync-bist-scrape.js', args: [] },
   { file: 'sync-emtia-scrape.js', args: [] },
-  { file: 'sync-kapalicarsi-gold.js', args: [] },
+  // Dış kaynak timeout verebilir; tüm zinciri düşürmemek için bu adım hata toleranslı.
+  { file: 'sync-kapalicarsi-gold.js', args: [], continueOnError: true },
   // Full evrenden kademeli güncelleme (rate-limit dostu)
   { file: 'sync-yurtdisi-prices.js', args: ['--mode=full', '--batch=500', '--delay=180'] },
   { file: 'sync-tefas-funds.js', args: [] },
@@ -34,6 +35,10 @@ function runScript(job) {
     env: process.env,
   });
   if (r.status !== 0) {
+    if (job.continueOnError) {
+      console.warn(`\n[sync-all-prices] ${job.file} başarısız (kod: ${r.status}) ama devam ediliyor.`);
+      return;
+    }
     console.error(`\n[sync-all-prices] ${job.file} başarısız (kod: ${r.status}).`);
     process.exit(r.status ?? 1);
   }

@@ -13,6 +13,9 @@
  */
 
 const TRUNC_GIL_URL = 'https://finans.truncgil.com/v3/today.json';
+const TRUNCGIL_TIMEOUT_MS = Number(process.env.TRUNCGIL_TIMEOUT_MS || 20000);
+const TRUNCGIL_RETRY_COUNT = Number(process.env.TRUNCGIL_RETRY_COUNT || 3);
+const TRUNCGIL_RETRY_DELAY_MS = Number(process.env.TRUNCGIL_RETRY_DELAY_MS || 2000);
 
 // Trunçgil API anahtarı -> symbol + görünen isim (alış fiyatı kullanılıyor)
 const GOLD_KEYS = {
@@ -64,17 +67,41 @@ function toNumber(val) {
 }
 
 async function fetchTruncGilData() {
-  const res = await fetch(TRUNC_GIL_URL, {
-    headers: { 'User-Agent': 'PortfoyTakip/1.0 (altin sync)' },
-  });
-  if (!res.ok) {
-    throw new Error(`Trunçgil API hatası ${res.status}: ${await res.text()}`);
+  let lastError = null;
+
+  for (let attempt = 1; attempt <= TRUNCGIL_RETRY_COUNT; attempt += 1) {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), TRUNCGIL_TIMEOUT_MS);
+    try {
+      const res = await fetch(TRUNC_GIL_URL, {
+        headers: { 'User-Agent': 'PortfoyTakip/1.0 (altin sync)' },
+        signal: controller.signal,
+      });
+
+      if (!res.ok) {
+        throw new Error(`Trunçgil API hatası ${res.status}: ${await res.text()}`);
+      }
+      const data = await res.json();
+      if (!data || typeof data !== 'object') {
+        throw new Error('Trunçgil API beklenen formatta değil.');
+      }
+      return data;
+    } catch (err) {
+      lastError = err;
+      const isLastAttempt = attempt === TRUNCGIL_RETRY_COUNT;
+      if (isLastAttempt) break;
+      console.warn(
+        `Trunçgil istek denemesi ${attempt}/${TRUNCGIL_RETRY_COUNT} başarısız: ${err?.message || err}. ${
+          TRUNCGIL_RETRY_DELAY_MS
+        }ms sonra tekrar denenecek...`,
+      );
+      await new Promise((resolve) => setTimeout(resolve, TRUNCGIL_RETRY_DELAY_MS));
+    } finally {
+      clearTimeout(timeout);
+    }
   }
-  const data = await res.json();
-  if (!data || typeof data !== 'object') {
-    throw new Error('Trunçgil API beklenen formatta değil.');
-  }
-  return data;
+
+  throw lastError || new Error('Trunçgil verisi alınamadı.');
 }
 
 async function upsertKapalicarsiGold(supabase, apiData) {

@@ -1,6 +1,46 @@
 # Supabase CLI: `supabase link --project-ref <PROJECT_REF>` ile proje bağlanır.
 # Edge Function JWT: zamanlayıcı (pg_net) isteğinde kullanıcı JWT’si olmayabilir; sync-tefas için kapalı.
 
+[auth]
+site_url = "http://localhost:3000"
+additional_redirect_urls = ["omnifolio://oauth-callback", "exp://192.168.68.105:8084/--/oauth-callback", "exp://192.168.68.105:8084", "exp://192.168.68.105:8084/oauth-callback", "omnifolio://reset-password", "exp://reset-password"]
+minimum_password_length = 8
+
+[auth.email]
+enable_signup = true
+double_confirm_changes = false
+enable_confirmations = true
+max_frequency = "1m0s"
+otp_length = 8
+
+[auth.email.template.confirmation]
+subject = "Omnifolio | Email Verification / E-posta Dogrulama"
+content_path = "./supabase/templates/confirmation.html"
+
+[auth.email.template.recovery]
+subject = "Omnifolio | Reset Password / Sifre Sifirlama"
+content_path = "./supabase/templates/recovery.html"
+
+[auth.email.template.magic_link]
+subject = "Omnifolio | Sign in Link / Giris Baglantisi"
+content_path = "./supabase/templates/magic-link.html"
+
+[auth.email.template.email_change]
+subject = "Omnifolio | Email Change / E-posta Degisikligi"
+content_path = "./supabase/templates/email-change.html"
+
+[auth.email.template.invite]
+subject = "Omnifolio | Invitation / Davet"
+content_path = "./supabase/templates/invite.html"
+
+[auth.email.template.reauthentication]
+subject = "Omnifolio | Verification Code / Dogrulama Kodu"
+content_path = "./supabase/templates/reauthentication.html"
+
+[auth.mfa.totp]
+enroll_enabled = true
+verify_enabled = true
+
 [functions.sync-tefas]
 verify_jwt = false
 
