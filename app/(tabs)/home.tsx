@@ -129,6 +129,14 @@ export default function HomeScreen() {
       : valueCurrency === 'TL'
         ? portfolioMetrics.totalPctTL
         : portfolioMetrics.totalPctUSD;
+  const heroAmt =
+    valueScope === 'daily'
+      ? valueCurrency === 'TL'
+        ? portfolioMetrics.dailyChangeTL
+        : portfolioMetrics.dailyChangeUSD
+      : valueCurrency === 'TL'
+        ? portfolioMetrics.totalChangeTL
+        : portfolioMetrics.totalChangeUSD;
   const pctPositive = heroPct >= 0;
 
   const fmtMoney = (n: number) =>
@@ -145,6 +153,16 @@ export default function HomeScreen() {
     minimumFractionDigits: 1,
     maximumFractionDigits: 2,
   })}%`;
+  const heroAmtStr =
+    valueCurrency === 'USD'
+      ? `${heroAmt >= 0 ? '+' : '-'}$${Math.abs(heroAmt).toLocaleString('en-US', {
+          minimumFractionDigits: 0,
+          maximumFractionDigits: 0,
+        })}`
+      : `${heroAmt >= 0 ? '+' : '-'}${Math.abs(heroAmt).toLocaleString(numberLocale, {
+          minimumFractionDigits: 0,
+          maximumFractionDigits: 0,
+        })} ${t('home.currencyTL')}`;
 
   const handleGridCategoryPress = (row: AllocationBreakdownRow) => {
     const now = Date.now();
@@ -195,7 +213,16 @@ export default function HomeScreen() {
                     {mainTotal > 0 ? fmtMoney(mainTotal) : valueCurrency === 'USD' ? '$0' : `0 ${t('home.currencyTL')}`}
                   </Text>
                   {mainTotal > 0 ? (
-                    <Text style={[styles.heroPct, pctPositive ? styles.heroPctUp : styles.heroPctDown]}>{pctStr}</Text>
+                    <View style={styles.heroDeltaWrap}>
+                      <Text style={[styles.heroPct, pctPositive ? styles.heroPctUp : styles.heroPctDown]}>
+                        {pctStr}
+                      </Text>
+                      <Text
+                        style={[styles.heroAmt, pctPositive ? styles.heroPctUp : styles.heroPctDown]}
+                        numberOfLines={1}>
+                        {heroAmtStr}
+                      </Text>
+                    </View>
                   ) : null}
                 </View>
               </Pressable>
@@ -476,6 +503,8 @@ const styles = StyleSheet.create({
     flexShrink: 1,
   },
   heroPct: { fontSize: 15, fontWeight: '700', flexShrink: 0 },
+  heroDeltaWrap: { alignItems: 'flex-start', gap: 2, flexShrink: 1 },
+  heroAmt: { fontSize: 13, fontWeight: '700' },
   heroPctUp: { color: SECONDARY_MINT },
   heroPctDown: { color: PCT_NEGATIVE },
   currencyPill: {

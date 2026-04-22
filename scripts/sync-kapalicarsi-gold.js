@@ -13,6 +13,7 @@
  */
 
 const TRUNC_GIL_URL = 'https://finans.truncgil.com/v3/today.json';
+const TRUNC_GIL_V5_URL = 'https://finance.truncgil.com/api/gold-rates';
 const TRUNCGIL_TIMEOUT_MS = Number(process.env.TRUNCGIL_TIMEOUT_MS || 20000);
 const TRUNCGIL_RETRY_COUNT = Number(process.env.TRUNCGIL_RETRY_COUNT || 3);
 const TRUNCGIL_RETRY_DELAY_MS = Number(process.env.TRUNCGIL_RETRY_DELAY_MS || 2000);
@@ -36,6 +37,26 @@ const GOLD_KEYS = {
   'gremse-altin': { symbol: 'GREMSE_ALTIN', name: 'Gremse Altın' },
   'resat-altin': { symbol: 'RESAT_ALTIN', name: 'Reşat Altın' },
   'hamit-altin': { symbol: 'HAMIT_ALTIN', name: 'Hamit Altın' },
+};
+
+// Trunçgil Finance v5 (finance.truncgil.com) altın kodları -> v3 keyleri.
+const V5_GOLD_RATE_KEY_TO_V3_KEY = {
+  GRA: 'gram-altin',
+  HAS: 'gram-has-altin',
+  GUMUS: 'gumus',
+  CEYREKALTIN: 'ceyrek-altin',
+  YARIMALTIN: 'yarim-altin',
+  TAMALTIN: 'tam-altin',
+  CUMHURIYETALTINI: 'cumhuriyet-altini',
+  YIA: '22-ayar-bilezik',
+  '14AYARALTIN': '14-ayar-altin',
+  '18AYARALTIN': '18-ayar-altin',
+  ATAALTIN: 'ata-altin',
+  IKIBUCUKALTIN: 'ikibucuk-altin',
+  BESLIALTIN: 'besli-altin',
+  GREMSEALTIN: 'gremse-altin',
+  RESATALTIN: 'resat-altin',
+  HAMITALTIN: 'hamit-altin',
 };
 
 async function loadEnv() {
@@ -106,17 +127,96 @@ async function fetchTruncGilData() {
       clearTimeout(timeout);
     }
   }
+  throw lastError || new Error('Trunçgil verisi alınamadı.');
+}
 
-  if (process.env.TRUNCGIL_ALLOW_FAILURE === '1') {
-    console.warn(
-      `[kapalicarsi-gold] Trunçgil geçici olarak erişilemedi (son hata: ${
-        lastError?.message || lastError
-      }). TRUNCGIL_ALLOW_FAILURE=1 olduğu için adım hata vermeden geçiliyor.`,
-    );
-    return {};
+function mapV5GoldRatesToV3Shape(v5Data) {
+  const rates = v5Data?.Rates;
+  if (!rates || typeof rates !== 'object') return {};
+  const mapped = {};
+  for (const [v5Key, v3Key] of Object.entries(V5_GOLD_RATE_KEY_TO_V3_KEY)) {
+    const row = rates[v5Key];
+    if (!row || typeof row !== 'object') continue;
+    const buying = row.Buying != null ? Number(row.Buying) : null;
+    if (!Number.isFinite(buying)) continue;
+    mapped[v3Key] = {
+      Buying: buying,
+      Selling: row.Selling != null ? Number(row.Selling) : null,
+      Type: row.Type ?? 'Gold',
+      Name: row.Name ?? v5Key,
+      Change: row.Change ?? null,
+    };
+  }
+  return mapped;
+}
+
+async function fetchTruncGilV5GoldData() {
+  const { Agent } = require('undici');
+  const dispatcher = new Agent({
+    connect: { timeout: TRUNCGIL_CONNECT_TIMEOUT_MS },
+  });
+  let lastError = null;
+
+  for (let attempt = 1; attempt <= TRUNCGIL_RETRY_COUNT; attempt += 1) {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), TRUNCGIL_TIMEOUT_MS);
+    try {
+      const res = await fetch(TRUNC_GIL_V5_URL, {
+        headers: { 'User-Agent': 'PortfoyTakip/1.0 (altin sync fallback)' },
+        signal: controller.signal,
+        dispatcher,
+      });
+      if (!res.ok) {
+        throw new Error(`Trunçgil v5 API hatası ${res.status}: ${await res.text()}`);
+      }
+      const data = await res.json();
+      const mapped = mapV5GoldRatesToV3Shape(data);
+      if (!mapped || typeof mapped !== 'object') {
+        throw new Error('Trunçgil v5 API beklenen formatta değil.');
+      }
+      return mapped;
+    } catch (err) {
+      lastError = err;
+      const isLastAttempt = attempt === TRUNCGIL_RETRY_COUNT;
+      if (isLastAttempt) break;
+      console.warn(
+        `Trunçgil v5 istek denemesi ${attempt}/${TRUNCGIL_RETRY_COUNT} başarısız: ${err?.message || err}. ${
+          TRUNCGIL_RETRY_DELAY_MS
+        }ms sonra tekrar denenecek...`,
+      );
+      await new Promise((resolve) => setTimeout(resolve, TRUNCGIL_RETRY_DELAY_MS));
+    } finally {
+      clearTimeout(timeout);
+    }
   }
 
-  throw lastError || new Error('Trunçgil verisi alınamadı.');
+  throw lastError || new Error('Trunçgil v5 verisi alınamadı.');
+}
+
+async function fetchGoldDataWithFallback() {
+  try {
+    const v3Data = await fetchTruncGilData();
+    return { data: v3Data, source: 'truncgil-v3' };
+  } catch (v3Error) {
+    console.warn(
+      `[kapalicarsi-gold] Trunçgil v3 başarısız (${v3Error?.message || v3Error}). Fallback: Trunçgil Finance v5 deneniyor...`,
+    );
+  }
+
+  try {
+    const v5MappedData = await fetchTruncGilV5GoldData();
+    return { data: v5MappedData, source: 'truncgil-v5' };
+  } catch (v5Error) {
+    if (process.env.TRUNCGIL_ALLOW_FAILURE === '1') {
+      console.warn(
+        `[kapalicarsi-gold] Fallback dahil tüm kaynaklar geçici olarak erişilemedi (son hata: ${
+          v5Error?.message || v5Error
+        }). TRUNCGIL_ALLOW_FAILURE=1 olduğu için adım hata vermeden geçiliyor.`,
+      );
+      return { data: {}, source: 'none' };
+    }
+    throw v5Error;
+  }
 }
 
 async function upsertKapalicarsiGold(supabase, apiData) {
@@ -188,8 +288,9 @@ async function main() {
   const { createClient } = require('@supabase/supabase-js');
   const supabase = createClient(url, key);
 
-  console.log('Fiziki altın verisi çekiliyor (Trunçgil)…');
-  const data = await fetchTruncGilData();
+  console.log('Fiziki altın verisi çekiliyor (Trunçgil + fallback)…');
+  const { data, source } = await fetchGoldDataWithFallback();
+  console.log(`Kullanılan kaynak: ${source}`);
   const goldKeys = Object.keys(GOLD_KEYS).filter((k) => data[k]);
   console.log('Eşleşen altın türü:', goldKeys.length, goldKeys.join(', '));
 
