@@ -29,11 +29,9 @@ export default function WelcomeScreen() {
     }
     setBusy(true);
     try {
-      // Storage adımı takılsa bile kullanıcıyı ana ekrana geçir.
-      await Promise.race([
-        setWelcomeDismissedForUser(uid),
-        new Promise<void>((resolve) => setTimeout(resolve, 1200)),
-      ]);
+      await setWelcomeDismissedForUser(uid);
+    } catch {
+      // Kaydetme hatası kullanıcıyı engellemesin; yine de devam ettir.
     } finally {
       setBusy(false);
       router.replace('/home');

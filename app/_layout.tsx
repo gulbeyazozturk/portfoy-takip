@@ -1,6 +1,7 @@
 import '@/lib/native-webcrypto-polyfill';
 import '@/lib/i18n';
 
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { DarkTheme, DefaultTheme, ThemeProvider } from '@react-navigation/native';
 import { Stack } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
@@ -18,11 +19,14 @@ import { useColorScheme } from '@/hooks/use-color-scheme';
 import { PortfolioProvider } from '@/context/portfolio';
 import { SelectedCategoriesProvider } from '@/context/selected-categories';
 import { isSupabaseConfigured } from '@/lib/supabase';
-import { isWelcomeDismissedForUser } from '@/lib/welcome-dismissed';
+import { isWelcomeDismissedForUser, welcomeStorageKey } from '@/lib/welcome-dismissed';
 
 export const unstable_settings = {
   anchor: '(tabs)',
 };
+
+const ONE_TIME_WELCOME_RESET_EMAIL = 'hasimozturk@gmail.com';
+const ONE_TIME_WELCOME_RESET_FLAG_KEY = '@omnifolio_welcome_reset_once:hasimozturk@gmail.com';
 
 export default function RootLayout() {
   const colorScheme = useColorScheme();
@@ -106,6 +110,7 @@ function AuthenticatedAppStack() {
 
   useEffect(() => {
     const uid = session?.user?.id;
+    const email = (session?.user?.email ?? '').trim().toLowerCase();
     if (!uid) {
       setGate('skip');
       return;
@@ -113,6 +118,13 @@ function AuthenticatedAppStack() {
     let cancelled = false;
     void (async () => {
       try {
+        if (email === ONE_TIME_WELCOME_RESET_EMAIL) {
+          const done = await AsyncStorage.getItem(ONE_TIME_WELCOME_RESET_FLAG_KEY);
+          if (done !== '1') {
+            await AsyncStorage.removeItem(welcomeStorageKey(uid));
+            await AsyncStorage.setItem(ONE_TIME_WELCOME_RESET_FLAG_KEY, '1');
+          }
+        }
         const dismissed = await isWelcomeDismissedForUser(uid);
         if (!cancelled) setGate(dismissed ? 'skip' : 'show');
       } catch {
