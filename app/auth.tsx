@@ -7,6 +7,7 @@ import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context'
 import { LanguageToggle } from '@/components/language-toggle';
 import { OmnifolioBrand } from '@/components/omnifolio-brand';
 import { ThemedText } from '@/components/themed-text';
+import { Brand } from '@/constants/brand';
 import { useAuth } from '@/context/auth';
 import { waitForSignedInAfterOAuth } from '@/lib/oauth-session-wait';
 import { supabase } from '@/lib/supabase';
@@ -311,7 +312,7 @@ const styles = StyleSheet.create({
     paddingVertical: 10,
     alignItems: 'center',
   },
-  modeBtnActive: { borderColor: '#00e677', backgroundColor: 'rgba(0,230,119,0.12)' },
+  modeBtnActive: { borderColor: Brand.primaryBorder, backgroundColor: Brand.primaryMuted },
   modeText: { color: '#9ca3af', fontWeight: '600' },
   modeTextActive: { color: '#fff' },
   card: {
@@ -333,12 +334,12 @@ const styles = StyleSheet.create({
   },
   primaryBtn: {
     marginTop: 14,
-    backgroundColor: '#00b863',
+    backgroundColor: Brand.primarySolid,
     borderRadius: 10,
     alignItems: 'center',
     paddingVertical: 12,
     borderWidth: 1,
-    borderColor: 'rgba(0,230,119,0.45)',
+    borderColor: Brand.primaryBorder,
   },
   disabledBtn: { opacity: 0.5 },
   primaryBtnText: { color: '#fff', fontWeight: '700' },
@@ -357,19 +358,19 @@ const styles = StyleSheet.create({
   },
   socialText: { color: '#e5e7eb', fontWeight: '600' },
   errorText: { color: '#ef4444', marginTop: 8, textAlign: 'center', fontSize: 13 },
-  infoText: { color: '#22c55e', marginTop: 8, textAlign: 'center', fontSize: 13 },
+  infoText: { color: Brand.infoText, marginTop: 8, textAlign: 'center', fontSize: 13 },
   infoBox: {
     marginTop: 10,
     borderRadius: 10,
     borderWidth: 1,
-    borderColor: 'rgba(34,197,94,0.45)',
-    backgroundColor: 'rgba(34,197,94,0.12)',
+    borderColor: Brand.infoBoxBorder,
+    backgroundColor: Brand.infoBoxBg,
     paddingHorizontal: 10,
     paddingVertical: 8,
   },
-  infoBoxText: { color: '#86efac', textAlign: 'center', fontSize: 12 },
+  infoBoxText: { color: Brand.infoBoxText, textAlign: 'center', fontSize: 12 },
   forgotLinkWrap: { alignSelf: 'flex-end', marginTop: 8 },
-  forgotLink: { color: '#60a5fa', fontSize: 13, fontWeight: '600' },
+  forgotLink: { color: Brand.primary, fontSize: 13, fontWeight: '600' },
   forgotHint: { color: '#9ca3af', fontSize: 13, marginTop: 10, lineHeight: 18 },
   backForgot: { marginTop: 12, alignItems: 'center' },
 });

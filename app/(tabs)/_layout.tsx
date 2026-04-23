@@ -5,6 +5,7 @@ import { Platform } from 'react-native';
 
 import { FABTabButton } from '@/components/fab-tab-button';
 import { HapticTab } from '@/components/haptic-tab';
+import { Brand } from '@/constants/brand';
 import { useAuth } from '@/context/auth';
 import { useTranslation } from 'react-i18next';
 
@@ -14,7 +15,7 @@ export const unstable_settings = {
 
 const TAB_BG = '#000000';
 const PASSIVE = '#888A96';
-const ACTIVE = '#2979FF';
+const ACTIVE = Brand.primary;
 
 export default function TabLayout() {
   const { t } = useTranslation();

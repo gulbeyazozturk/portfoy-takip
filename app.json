@@ -7,7 +7,11 @@
     "icon": "./assets/images/icon.png",
     "scheme": "omnifolio",
     "userInterfaceStyle": "automatic",
-    "newArchEnabled": true,
+    "androidStatusBar": {
+      "backgroundColor": "#0B1220",
+      "barStyle": "light-content",
+      "translucent": false
+    },
     "ios": {
       "supportsTablet": true,
       "bundleIdentifier": "com.gulbeyazozturk.omnifolio",
@@ -17,13 +21,15 @@
       },
       "infoPlist": {
         "ITSAppUsesNonExemptEncryption": false,
-        "NSFaceIDUsageDescription": "Omnifolio portföy verilerinize yalnızca sizin erişebilmeniz için Face ID kullanılır."
+        "NSFaceIDUsageDescription": "Omnifolio portföy verilerinize yalnızca sizin erişebilmeniz için Face ID kullanılır.",
+        "UIStatusBarStyle": "UIStatusBarStyleLightContent"
       }
     },
+    "newArchEnabled": true,
     "android": {
       "package": "com.gulbeyazozturk.omnifolio",
       "adaptiveIcon": {
-        "backgroundColor": "#E6F4FE",
+        "backgroundColor": "#0B1220",
         "foregroundImage": "./assets/images/android-icon-foreground.png",
         "backgroundImage": "./assets/images/android-icon-background.png",
         "monochromeImage": "./assets/images/android-icon-monochrome.png"
@@ -48,9 +54,9 @@
           "image": "./assets/images/icon.png",
           "imageWidth": 200,
           "resizeMode": "contain",
-          "backgroundColor": "#ffffff",
+          "backgroundColor": "#0B1220",
           "dark": {
-            "backgroundColor": "#000000"
+            "backgroundColor": "#0B1220"
           }
         }
       ],

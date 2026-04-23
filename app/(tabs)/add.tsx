@@ -13,6 +13,7 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
+import { Brand } from '@/constants/brand';
 import { categoryDisplayLabel } from '@/lib/category-display';
 import { supabase } from '@/lib/supabase';
 import { useTranslation } from 'react-i18next';
@@ -21,7 +22,7 @@ const BG_DARK = '#000000';
 const SURFACE = '#1A1C24';
 const WHITE = '#FFFFFF';
 const BORDER = 'rgba(255,255,255,0.10)';
-const PRIMARY = '#00e677';
+const PRIMARY = Brand.primarySolid;
 
 type CategoryRow = {
   id: string;

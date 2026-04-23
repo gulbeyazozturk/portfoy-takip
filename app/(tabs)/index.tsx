@@ -32,6 +32,7 @@ import {
 import { useMinuteTick } from '@/hooks/use-minute-tick';
 import { kriptoStoredUnitToUsd, legacyCryptoStoredUnitToUsd } from '@/lib/crypto-price-usd';
 import { resolveBistDisplayName } from '@/lib/bist-display-name';
+import { Brand } from '@/constants/brand';
 import { categoryDisplayLabel } from '@/lib/category-display';
 import { effectiveChange24hPctForDisplay } from '@/lib/effective-change-24h';
 import { dailyPrevValueFromChangePct, fonUnitNativeTry } from '@/lib/fon-price-guards';
@@ -39,13 +40,13 @@ import { isUsdNativeCategory } from '@/lib/portfolio-currency';
 import { useTranslation } from 'react-i18next';
 
 const BG = '#000000';
-const PRIMARY = '#89acff';
-const ON_PRIMARY = '#002b6a';
+const PRIMARY = Brand.primary;
+const ON_PRIMARY = Brand.onPrimary;
 const SURFACE_CONTAINER = '#191919';
 const SURFACE_CONTAINER_HIGH = '#1f1f1f';
 const ON_SURFACE = '#ffffff';
 const ON_SURFACE_VARIANT = '#ababab';
-const SECONDARY = '#3fff8b';
+const SECONDARY = Brand.chartPositive;
 const ERROR = '#ff716c';
 const OUTLINE_VARIANT = '#484848';
 const MUTED_PCT = 'rgba(255,255,255,0.45)';
@@ -103,7 +104,7 @@ const ASSET_ICONS: Record<string, { icon: string; bg: string; color: string }> =
   XAUT: { icon: 'cube', bg: 'rgba(250,204,21,0.45)', color: '#facc15' },
   PAXG: { icon: 'cube', bg: 'rgba(234,179,8,0.4)', color: '#fbbf24' },
   emtia: { icon: 'cube-outline', bg: 'rgba(250,204,21,0.28)', color: '#facc15' },
-  bist: { icon: 'stats-chart', bg: 'rgba(56,189,248,0.3)', color: '#38bdf8' },
+  bist: { icon: 'stats-chart', bg: 'rgba(137,172,255,0.28)', color: Brand.primary },
   mevduat: { icon: 'wallet-outline', bg: 'rgba(255,215,0,0.25)', color: '#FFD700' },
   VADESIZ: { icon: 'wallet-outline', bg: 'rgba(255,215,0,0.25)', color: '#FFD700' },
   VADELI: { icon: 'time-outline', bg: 'rgba(255,215,0,0.25)', color: '#FFD700' },

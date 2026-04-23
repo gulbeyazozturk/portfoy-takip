@@ -26,8 +26,6 @@ import { supabase } from '@/lib/supabase';
 import { useTranslation } from 'react-i18next';
 import Constants from 'expo-constants';
 
-const APP_VERSION = '1.0.0';
-
 type AppExtra = {
   githubUsername?: string;
   githubRepoSlug?: string;
@@ -36,8 +34,10 @@ type AppExtra = {
 const extra = Constants.expoConfig?.extra as AppExtra | undefined;
 const githubUsername = extra?.githubUsername ?? 'gulbeyazozturk';
 const githubRepoSlug = extra?.githubRepoSlug ?? 'portfoy-takip';
+const APP_VERSION = Constants.expoConfig?.version ?? '1.0.0';
 /** GitHub Pages: `docs/privacy-policy.html`, branch `main`, klasör `/docs` — bkz. docs/HESAP-DEVRI.md */
 const PRIVACY_POLICY_URL = `https://${githubUsername}.github.io/${githubRepoSlug}/privacy-policy.html`;
+const SUPPORT_URL = `https://github.com/${githubUsername}/${githubRepoSlug}/issues`;
 
 /** Portföy sekmesi (index) ile aynı seçim / hap paleti */
 const PRIMARY = '#89acff';
@@ -227,6 +227,15 @@ export default function SettingsScreen() {
           <ThemedText style={styles.version}>{t('settings.version', { v: APP_VERSION })}</ThemedText>
 
           <View style={styles.section}>
+            <ThemedText style={styles.sectionTitle}>{t('settings.aboutTitle')}</ThemedText>
+            <ThemedText style={styles.aboutLine}>{t('settings.aboutLine', { tagline: t('brand.tagline') })}</ThemedText>
+            <Pressable onPress={() => Linking.openURL(SUPPORT_URL)}>
+              <ThemedText style={styles.link}>{t('settings.support')}</ThemedText>
+            </Pressable>
+            <ThemedText style={styles.mutedSmall}>{t('settings.version', { v: APP_VERSION })}</ThemedText>
+          </View>
+
+          <View style={styles.section}>
             <ThemedText style={styles.sectionTitle}>{t('settings.portfoliosSection')}</ThemedText>
             <ThemedText style={styles.mutedSmall}>{t('settings.portfoliosHint')}</ThemedText>
             <View style={styles.portfolioList}>
@@ -401,6 +410,7 @@ const styles = StyleSheet.create({
     borderTopColor: 'rgba(255,255,255,0.12)',
   },
   sectionTitle: { color: '#e5e7eb', fontSize: 16, fontWeight: '700', marginBottom: 6 },
+  aboutLine: { color: '#d1d5db', fontSize: 14, lineHeight: 20 },
   portfolioList: { gap: 8, marginTop: 8 },
   portfolioRow: {
     flexDirection: 'row',

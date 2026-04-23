@@ -5,8 +5,12 @@
 
 import { Platform } from 'react-native';
 
-const tintColorLight = '#0a7ea4';
-const tintColorDark = '#fff';
+import { Brand } from '@/constants/brand';
+
+/** Açık arka planda okunaklı link / seçili tint */
+const tintColorLight = Brand.tintOnLight;
+/** Koyu arka planda portföy ile aynı mavi vurgu */
+const tintColorDark = Brand.primary;
 
 export const Colors = {
   light: {

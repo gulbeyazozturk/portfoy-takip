@@ -4,6 +4,7 @@ import '@/lib/i18n';
 import { DarkTheme, DefaultTheme, ThemeProvider } from '@react-navigation/native';
 import { Stack } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
+import React, { useEffect, useState } from 'react';
 import 'react-native-reanimated';
 import { ActivityIndicator, View } from 'react-native';
 import { useTranslation } from 'react-i18next';
@@ -17,6 +18,7 @@ import { useColorScheme } from '@/hooks/use-color-scheme';
 import { PortfolioProvider } from '@/context/portfolio';
 import { SelectedCategoriesProvider } from '@/context/selected-categories';
 import { isSupabaseConfigured } from '@/lib/supabase';
+import { isWelcomeDismissedForUser } from '@/lib/welcome-dismissed';
 
 export const unstable_settings = {
   anchor: '(tabs)',
@@ -55,13 +57,12 @@ export default function RootLayout() {
 }
 
 function RootNavigator() {
-  const { t } = useTranslation();
   const { loading, session, passwordRecoveryPending } = useAuth();
 
   if (loading) {
     return (
       <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: '#000' }}>
-        <ActivityIndicator color="#60a5fa" />
+        <ActivityIndicator color="#89acff" />
       </View>
     );
   }
@@ -90,9 +91,51 @@ function RootNavigator() {
     );
   }
 
+  return <AuthenticatedAppStack />;
+}
+
+type WelcomeGate = 'loading' | 'show' | 'skip';
+
+/**
+ * Oturum açık: önce tek seferlik hoş geldin (kullanıcı başına), sonra kilit + ana stack.
+ */
+function AuthenticatedAppStack() {
+  const { t } = useTranslation();
+  const { session } = useAuth();
+  const [gate, setGate] = useState<WelcomeGate>('loading');
+
+  useEffect(() => {
+    const uid = session?.user?.id;
+    if (!uid) {
+      setGate('skip');
+      return;
+    }
+    let cancelled = false;
+    void (async () => {
+      try {
+        const dismissed = await isWelcomeDismissedForUser(uid);
+        if (!cancelled) setGate(dismissed ? 'skip' : 'show');
+      } catch {
+        if (!cancelled) setGate('skip');
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [session?.user?.id]);
+
+  if (gate === 'loading') {
+    return (
+      <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: '#000' }}>
+        <ActivityIndicator color="#89acff" />
+      </View>
+    );
+  }
+
   return (
     <AppLockGate>
-      <Stack>
+      <Stack initialRouteName={gate === 'show' ? 'welcome' : '(tabs)'}>
+        <Stack.Screen name="welcome" options={{ headerShown: false }} />
         <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
         <Stack.Screen
           name="bulk-upload"

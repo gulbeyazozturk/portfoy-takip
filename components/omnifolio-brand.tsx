@@ -2,8 +2,10 @@ import React from 'react';
 import { Image, StyleSheet, Text, View } from 'react-native';
 import { useTranslation } from 'react-i18next';
 
-const ACCENT_A = '#38bdf8';
-const ACCENT_B = '#00e677';
+import { Brand } from '@/constants/brand';
+
+const ACCENT_A = Brand.wordmarkLight;
+const ACCENT_B = Brand.primary;
 
 /** Ana ekran / splash ile aynı kaynak — `app.json` içindeki `expo.icon` ile eşleşir. */
 const APP_ICON = require('@/assets/images/icon.png');

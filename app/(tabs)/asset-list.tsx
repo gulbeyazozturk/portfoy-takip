@@ -18,6 +18,7 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
+import { Brand } from '@/constants/brand';
 import { resolveBistDisplayName } from '@/lib/bist-display-name';
 import { supabase } from '@/lib/supabase';
 import { useTranslation } from 'react-i18next';
@@ -26,7 +27,7 @@ const BG = '#000000';
 const SURFACE = '#1C1C1E';
 const WHITE = '#FFFFFF';
 const SLATE = '#AAB0C4';
-const PRIMARY = '#2979FF';
+const PRIMARY = Brand.primary;
 const ICON_BG = '#111827';
 
 const PAGE_SIZE = 500;

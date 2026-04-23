@@ -3,7 +3,9 @@ import { Ionicons } from '@expo/vector-icons';
 import React from 'react';
 import { Platform, StyleSheet, TouchableOpacity, View } from 'react-native';
 
-const ACCENT = '#2979FF';
+import { Brand } from '@/constants/brand';
+
+const ACCENT = Brand.primarySolid;
 
 export function FABTabButton(props: BottomTabBarButtonProps) {
   const { onPress, style } = props;

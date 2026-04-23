@@ -66,16 +66,16 @@ npx eas build --platform ios --profile production
 
 1. [appstoreconnect.apple.com](https://appstoreconnect.apple.com) → **My Apps** → **+** → **New App**.
 2. **Platform:** iOS.  
-3. **Name:** Portföy Takip (veya istediğin isim).  
+3. **Name:** Omnifolio.  
 4. **Primary Language:** Turkish.  
-5. **Bundle ID:** Projede `app.json` içinde yazdığımız değer: **com.omnifolio.app**.  
+5. **Bundle ID:** Projede `app.json` içinde yazdığımız değer: **com.gulbeyazozturk.omnifolio**.  
    - Eğer bu Bundle ID’yi hiç kullanmadıysan, Apple Developer sayfasında bir “App ID” oluşturup bu bundle ID’yi orada da tanımlaman gerekir.
 6. **SKU:** Örn. `portfoy-takip-1`.  
 7. **Privacy Policy URL:** Yukarıdaki GitHub Pages adresini yapıştır:  
    `https://gulbeyazozturk.github.io/portfoy-takip/privacy-policy.html`  
 8. Kaydedip çık.
 
-App’i oluşturduktan sonra **App Information** veya **App** sayfasından **Apple ID** (sayı, örn. 1234567890) al. Bunu aşağıda kullanacağız.
+App’i oluşturduktan sonra **App Information** veya **App** sayfasından **Apple ID** (sayı, örn. 6761783988) al. Bunu aşağıda kullanacağız.
 
 ---
 

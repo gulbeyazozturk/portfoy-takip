@@ -40,6 +40,19 @@ export default {
   brand: {
     tagline: 'Portföy ve varlık takibi — tek ekranda.',
   },
+  welcome: {
+    lead: 'Omnifolio portföyünüzü ve varlıklarınızı tek yerden takip etmenize yardımcı olur; kararları siz verirsiniz.',
+    whatTitle: 'Ne yapar?',
+    bullet1: 'Pozisyonlarınızı, güncel fiyatları ve dağılımı bir arada gösterir.',
+    bullet2: 'TEFAS fonları, BIST, döviz, emtia, yurtdışı hisse ve kripto gibi varlık türlerini destekler.',
+    bullet3: 'Verileriniz hesabınıza bağlıdır; cihazlar arasında oturum açarak erişirsiniz.',
+    dataTitle: 'Verileriniz nerede?',
+    dataBody:
+      'Portföy kayıtlarınız ve hesap bilgileriniz Supabase üzerinde, size özel bir veritabanı alanında saklanır. Uygulama yatırım tavsiyesi vermez ve getiri vaat etmez.',
+    disclaimer:
+      'Bu uygulama yatırım tavsiyesi sunmaz; yalnızca bilgi ve takip amaçlıdır. Yatırım kararlarınızı kendi sorumluluğunuzda alın.',
+    continue: 'Devam',
+  },
   tabs: {
     home: 'Ana sayfa',
     portfolio: 'Portföy',
@@ -54,6 +67,9 @@ export default {
   settings: {
     title: 'Ayarlar',
     version: 'Sürüm {{v}}',
+    aboutTitle: 'Hakkında',
+    aboutLine: 'Omnifolio · {{tagline}}',
+    support: 'Destek',
     privacy: 'Gizlilik politikası',
     privacyStore: 'Gizlilik politikası mağaza sayfasında yer alır.',
     signOut: 'Çıkış yap',
@@ -118,8 +134,8 @@ export default {
     loading: 'Portföy yükleniyor…',
     allocation: 'Varlık dağılımı',
     performance: 'Performans trendi',
-    totalValueLabel: 'Toplam değer',
-    totalValue: 'Toplam değer',
+    totalValueLabel: 'Genel görünüm',
+    totalValue: 'Portföy değeri',
     emptyHoldings:
       'Henüz varlık yok. Alttaki büyüteç simgesine dokunarak varlık arayıp ekleyebilirsiniz.',
     sortTodayGainers: 'Bugün en çok artanlar',
@@ -137,7 +153,7 @@ export default {
     unitGram: 'Gram',
     unitPiece: 'Adet',
     donutTotal: 'TOPLAM',
-    totalBalance: 'TOPLAM BAKİYE',
+    totalBalance: 'PORTFÖY PANORAMASI',
     notificationsA11y: 'Bildirimler',
     notificationsPlaceholder: 'Bildirimler yakında.',
   },
@@ -293,10 +309,10 @@ export default {
     goHome: 'Ana ekrana git',
   },
   home: {
-    title: 'Ana sayfa',
-    subtitle: 'Özet',
-    totalNetWorth: 'Toplam değer',
-    portfolioKicker: 'Portföy',
+    title: 'Varlıkların tek bakışta',
+    subtitle: 'Bugünün tablosu',
+    totalNetWorth: 'Portföy toplamın',
+    portfolioKicker: 'Omnifolio özeti',
     positionsCount: '{{count}} varlık',
     noBreakdown: 'Bu portföyde henüz dağılım yok.',
     currencyTL: 'TL',

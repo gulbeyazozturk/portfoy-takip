@@ -12,6 +12,7 @@ import { useTranslation } from 'react-i18next';
 
 import { OmnifolioBrand } from '@/components/omnifolio-brand';
 import { ThemedText } from '@/components/themed-text';
+import { Brand } from '@/constants/brand';
 import { useAuth } from '@/context/auth';
 import { mapAuthErrorMessage } from '@/lib/auth-error-map';
 import { supabase } from '@/lib/supabase';
@@ -163,12 +164,12 @@ const styles = StyleSheet.create({
   },
   primaryBtn: {
     marginTop: 14,
-    backgroundColor: '#00b863',
+    backgroundColor: Brand.primarySolid,
     borderRadius: 10,
     alignItems: 'center',
     paddingVertical: 12,
     borderWidth: 1,
-    borderColor: 'rgba(0,230,119,0.45)',
+    borderColor: Brand.primaryBorder,
   },
   disabledBtn: { opacity: 0.5 },
   primaryBtnText: { color: '#fff', fontWeight: '700' },
@@ -184,5 +185,5 @@ const styles = StyleSheet.create({
   },
   secondaryBtnText: { color: '#e5e7eb', fontWeight: '600' },
   linkWrap: { marginTop: 20, alignItems: 'center' },
-  link: { color: '#60a5fa', fontSize: 14 },
+  link: { color: Brand.primary, fontSize: 14 },
 });

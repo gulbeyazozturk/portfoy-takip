@@ -3,7 +3,7 @@
 # İlk çalıştırmadan önce manuel giriş yapın VEYA ayrı bir login flow yazın.
 # Çalıştır: maestro test maestro/flows/03_add_tab_asset_picker.yaml
 
-appId: com.omnifolio.app
+appId: com.gulbeyazozturk.omnifolio
 ---
 - launchApp
 - extendedWaitUntil:

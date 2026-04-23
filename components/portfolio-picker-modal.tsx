@@ -3,13 +3,14 @@ import React from 'react';
 import { Modal, Pressable, StyleSheet, Text, View } from 'react-native';
 import { useTranslation } from 'react-i18next';
 
+import { Brand } from '@/constants/brand';
 import type { PortfolioRow } from '@/context/portfolio';
 
 const SURFACE = '#111111';
 const BORDER = 'rgba(255,255,255,0.05)';
 const MUTED = '#a1a1aa';
 const WHITE = '#FFFFFF';
-const PRIMARY = '#00e677';
+const PRIMARY = Brand.primary;
 
 type Props = {
   visible: boolean;

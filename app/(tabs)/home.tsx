@@ -19,6 +19,7 @@ import { useTranslation } from 'react-i18next';
 
 import { PortfolioPickerModal } from '@/components/portfolio-picker-modal';
 import { UltraDarkDonutChart } from '@/components/ultra-dark-donut-chart';
+import { Brand } from '@/constants/brand';
 import { getSingleChartCategoryId, useSelectedCategories } from '@/context/selected-categories';
 import type { AllocationBreakdownRow } from '@/hooks/use-portfolio-core-data';
 import { usePortfolioCoreData } from '@/hooks/use-portfolio-core-data';
@@ -30,11 +31,11 @@ const SURFACE_CARD = '#191919';
 const MUTED = '#ababab';
 const ON_SURFACE_VARIANT = '#ababab';
 const WHITE = '#ffffff';
-/** Portföy ekranı ile aynı vurgu (TL/USD hap + donut başlık). */
-const PRIMARY = '#89acff';
-const ON_PRIMARY = '#002b6a';
+/** Portföy ekranı ile aynı vurgu — `constants/brand` ile tek çizgi. */
+const PRIMARY = Brand.primary;
+const ON_PRIMARY = Brand.onPrimary;
 
-const SECONDARY_MINT = '#39FF14';
+const SECONDARY_MINT = Brand.chartPositive;
 /** Portföy sekmesi `ERROR` ile aynı — düşüş / negatif %. */
 const PCT_NEGATIVE = '#ff716c';
 
@@ -135,8 +136,8 @@ export default function HomeScreen() {
         ? portfolioMetrics.dailyChangeTL
         : portfolioMetrics.dailyChangeUSD
       : valueCurrency === 'TL'
-        ? portfolioMetrics.totalChangeTL
-        : portfolioMetrics.totalChangeUSD;
+        ? portfolioMetrics.totalChangeAmtTL
+        : portfolioMetrics.totalChangeAmtUSD;
   const pctPositive = heroPct >= 0;
 
   const fmtMoney = (n: number) =>

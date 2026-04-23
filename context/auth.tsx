@@ -38,6 +38,10 @@ function getPasswordRecoveryRedirectUrl(): string {
   if (Platform.OS === 'web' && typeof window !== 'undefined') {
     return `${window.location.origin}/reset-password`;
   }
+  const devOverride = __DEV__ ? (process.env.EXPO_PUBLIC_PASSWORD_RESET_REDIRECT_URL ?? '').trim() : '';
+  if (devOverride && Platform.OS !== 'web') {
+    return devOverride;
+  }
   return Linking.createURL('reset-password');
 }
 

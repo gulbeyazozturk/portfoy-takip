@@ -2,7 +2,7 @@
 # Kod: primary buton disabled=busy; canSubmit sadece stil — onPress yine çalışır, submit() içi validation tetiklenir.
 # Dil İngilizce seçiliyse metinleri locales/en ile değiştirin.
 
-appId: com.omnifolio.app
+appId: com.gulbeyazozturk.omnifolio
 ---
 - launchApp:
     clearState: true

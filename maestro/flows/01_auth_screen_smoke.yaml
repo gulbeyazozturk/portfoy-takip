@@ -2,7 +2,7 @@
 # Önkoşul: Uygulama yüklü; cihazda oturum TEMİZ (çıkış yapılmış veya ilk kurulum).
 # Çalıştır: maestro test maestro/flows/01_auth_screen_smoke.yaml
 
-appId: com.omnifolio.app
+appId: com.gulbeyazozturk.omnifolio
 ---
 - launchApp:
     clearState: true

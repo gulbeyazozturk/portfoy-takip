@@ -35,6 +35,7 @@ import {
   portfolioLooseExistsInList,
   portfolioNameLooseKey,
 } from '@/lib/portfolio-name-loose';
+import { Brand } from '@/constants/brand';
 import { getUsdTryRateForDate } from '@/lib/usdtry-rate-for-date';
 import { supabase } from '@/lib/supabase';
 import { useTranslation } from 'react-i18next';
@@ -43,7 +44,7 @@ const BG_DARK = '#000000';
 const SURFACE = '#1A1C24';
 const WHITE = '#FFFFFF';
 const BORDER = 'rgba(255,255,255,0.10)';
-const PRIMARY = '#00e677';
+const PRIMARY = Brand.primarySolid;
 
 type UploadRow = {
   id: string;
