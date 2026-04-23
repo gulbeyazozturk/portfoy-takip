@@ -280,12 +280,7 @@ export default function HomeScreen() {
             </View>
 
             {/* Hero ile grafik arası: boş alan dokunması → vurgu kapanır (donut ile çakışmaz) */}
-            <Pressable
-              onPress={clearHomeCategoryFilter}
-              style={styles.heroChartGap}
-              accessibilityElementsHidden
-              importantForAccessibility="no-hide-descendants"
-            />
+            <View style={styles.heroChartGap} pointerEvents="none" />
 
             {/* Bento: donut kartı */}
             <View style={[styles.bentoChart, Platform.OS === 'ios' && styles.bentoChartIos]}>
@@ -423,12 +418,7 @@ export default function HomeScreen() {
             </View>
 
             {/* Kısa içerikte kalan boşluğa dokununca da vurgu kapanır */}
-            <Pressable
-              onPress={clearHomeCategoryFilter}
-              style={styles.scrollBottomClear}
-              accessibilityElementsHidden
-              importantForAccessibility="no-hide-descendants"
-            />
+            <View style={styles.scrollBottomClear} pointerEvents="none" />
           </ScrollView>
         )}
       </SafeAreaView>

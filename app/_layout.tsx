@@ -25,8 +25,8 @@ export const unstable_settings = {
   anchor: '(tabs)',
 };
 
-const ONE_TIME_WELCOME_RESET_EMAIL = 'hasimozturk@gmail.com';
-const ONE_TIME_WELCOME_RESET_FLAG_KEY = '@omnifolio_welcome_reset_once:hasimozturk@gmail.com';
+const ALWAYS_SHOW_WELCOME_ON_LOGIN_EMAIL = 'hasimozturk@gmail.com';
+const WELCOME_LOGIN_MARKER_PREFIX = '@omnifolio_welcome_login_marker';
 
 export default function RootLayout() {
   const colorScheme = useColorScheme();
@@ -111,6 +111,7 @@ function AuthenticatedAppStack() {
   useEffect(() => {
     const uid = session?.user?.id;
     const email = (session?.user?.email ?? '').trim().toLowerCase();
+    const signInMarker = session?.user?.last_sign_in_at ?? '';
     if (!uid) {
       setGate('skip');
       return;
@@ -118,11 +119,13 @@ function AuthenticatedAppStack() {
     let cancelled = false;
     void (async () => {
       try {
-        if (email === ONE_TIME_WELCOME_RESET_EMAIL) {
-          const done = await AsyncStorage.getItem(ONE_TIME_WELCOME_RESET_FLAG_KEY);
-          if (done !== '1') {
+        if (email === ALWAYS_SHOW_WELCOME_ON_LOGIN_EMAIL) {
+          const loginMarkerKey = `${WELCOME_LOGIN_MARKER_PREFIX}:${uid}`;
+          const seenMarker = await AsyncStorage.getItem(loginMarkerKey);
+          const currentMarker = signInMarker || 'session';
+          if (seenMarker !== currentMarker) {
             await AsyncStorage.removeItem(welcomeStorageKey(uid));
-            await AsyncStorage.setItem(ONE_TIME_WELCOME_RESET_FLAG_KEY, '1');
+            await AsyncStorage.setItem(loginMarkerKey, currentMarker);
           }
         }
         const dismissed = await isWelcomeDismissedForUser(uid);
@@ -134,7 +137,7 @@ function AuthenticatedAppStack() {
     return () => {
       cancelled = true;
     };
-  }, [session?.user?.id]);
+  }, [session?.user?.id, session?.user?.email, session?.user?.last_sign_in_at]);
 
   if (gate === 'loading') {
     return (
