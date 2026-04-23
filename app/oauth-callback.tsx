@@ -41,7 +41,7 @@ export default function OAuthCallbackScreen() {
     let cancelled = false;
     let navigated = false;
 
-    const navigateOnce = (href: '/(tabs)' | '/auth') => {
+    const navigateOnce = (href: '/auth') => {
       if (cancelled || navigated) return;
       navigated = true;
       router.replace(href);
@@ -55,7 +55,6 @@ export default function OAuthCallbackScreen() {
       const { data: existing } = await supabase.auth.getSession();
       if (cancelled) return;
       if (existing.session) {
-        navigateOnce('/(tabs)');
         return;
       }
 
@@ -69,7 +68,8 @@ export default function OAuthCallbackScreen() {
 
       const { data } = await supabase.auth.getSession();
       if (cancelled) return;
-      navigateOnce(data.session ? '/(tabs)' : '/auth');
+      if (data.session) return;
+      navigateOnce('/auth');
     }
 
     const sub = Linking.addEventListener('url', ({ url }) => {

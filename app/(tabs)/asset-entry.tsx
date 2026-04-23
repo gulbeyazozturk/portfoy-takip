@@ -947,7 +947,7 @@ export default function AssetEntryScreen() {
     } else if (isReturnToPortfolioTab(returnTo)) {
       router.replace(PORTFOLIO_TAB_HREF);
     } else {
-      router.replace('/(tabs)');
+      router.replace(PORTFOLIO_TAB_HREF);
     }
   };
 
@@ -1198,7 +1198,7 @@ export default function AssetEntryScreen() {
       }
       return;
     }
-    router.replace(isReturnToPortfolioTab(returnTo) ? PORTFOLIO_TAB_HREF : '/(tabs)');
+    router.replace(PORTFOLIO_TAB_HREF);
   };
 
   const isUSD = isUsdNativeCategory(categoryId);

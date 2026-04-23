@@ -1,7 +1,7 @@
 import { Redirect, Tabs } from 'expo-router';
 import React from 'react';
 import { Ionicons } from '@expo/vector-icons';
-import { Platform } from 'react-native';
+import { Platform, useWindowDimensions } from 'react-native';
 
 import { FABTabButton } from '@/components/fab-tab-button';
 import { HapticTab } from '@/components/haptic-tab';
@@ -20,7 +20,12 @@ const ACTIVE = Brand.primary;
 export default function TabLayout() {
   const { t } = useTranslation();
   const { session, loading } = useAuth();
-  const isPad = Platform.OS === 'ios' && Platform.isPad;
+  const { width, height } = useWindowDimensions();
+  // Bazı iPad simülatörlerinde Platform.isPad beklenmedik false dönebiliyor.
+  // Bu durumda tablet ekran boyutunu da yedek sinyal olarak kullanıyoruz.
+  const isTabletLike =
+    Platform.OS === 'ios' &&
+    (Platform.isPad === true || Math.min(width, height) >= 768);
   if (!loading && !session) {
     return <Redirect href="/auth" />;
   }
@@ -33,6 +38,13 @@ export default function TabLayout() {
         tabBarStyle: {
           backgroundColor: TAB_BG,
           borderTopColor: 'rgba(255,255,255,0.08)',
+          ...(isTabletLike
+            ? {
+                height: 66,
+                paddingBottom: 8,
+                paddingTop: 6,
+              }
+            : null),
         },
         tabBarActiveTintColor: ACTIVE,
         tabBarInactiveTintColor: PASSIVE,
@@ -43,7 +55,7 @@ export default function TabLayout() {
         name="home"
         options={{
           title: t('tabs.home'),
-          tabBarButton: isPad ? undefined : HapticTab,
+          tabBarButton: isTabletLike ? undefined : HapticTab,
           tabBarIcon: ({ color }) => <Ionicons name="home-outline" size={24} color={color} />,
         }}
       />
@@ -51,7 +63,7 @@ export default function TabLayout() {
         name="portfolio"
         options={{
           title: t('tabs.portfolio'),
-          tabBarButton: isPad ? undefined : HapticTab,
+          tabBarButton: isTabletLike ? undefined : HapticTab,
           tabBarIcon: ({ color }) => <Ionicons name="briefcase-outline" size={24} color={color} />,
         }}
       />
@@ -59,15 +71,16 @@ export default function TabLayout() {
         name="add"
         options={{
           title: t('tabs.add'),
-          tabBarButton: isPad ? undefined : FABTabButton,
-          tabBarIcon: ({ color }) => (isPad ? <Ionicons name="add-circle-outline" size={24} color={color} /> : null),
+          tabBarButton: isTabletLike ? undefined : FABTabButton,
+          tabBarIcon: ({ color }) =>
+            isTabletLike ? <Ionicons name="add-circle-outline" size={24} color={color} /> : null,
         }}
       />
       <Tabs.Screen
         name="trend"
         options={{
           title: t('tabs.trend'),
-          tabBarButton: isPad ? undefined : HapticTab,
+          tabBarButton: isTabletLike ? undefined : HapticTab,
           tabBarIcon: ({ color }) => <Ionicons name="analytics-outline" size={24} color={color} />,
         }}
       />
@@ -75,7 +88,7 @@ export default function TabLayout() {
         name="settings"
         options={{
           title: t('tabs.settings'),
-          tabBarButton: isPad ? undefined : HapticTab,
+          tabBarButton: isTabletLike ? undefined : HapticTab,
           tabBarIcon: ({ color }) => <Ionicons name="settings-outline" size={24} color={color} />,
         }}
       />

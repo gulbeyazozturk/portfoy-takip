@@ -51,7 +51,7 @@ export default function ResetPasswordScreen() {
         return;
       }
       completePasswordRecoveryFlow();
-      router.replace('/(tabs)');
+      return;
     } catch (e: unknown) {
       setError(mapAuthErrorMessage(e instanceof Error ? e.message : t('auth.genericError')));
     } finally {

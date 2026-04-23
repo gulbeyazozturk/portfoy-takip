@@ -52,7 +52,7 @@ export default function SettingsScreen() {
   const router = useRouter();
   const { signOut } = useAuth();
   const { appLockEnabled, setAppLockEnabled, biometricSupported, refreshBiometricSupport } = useAppLock();
-  const { portfolios, refresh, addPortfolio, renamePortfolio } = usePortfolio();
+  const { portfolios, refresh, addPortfolio, renamePortfolio, deletePortfolio } = usePortfolio();
   const [signingOut, setSigningOut] = useState(false);
   const [deletingAccount, setDeletingAccount] = useState(false);
   const [lockBusy, setLockBusy] = useState(false);
@@ -216,6 +216,34 @@ export default function SettingsScreen() {
     }
   };
 
+  const handleDeletePortfolio = (p: PortfolioRow) => {
+    if (portfolioBusy) return;
+    Alert.alert(
+      t('settings.deletePortfolioConfirmTitle'),
+      t('settings.deletePortfolioConfirmBody', { name: p.name }),
+      [
+        { text: t('settings.cancelDeletePortfolio'), style: 'cancel' },
+        {
+          text: t('settings.confirmDeletePortfolio'),
+          style: 'destructive',
+          onPress: () => {
+            void (async () => {
+              setPortfolioBusy(true);
+              try {
+                const res = await deletePortfolio(p.id);
+                if (res.error) {
+                  Alert.alert(t('settings.portfolioSaveError'), res.error);
+                }
+              } finally {
+                setPortfolioBusy(false);
+              }
+            })();
+          },
+        },
+      ],
+    );
+  };
+
   return (
     <SafeAreaView style={styles.safeArea}>
       <ThemedView style={styles.container} lightColor="#000000" darkColor="#000000">
@@ -244,9 +272,22 @@ export default function SettingsScreen() {
                   <ThemedText style={styles.portfolioName} numberOfLines={2}>
                     {p.name}
                   </ThemedText>
-                  <Pressable style={styles.renameBtn} onPress={() => openRename(p)} hitSlop={8}>
-                    <ThemedText style={styles.renameBtnText}>{t('settings.renamePortfolio')}</ThemedText>
-                  </Pressable>
+                  <View style={styles.portfolioActions}>
+                    <Pressable
+                      style={styles.renameBtn}
+                      onPress={() => openRename(p)}
+                      hitSlop={8}
+                      disabled={portfolioBusy}>
+                      <ThemedText style={styles.renameBtnText}>{t('settings.renamePortfolio')}</ThemedText>
+                    </Pressable>
+                    <Pressable
+                      style={styles.deletePortfolioBtn}
+                      onPress={() => handleDeletePortfolio(p)}
+                      hitSlop={8}
+                      disabled={portfolioBusy}>
+                      <ThemedText style={styles.deletePortfolioBtnText}>{t('settings.deletePortfolio')}</ThemedText>
+                    </Pressable>
+                  </View>
                 </View>
               ))}
             </View>
@@ -434,6 +475,16 @@ const styles = StyleSheet.create({
     borderColor: 'rgba(72,72,72,0.35)',
   },
   renameBtnText: { color: PRIMARY, fontSize: 12, fontWeight: '700' },
+  portfolioActions: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+  deletePortfolioBtn: {
+    paddingVertical: 8,
+    paddingHorizontal: 12,
+    borderRadius: 999,
+    backgroundColor: 'rgba(127,29,29,0.55)',
+    borderWidth: 1,
+    borderColor: 'rgba(248,113,113,0.35)',
+  },
+  deletePortfolioBtnText: { color: '#fca5a5', fontSize: 12, fontWeight: '700' },
   addPortfolioBtn: {
     marginTop: 12,
     alignSelf: 'flex-start',

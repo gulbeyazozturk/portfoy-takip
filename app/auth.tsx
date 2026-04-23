@@ -1,7 +1,7 @@
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import React, { useMemo, useState } from 'react';
-import { ActivityIndicator, Platform, StyleSheet, TextInput, TouchableOpacity, View } from 'react-native';
+import { ActivityIndicator, Platform, ScrollView, StyleSheet, TextInput, TouchableOpacity, View } from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { LanguageToggle } from '@/components/language-toggle';
@@ -67,7 +67,7 @@ export default function AuthScreen() {
           setError(authError);
           return;
         }
-        if (hasSession) router.replace('/(tabs)');
+        if (hasSession) return;
         return;
       }
 
@@ -85,7 +85,7 @@ export default function AuthScreen() {
         return;
       }
       setInfo(t('auth.signupSuccess'));
-      if (hasSession) router.replace('/(tabs)');
+      if (hasSession) return;
     } catch (e: any) {
       setError(e?.message ?? t('auth.genericError'));
     } finally {
@@ -142,7 +142,6 @@ export default function AuthScreen() {
         return;
       }
       if (data.session) {
-        router.replace('/(tabs)');
         return;
       }
       setError(t('auth.sessionFailed'));
@@ -158,7 +157,11 @@ export default function AuthScreen() {
       <View style={[styles.langCorner, { top: insets.top + 8 }]}>
         <LanguageToggle />
       </View>
-      <View style={styles.container}>
+      <ScrollView
+        style={styles.scroll}
+        contentContainerStyle={[styles.container, { paddingBottom: Math.max(insets.bottom + 28, 40) }]}
+        showsVerticalScrollIndicator={false}
+        keyboardShouldPersistTaps="handled">
         <OmnifolioBrand />
         <ThemedText style={styles.subtitle}>{t('auth.subtitle')}</ThemedText>
 
@@ -281,19 +284,20 @@ export default function AuthScreen() {
 
         {error ? <ThemedText style={styles.errorText}>{error}</ThemedText> : null}
         {mode !== 'forgot' && info ? <ThemedText style={styles.infoText}>{info}</ThemedText> : null}
-      </View>
+      </ScrollView>
     </SafeAreaView>
   );
 }
 
 const styles = StyleSheet.create({
   safe: { flex: 1, backgroundColor: '#000' },
+  scroll: { flex: 1 },
   langCorner: {
     position: 'absolute',
     right: 16,
     zIndex: 10,
   },
-  container: { flex: 1, paddingHorizontal: 20, paddingTop: 24 + AUTH_THREE_LINES },
+  container: { flexGrow: 1, paddingHorizontal: 20, paddingTop: 24 + AUTH_THREE_LINES },
   subtitle: {
     marginTop: 4 + AUTH_THREE_LINES,
     textAlign: 'center',

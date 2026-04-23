@@ -29,10 +29,14 @@ export default function WelcomeScreen() {
     }
     setBusy(true);
     try {
-      await setWelcomeDismissedForUser(uid);
-      router.replace('/(tabs)');
+      // Storage adımı takılsa bile kullanıcıyı ana ekrana geçir.
+      await Promise.race([
+        setWelcomeDismissedForUser(uid),
+        new Promise<void>((resolve) => setTimeout(resolve, 1200)),
+      ]);
     } finally {
       setBusy(false);
+      router.replace('/home');
     }
   }, [router, session?.user?.id]);
 
@@ -72,22 +76,22 @@ export default function WelcomeScreen() {
         <View style={styles.disclaimerBox}>
           <Text style={styles.disclaimer}>{t('welcome.disclaimer')}</Text>
         </View>
-      </ScrollView>
 
-      <View style={[styles.footer, { paddingBottom: Math.max(insets.bottom, 16) }]}>
-        <Pressable
-          style={[styles.primaryBtn, busy && styles.primaryBtnDisabled]}
-          onPress={onContinue}
-          disabled={busy}
-          accessibilityRole="button"
-          accessibilityLabel={t('welcome.continue')}>
-          {busy ? (
-            <ActivityIndicator color={Brand.onPrimarySolid} />
-          ) : (
-            <Text style={styles.primaryBtnText}>{t('welcome.continue')}</Text>
-          )}
-        </Pressable>
-      </View>
+        <View style={[styles.bottomActionWrap, { paddingBottom: Math.max(insets.bottom, 16) }]}>
+          <Pressable
+            style={[styles.primaryBtn, busy && styles.primaryBtnDisabled]}
+            onPress={onContinue}
+            disabled={busy}
+            accessibilityRole="button"
+            accessibilityLabel={t('welcome.continue')}>
+            {busy ? (
+              <ActivityIndicator color={Brand.onPrimarySolid} />
+            ) : (
+              <Text style={styles.primaryBtnText}>{t('welcome.continue')}</Text>
+            )}
+          </Pressable>
+        </View>
+      </ScrollView>
     </SafeAreaView>
   );
 }
@@ -168,11 +172,9 @@ const styles = StyleSheet.create({
     lineHeight: 21,
     textAlign: 'center',
   },
-  footer: {
-    paddingHorizontal: 22,
+  bottomActionWrap: {
+    marginTop: 18,
     paddingTop: 8,
-    borderTopWidth: StyleSheet.hairlineWidth,
-    borderTopColor: 'rgba(255,255,255,0.08)',
   },
   primaryBtn: {
     backgroundColor: Brand.primarySolid,

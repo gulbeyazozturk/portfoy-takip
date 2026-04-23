@@ -184,7 +184,7 @@ export default function HomeScreen() {
 
   return (
     <View style={styles.root}>
-      <SafeAreaView style={styles.safe} edges={['top']}>
+      <SafeAreaView style={styles.safe} edges={['top', 'bottom']}>
         {error ? (
           <View style={styles.errorWrap}>
             <Text style={styles.errorText}>{error}</Text>
@@ -552,8 +552,7 @@ const styles = StyleSheet.create({
     marginBottom: 2,
   },
   scrollBottomClear: {
-    flexGrow: 1,
-    minHeight: 120,
+    height: 24,
   },
   donutInner: {
     alignItems: 'center',

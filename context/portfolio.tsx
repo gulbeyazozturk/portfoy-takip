@@ -37,6 +37,7 @@ type PortfolioContextValue = {
   selectPortfolio: (id: string) => Promise<void>;
   addPortfolio: (name: string) => Promise<{ error?: string }>;
   renamePortfolio: (id: string, name: string) => Promise<{ error?: string }>;
+  deletePortfolio: (id: string) => Promise<{ error?: string }>;
 };
 
 const PortfolioContext = createContext<PortfolioContextValue | null>(null);
@@ -338,6 +339,32 @@ export function PortfolioProvider({ children }: { children: React.ReactNode }) {
     [user?.id, refresh],
   );
 
+  const deletePortfolio = useCallback(
+    async (id: string) => {
+      if (!user?.id) {
+        return { error: 'no_user' };
+      }
+      let { data: sessionWrap } = await supabase.auth.getSession();
+      let session = sessionWrap.session;
+      if (!session?.user?.id) {
+        const { data: refreshed } = await supabase.auth.refreshSession();
+        session = refreshed.session ?? session;
+      }
+      const uid = session?.user?.id;
+      if (!uid) {
+        return { error: 'no_user' };
+      }
+
+      const { error } = await supabase.from('portfolios').delete().eq('id', id).eq('user_id', uid);
+      if (error) {
+        return { error: error.message ?? 'delete_failed' };
+      }
+      await refresh();
+      return {};
+    },
+    [user?.id, refresh],
+  );
+
   return (
     <PortfolioContext.Provider
       value={{
@@ -348,6 +375,7 @@ export function PortfolioProvider({ children }: { children: React.ReactNode }) {
         selectPortfolio,
         addPortfolio,
         renamePortfolio,
+        deletePortfolio,
       }}>
       {children}
     </PortfolioContext.Provider>
