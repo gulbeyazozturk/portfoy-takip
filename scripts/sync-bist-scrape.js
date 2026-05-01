@@ -19,7 +19,12 @@
  * Site yapısı değişirse selector'lar güncellenmelidir.
  */
 
-const BIST_URL = 'https://www.borsa.net/hisse';
+const BIST_URLS = [
+  'https://www.borsa.net/hisse',
+  'https://www.borsa.net/borsa/hisseler',
+  'https://borsa.net/hisse',
+];
+const BIST_SCRAPE_ALLOW_FAILURE = process.env.BIST_SCRAPE_ALLOW_FAILURE === '1';
 
 async function loadEnv() {
   const path = require('path');
@@ -36,16 +41,25 @@ async function loadEnv() {
 }
 
 async function fetchHtml() {
-  const res = await fetch(BIST_URL, {
-    headers: {
-      // Basit bir User-Agent; bazı siteler botsuz isteği kısıtlayabiliyor
-      'User-Agent': 'Mozilla/5.0 (compatible; PortfoyTakipBot/1.0)',
-    },
-  });
-  if (!res.ok) {
-    throw new Error(`BIST HTML fetch hatası ${res.status}: ${await res.text()}`);
+  let lastError = null;
+  for (const url of BIST_URLS) {
+    try {
+      const res = await fetch(url, {
+        headers: {
+          // Basit bir User-Agent; bazı siteler botsuz isteği kısıtlayabiliyor
+          'User-Agent': 'Mozilla/5.0 (compatible; PortfoyTakipBot/1.0)',
+        },
+      });
+      if (!res.ok) {
+        throw new Error(`BIST HTML fetch hatası ${res.status} @ ${url}: ${await res.text()}`);
+      }
+      const html = await res.text();
+      return { html, sourceUrl: url };
+    } catch (e) {
+      lastError = e;
+    }
   }
-  return res.text();
+  throw lastError || new Error('BIST HTML fetch başarısız.');
 }
 
 function normalizeNumber(str) {
@@ -218,14 +232,34 @@ async function main() {
   const { createClient } = require('@supabase/supabase-js');
   const supabase = createClient(url, key);
 
-  console.log('BIST HTML çekiliyor…', BIST_URL);
-  const html = await fetchHtml();
+  console.log('BIST HTML çekiliyor…', BIST_URLS[0]);
+  let html;
+  let sourceUrl = null;
+  try {
+    const fetched = await fetchHtml();
+    html = fetched.html;
+    sourceUrl = fetched.sourceUrl;
+    console.log('BIST kaynak URL:', sourceUrl);
+  } catch (e) {
+    if (BIST_SCRAPE_ALLOW_FAILURE) {
+      console.warn(
+        '[sync-bist-scrape] BIST kaynakları erişilemedi, adım soft-fail geçiliyor:',
+        e?.message || e,
+      );
+      return;
+    }
+    throw e;
+  }
 
   console.log('HTML parse ediliyor…');
   const rows = parseBistRows(html);
   console.log('Toplam satır:', rows.length);
 
   if (!rows.length) {
+    if (BIST_SCRAPE_ALLOW_FAILURE) {
+      console.warn('[sync-bist-scrape] Hiç satır parse edilemedi, adım soft-fail geçiliyor.');
+      return;
+    }
     console.error('Hiç satır parse edilemedi, script iptal.');
     process.exit(1);
   }
