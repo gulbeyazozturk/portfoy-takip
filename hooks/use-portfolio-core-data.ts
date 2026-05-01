@@ -76,6 +76,7 @@ export function usePortfolioCoreData() {
   const [categories, setCategories] = useState<CategoryRow[]>([]);
   const [holdings, setHoldings] = useState<HoldingRow[]>([]);
   const [usdTry, setUsdTry] = useState<number>(1);
+  const [usdTryDailyPct, setUsdTryDailyPct] = useState<number>(0);
   /** Sembol → pozitif TRY/1 birim; aynı sembolün birden fazla asset satırında en yüksek fiyat (genelde dolu master satır). */
   const [dovizSpotBySymbol, setDovizSpotBySymbol] = useState<Record<string, number>>({});
   const [loading, setLoading] = useState(true);
@@ -86,19 +87,27 @@ export function usePortfolioCoreData() {
     try {
       const { data } = await supabase
         .from('assets')
-        .select('symbol, current_price')
+        .select('symbol, current_price, change_24h_pct')
         .eq('category_id', 'doviz');
       const map: Record<string, number> = {};
+      let usdDailyPct = 0;
       for (const row of data ?? []) {
         const p = Number(row.current_price);
         if (!Number.isFinite(p) || p <= 0) continue;
         const sym = dovizSymbolKey(row.symbol);
         if (!sym) continue;
-        if (map[sym] == null || p > map[sym]) map[sym] = p;
+        if (map[sym] == null || p > map[sym]) {
+          map[sym] = p;
+          if (sym === 'USD') {
+            const chg = Number(row.change_24h_pct);
+            usdDailyPct = Number.isFinite(chg) ? chg : 0;
+          }
+        }
       }
       setDovizSpotBySymbol(map);
       const usd = map.USD;
       if (usd != null && usd > 0) setUsdTry(usd);
+      setUsdTryDailyPct(usdDailyPct);
     } catch {
       /* keep previous */
     }
@@ -281,6 +290,8 @@ export function usePortfolioCoreData() {
     let costBasisTL = 0;
     let costBasisUSD = 0;
     const safeRate = usdTry > 0 ? usdTry : 1;
+    const usdDailyFactor = 1 + (Number.isFinite(usdTryDailyPct) ? usdTryDailyPct : 0) / 100;
+    const safeRatePrev = usdDailyFactor > 0 ? safeRate / usdDailyFactor : safeRate;
 
     for (const h of withAsset) {
       const asset = h.asset as AssetRow;
@@ -315,6 +326,7 @@ export function usePortfolioCoreData() {
         now,
       );
       const { prevValue, dailyDelta: dailyDeltaNative } = dailyPrevValueFromChangePct(value, effPct);
+      const prevValueNative = value - dailyDeltaNative;
       const costUnit =
         h.avg_price != null
           ? asset.category_id === 'kripto'
@@ -323,7 +335,9 @@ export function usePortfolioCoreData() {
           : 0;
       const costNative = h.avg_price != null ? h.quantity * costUnit : prevValue;
       const dTL = dailyDeltaNative * rateTL;
-      const dUSD = dailyDeltaNative * rateUSD;
+      const dUSD = isUSD
+        ? dailyDeltaNative
+        : value / safeRate - prevValueNative / safeRatePrev;
       const cTL = costNative * rateTL;
       const cUSD = costNative * rateUSD;
 
@@ -434,7 +448,7 @@ export function usePortfolioCoreData() {
       },
       categoryPerformanceById,
     };
-  }, [holdings, categories, usdTry, dovizSpotBySymbol, t, minuteTick]);
+  }, [holdings, categories, usdTry, usdTryDailyPct, dovizSpotBySymbol, t, minuteTick]);
 
   return {
     categories,

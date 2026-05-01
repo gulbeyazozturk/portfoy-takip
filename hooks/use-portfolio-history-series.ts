@@ -15,27 +15,39 @@ import { isSupabaseConfigured, supabase } from '@/lib/supabase';
 
 type Row = HoldingRow & { asset: AssetRow };
 
-async function fetchAllPriceHistory(
+function chunk<T>(arr: T[], size: number): T[][] {
+  const out: T[][] = [];
+  for (let i = 0; i < arr.length; i += size) out.push(arr.slice(i, i + size));
+  return out;
+}
+
+async function fetchAllPriceHistoryChunked(
   assetIds: string[],
   sinceIso: string,
 ): Promise<{ asset_id: string; price: number; recorded_at: string }[]> {
   if (assetIds.length === 0 || !isSupabaseConfigured) return [];
+  // Çok büyük IN sorgularını küçültüp statement-timeout riskini azalt.
+  const idChunkSize = 20;
   const pageSize = 1000;
-  let from = 0;
   const all: { asset_id: string; price: number; recorded_at: string }[] = [];
-  for (;;) {
-    const { data, error } = await supabase
-      .from('price_history')
-      .select('asset_id, price, recorded_at')
-      .in('asset_id', assetIds)
-      .gte('recorded_at', sinceIso)
-      .order('recorded_at', { ascending: true })
-      .range(from, from + pageSize - 1);
-    if (error) throw new Error(error.message);
-    if (!data?.length) break;
-    all.push(...(data as { asset_id: string; price: number; recorded_at: string }[]));
-    if (data.length < pageSize) break;
-    from += pageSize;
+
+  for (const idChunk of chunk(assetIds, idChunkSize)) {
+    let from = 0;
+    for (;;) {
+      const { data, error } = await supabase
+        .from('price_history')
+        .select('asset_id, price, recorded_at')
+        .in('asset_id', idChunk)
+        .gte('recorded_at', sinceIso)
+        .order('asset_id', { ascending: true })
+        .order('recorded_at', { ascending: true })
+        .range(from, from + pageSize - 1);
+      if (error) throw new Error(error.message);
+      if (!data?.length) break;
+      all.push(...(data as { asset_id: string; price: number; recorded_at: string }[]));
+      if (data.length < pageSize) break;
+      from += pageSize;
+    }
   }
   return all;
 }
@@ -100,7 +112,7 @@ export function usePortfolioHistorySeries(
         const usdId = usdAsset?.id as string | undefined;
         const queryIds = usdId ? [...new Set([...assetIds, usdId])] : [...assetIds];
 
-        const historyRows = await fetchAllPriceHistory(queryIds, sinceIso);
+        const historyRows = await fetchAllPriceHistoryChunked(queryIds, sinceIso);
         if (cancelled) return;
 
         const grouped = groupPriceRows(historyRows);

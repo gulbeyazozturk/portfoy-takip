@@ -61,32 +61,16 @@ function formatPortfolioMoneyCeil(value: number, locale: string): string {
 
 /**
  * Sıralama için günlük %: önce change_24h_pct; yoksa (FON vb.) liste satırıyla aynı şekilde maliyetten türetilir.
- * Eski mantıkta null hep -Infinity/Infinity sayılırdı → tüm çiftler eşit, sıra değişmezdi.
+ * Ürün kararı: Günlükte yalnızca gerçek günlük veri kullanılır; yoksa 0 kabul edilir.
  */
 function effectiveDailyPctForSort(h: HoldingRow, asset: AssetRow, usdTry: number, now: Date): number {
-  const rawSpot =
-    asset.category_id === 'fon'
-      ? fonUnitNativeTry(asset.current_price, h.avg_price)
-      : Number(asset.current_price ?? h.avg_price ?? 0);
-  const currentPrice =
-    asset.category_id === 'kripto' ? kriptoStoredUnitToUsd(rawSpot, usdTry, asset.currency) : rawSpot;
   const chgEff = effectiveChange24hPctForDisplay(
     asset.category_id,
     asset.change_24h_pct,
     asset.price_updated_at,
     now,
   );
-  if (chgEff != null && Number.isFinite(chgEff) && Math.abs(1 + chgEff / 100) > 1e-9) return chgEff;
-
-  const costRaw = h.avg_price != null ? Number(h.avg_price) : null;
-  const costPrice =
-    costRaw != null && asset.category_id === 'kripto'
-      ? legacyCryptoStoredUnitToUsd(costRaw, usdTry, currentPrice)
-      : costRaw;
-  if (costPrice != null && costPrice > 0 && Number.isFinite(currentPrice) && currentPrice > 0) {
-    return ((currentPrice - costPrice) / costPrice) * 100;
-  }
-  return 0;
+  return chgEff != null && Number.isFinite(chgEff) ? chgEff : 0;
 }
 
 const ASSET_ICONS: Record<string, { icon: string; bg: string; color: string }> = {
@@ -713,7 +697,7 @@ export function PortfolioScreen() {
                           costPrice != null && costPrice > 0
                             ? ((currentPrice - costPrice) / costPrice) * 100
                             : null;
-                        const dailyPct = changePct ?? totalPctFromCost ?? 0;
+                        const dailyPct = changePct ?? 0;
                         const totalPct =
                           costPrice != null && costPrice > 0
                             ? ((currentPrice - costPrice) / costPrice) * 100
