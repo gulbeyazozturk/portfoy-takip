@@ -9,6 +9,7 @@ import { parseAuthCallbackParams } from '@/lib/auth-callback-params';
 import { mapAuthErrorMessage } from '@/lib/auth-error-map';
 import i18n from '@/lib/i18n';
 import { waitForSupabaseSessionAfterBrowser } from '@/lib/oauth-session-wait';
+import { syncPushTokenForUser } from '@/lib/push-token-sync';
 import { isSupabaseConfigured, supabase } from '@/lib/supabase';
 
 WebBrowser.maybeCompleteAuthSession();
@@ -128,6 +129,12 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       sub.subscription.unsubscribe();
     };
   }, [handleRecoveryUrl]);
+
+  useEffect(() => {
+    const uid = session?.user?.id;
+    if (!uid) return;
+    void syncPushTokenForUser(uid);
+  }, [session?.user?.id]);
 
   const completePasswordRecoveryFlow = useCallback(() => {
     setPasswordRecoveryPending(false);
