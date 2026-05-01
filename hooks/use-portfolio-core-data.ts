@@ -228,6 +228,15 @@ export function usePortfolioCoreData() {
     }, [portfolioId, fetchHoldings, fetchUsdRate]),
   );
 
+  // Ekran uzun süre açık kaldığında fiyatlar arka planda güncellenebiliyor;
+  // dakika tikinde hafif bir yenileme yaparak toplam/kalem tutarsızlığını azalt.
+  useEffect(() => {
+    if (!portfolioId || minuteTick <= 0) return;
+    if (minuteTick % 2 !== 0) return; // Her 2 dakikada bir
+    void fetchHoldings();
+    void fetchUsdRate();
+  }, [portfolioId, minuteTick, fetchHoldings, fetchUsdRate]);
+
   const currentPortfolioName = useMemo(() => {
     const row = portfolios.find((p) => p.id === portfolioId);
     if (row?.name) return row.name;
