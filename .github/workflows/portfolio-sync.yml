@@ -62,10 +62,23 @@ jobs:
       - name: Sync ABD (yalnızca holdings)
         run: node scripts/sync-yurtdisi-prices.js --mode=holdings --batch=500 --delay=140
 
+      - name: US support/resistance alerts
+        env:
+          US_SR_NEAR_PCT: "3"
+          US_SR_TR_PREP_HOUR: "9"
+          US_SR_TR_NOTIFY_START_HOUR: "9"
+          US_SR_TR_NOTIFY_END_HOUR_EXCLUSIVE: "24"
+          US_SR_LOOKBACK_DAYS: "120"
+        run: node scripts/send-us-sr-alerts.js
+
       - name: Snapshot prices (grafik geçmişi)
         run: node scripts/snapshot-prices.js
 
-      - name: Push %3+ daily gain alerts
+      - name: Push %2+ daily gain alerts
         env:
-          DAILY_GAIN_PUSH_THRESHOLD: "3"
+          DAILY_GAIN_PUSH_THRESHOLD: "2"
+          DAILY_FALL_PUSH_THRESHOLD: "-3"
+          DAILY_GAIN_PUSH_LOCAL_START_HOUR: "9"
+          DAILY_GAIN_PUSH_LOCAL_END_HOUR: "22"
+          DAILY_SUMMARY_LOCAL_HOUR: "23"
         run: node scripts/send-daily-gain-push.js

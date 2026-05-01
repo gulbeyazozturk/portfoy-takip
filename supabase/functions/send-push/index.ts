@@ -34,7 +34,7 @@ async function sendExpoChunk(messages: unknown[]) {
   return { ok: res.ok, status: res.status, body };
 }
 
-Deno.serve(async (req) => {
+Deno.serve(async (req: Request) => {
   if (req.method !== 'POST') return json({ error: 'method_not_allowed' }, 405);
 
   const secret = (Deno.env.get('PUSH_CRON_SECRET') || '').trim();
@@ -72,11 +72,11 @@ Deno.serve(async (req) => {
   const { data: rows, error } = await q.limit(10000);
   if (error) return json({ error: error.message }, 500);
   const tokens = (rows || [])
-    .map((r) => String(r.expo_push_token || '').trim())
-    .filter((t) => t.startsWith('ExponentPushToken['));
+    .map((r: { expo_push_token: string | null }) => String(r.expo_push_token || '').trim())
+    .filter((t: string) => t.startsWith('ExponentPushToken['));
   if (!tokens.length) return json({ ok: true, sent: 0, detail: 'no_tokens' });
 
-  const messages = tokens.map((to) => ({
+  const messages = tokens.map((to: string) => ({
     to,
     sound: 'default',
     title,

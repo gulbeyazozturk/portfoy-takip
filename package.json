@@ -30,6 +30,7 @@
     "sync-kapalicarsi-gold": "node ./scripts/sync-kapalicarsi-gold.js",
     "sync-yurtdisi-list": "node ./scripts/sync-yurtdisi-list.js",
     "sync-yurtdisi-prices": "node ./scripts/sync-yurtdisi-prices.js",
+    "send-us-sr-alerts": "node ./scripts/send-us-sr-alerts.js",
     "send-daily-gain-push": "node ./scripts/send-daily-gain-push.js",
     "sync-tefas-funds": "node ./scripts/sync-tefas-funds.js",
     "sync-all-master-assets": "node ./scripts/sync-all-master-assets.js",

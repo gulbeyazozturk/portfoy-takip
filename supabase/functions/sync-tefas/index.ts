@@ -235,8 +235,12 @@ async function fetchAllFunds(): Promise<FundEntry[]> {
 
     const last = entries[entries.length - 1];
     const prev = entries[entries.length - 2];
-    const todayPrice = last?.FIYAT != null ? Number(last.FIYAT) : null;
-    const prevPrice = prev?.FIYAT != null ? Number(prev.FIYAT) : null;
+    const lastRec = (last ?? null) as Record<string, unknown> | null;
+    const prevRec = (prev ?? null) as Record<string, unknown> | null;
+    const todayPriceRaw = lastRec?.['FIYAT'];
+    const prevPriceRaw = prevRec?.['FIYAT'];
+    const todayPrice = todayPriceRaw != null ? Number(todayPriceRaw) : null;
+    const prevPrice = prevPriceRaw != null ? Number(prevPriceRaw) : null;
     const lastDateTurkey = last?._tsMs ? turkeyDateStrFromMs(last._tsMs) : null;
 
     let changePct = 0;
@@ -261,7 +265,7 @@ async function fetchAllFunds(): Promise<FundEntry[]> {
 }
 
 async function upsertFonAssets(
-  supabase: ReturnType<typeof createClient>,
+  supabase: any,
   funds: FundEntry[],
 ): Promise<number> {
   const now = new Date().toISOString();
@@ -304,7 +308,7 @@ function json(body: unknown, status = 200) {
   });
 }
 
-Deno.serve(async (req) => {
+Deno.serve(async (req: Request) => {
   if (req.method !== 'POST' && req.method !== 'GET') {
     return json({ error: 'method_not_allowed' }, 405);
   }

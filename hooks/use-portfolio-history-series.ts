@@ -14,6 +14,7 @@ import {
 import { isSupabaseConfigured, supabase } from '@/lib/supabase';
 
 type Row = HoldingRow & { asset: AssetRow };
+let usdAssetIdCache: string | null | undefined;
 
 function chunk<T>(arr: T[], size: number): T[][] {
   const out: T[][] = [];
@@ -26,12 +27,14 @@ async function fetchAllPriceHistoryChunked(
   sinceIso: string,
 ): Promise<{ asset_id: string; price: number; recorded_at: string }[]> {
   if (assetIds.length === 0 || !isSupabaseConfigured) return [];
-  // Çok büyük IN sorgularını küçültüp statement-timeout riskini azalt.
-  const idChunkSize = 20;
+  // IN sorgularını böl ama chunk'ları paralel çalıştırarak ilk boya süresini düşür.
+  const idChunkSize = 40;
+  const concurrency = 4;
   const pageSize = 1000;
   const all: { asset_id: string; price: number; recorded_at: string }[] = [];
 
-  for (const idChunk of chunk(assetIds, idChunkSize)) {
+  async function fetchChunk(idChunk: string[]) {
+    const rows: { asset_id: string; price: number; recorded_at: string }[] = [];
     let from = 0;
     for (;;) {
       const { data, error } = await supabase
@@ -39,14 +42,23 @@ async function fetchAllPriceHistoryChunked(
         .select('asset_id, price, recorded_at')
         .in('asset_id', idChunk)
         .gte('recorded_at', sinceIso)
-        .order('asset_id', { ascending: true })
         .order('recorded_at', { ascending: true })
         .range(from, from + pageSize - 1);
       if (error) throw new Error(error.message);
       if (!data?.length) break;
-      all.push(...(data as { asset_id: string; price: number; recorded_at: string }[]));
+      rows.push(...(data as { asset_id: string; price: number; recorded_at: string }[]));
       if (data.length < pageSize) break;
       from += pageSize;
+    }
+    return rows;
+  }
+
+  const chunks = chunk(assetIds, idChunkSize);
+  for (let i = 0; i < chunks.length; i += concurrency) {
+    const batch = chunks.slice(i, i + concurrency);
+    const batchRows = await Promise.all(batch.map((c) => fetchChunk(c)));
+    for (const rowsOfChunk of batchRows) {
+      all.push(...rowsOfChunk);
     }
   }
   return all;
@@ -94,22 +106,25 @@ export function usePortfolioHistorySeries(
 
       const now = Date.now();
       const rangeMs = timeframeToMs(timeframe);
-      const sinceMs = now - rangeMs - 5 * 86400000;
+      const sinceMs = now - rangeMs - 1 * 86400000;
       const sinceIso = new Date(sinceMs).toISOString();
 
       const assetIds = [...new Set(rows.map((h) => h.asset.id))];
 
       try {
-        const { data: usdAsset, error: usdErr } = await supabase
-          .from('assets')
-          .select('id')
-          .eq('category_id', 'doviz')
-          .eq('symbol', 'USD')
-          .maybeSingle();
+        let usdId: string | undefined;
+        if (usdAssetIdCache === undefined) {
+          const { data: usdAsset, error: usdErr } = await supabase
+            .from('assets')
+            .select('id')
+            .eq('category_id', 'doviz')
+            .eq('symbol', 'USD')
+            .maybeSingle();
 
-        if (usdErr) throw new Error(usdErr.message);
-
-        const usdId = usdAsset?.id as string | undefined;
+          if (usdErr) throw new Error(usdErr.message);
+          usdAssetIdCache = (usdAsset?.id as string | undefined) ?? null;
+        }
+        usdId = usdAssetIdCache ?? undefined;
         const queryIds = usdId ? [...new Set([...assetIds, usdId])] : [...assetIds];
 
         const historyRows = await fetchAllPriceHistoryChunked(queryIds, sinceIso);

@@ -36,7 +36,7 @@ async function dispatchPortfolioWorkflow(): Promise<{ ok: boolean; status: numbe
   return { ok: res.ok, status: res.status, body: body?.slice(0, 400) ?? null };
 }
 
-Deno.serve(async (req) => {
+Deno.serve(async (req: Request) => {
   if (req.method !== 'POST' && req.method !== 'GET') {
     return json({ error: 'method_not_allowed' }, 405);
   }

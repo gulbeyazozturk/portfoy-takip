@@ -31,7 +31,7 @@ function json(body: unknown, status = 200) {
 
 /** Sıralı (symbol asc) evrende `start` ofsetinden `take` adet satır; liste sonunda başa sarar. */
 async function fetchSymbolWindow(
-  supabase: ReturnType<typeof createClient>,
+  supabase: any,
   total: number,
   start: number,
   take: number,
@@ -51,7 +51,7 @@ async function fetchSymbolWindow(
       .order('symbol', { ascending: true })
       .range(s, s + n - 1);
     if (error) throw new Error('assets range: ' + error.message);
-    for (const row of data || []) {
+    for (const row of (data || []) as Array<{ symbol?: string | null; name?: string | null }>) {
       const sym = String(row.symbol || '')
         .trim()
         .toUpperCase();
@@ -135,7 +135,7 @@ async function dispatchGithubAbdWorkflow(): Promise<{ ok: boolean; status: numbe
   return { ok: res.ok, status: res.status, body: body?.slice(0, 400) ?? null };
 }
 
-Deno.serve(async (req) => {
+Deno.serve(async (req: Request) => {
   if (req.method !== 'POST' && req.method !== 'GET') {
     return json({ error: 'method_not_allowed' }, 405);
   }

@@ -1,5 +1,6 @@
 import Constants from 'expo-constants';
 import * as Device from 'expo-device';
+import { getCalendars } from 'expo-localization';
 import * as Notifications from 'expo-notifications';
 import { Platform } from 'react-native';
 
@@ -38,6 +39,13 @@ function platformLabel(): string {
   return 'unknown';
 }
 
+function resolveDeviceTimeZone(): string {
+  const fromCalendar = getCalendars?.()?.[0]?.timeZone;
+  if (fromCalendar && typeof fromCalendar === 'string') return fromCalendar;
+  const fromIntl = Intl.DateTimeFormat().resolvedOptions().timeZone;
+  return fromIntl || 'Europe/Istanbul';
+}
+
 export async function syncPushTokenForUser(userId: string): Promise<void> {
   if (!userId || Platform.OS === 'web') return;
   ensureForegroundHandler();
@@ -65,6 +73,7 @@ export async function syncPushTokenForUser(userId: string): Promise<void> {
       user_id: userId,
       expo_push_token: token,
       platform: platformLabel(),
+      timezone: resolveDeviceTimeZone(),
       enabled: true,
       last_seen_at: new Date().toISOString(),
       updated_at: new Date().toISOString(),
