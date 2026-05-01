@@ -100,3 +100,4 @@ drop trigger if exists portfolios_updated_at on public.portfolios;
 create trigger portfolios_updated_at
   before update on public.portfolios
   for each row execute function public.set_updated_at();
+

@@ -45,6 +45,11 @@ const supabase = createClient(SUPABASE_URL, SERVICE_ROLE_KEY, {
   auth: { persistSession: false, autoRefreshToken: false },
 });
 
+function isMissingPushEventLogError(error) {
+  const msg = String(error?.message || '');
+  return error?.code === 'PGRST205' || msg.includes("Could not find the table 'public.push_event_log'");
+}
+
 function todayInIstanbul() {
   const fmt = new Intl.DateTimeFormat('en-CA', {
     timeZone: 'Europe/Istanbul',
@@ -248,7 +253,13 @@ async function fetchSummarySentSet(eventDate) {
     .eq('event_type', 'daily_summary')
     .eq('event_date', eventDate)
     .limit(100000);
-  if (error) throw new Error(`push_event_log query failed: ${error.message}`);
+  if (error) {
+    if (isMissingPushEventLogError(error)) {
+      console.warn('push_event_log table not found, summary dedupe log is skipped.');
+      return new Set();
+    }
+    throw new Error(`push_event_log query failed: ${error.message}`);
+  }
   return new Set((data || []).map((r) => String(r.user_id)));
 }
 
@@ -258,7 +269,13 @@ async function writeSummaryLogRows(rows) {
     onConflict: 'user_id,event_type,event_date,event_ref',
     ignoreDuplicates: true,
   });
-  if (error) throw new Error(`push_event_log insert failed: ${error.message}`);
+  if (error) {
+    if (isMissingPushEventLogError(error)) {
+      console.warn('push_event_log table not found, summary log write is skipped.');
+      return;
+    }
+    throw new Error(`push_event_log insert failed: ${error.message}`);
+  }
 }
 
 async function fetchUserHoldingsWithPrices() {
