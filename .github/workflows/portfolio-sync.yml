@@ -64,3 +64,8 @@ jobs:
 
       - name: Snapshot prices (grafik geçmişi)
         run: node scripts/snapshot-prices.js
+
+      - name: Push %3+ daily gain alerts
+        env:
+          DAILY_GAIN_PUSH_THRESHOLD: "3"
+        run: node scripts/send-daily-gain-push.js
