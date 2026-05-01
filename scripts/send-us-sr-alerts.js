@@ -7,6 +7,10 @@ const SUPABASE_URL = process.env.SUPABASE_URL || process.env.EXPO_PUBLIC_SUPABAS
 const SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY || '';
 const EXPO_PUSH_URL = 'https://exp.host/--/api/v2/push/send';
 const NEAR_PCT = Number(process.env.US_SR_NEAR_PCT || '3');
+const MIN_BAND_WIDTH_PCT = Number(process.env.US_SR_MIN_BAND_WIDTH_PCT || '2');
+const PIVOT_WINDOW = Number(process.env.US_SR_PIVOT_WINDOW || '2');
+const LEVEL_CLUSTER_PCT = Number(process.env.US_SR_LEVEL_CLUSTER_PCT || '1');
+const MIN_TOUCHES = Number(process.env.US_SR_MIN_TOUCHES || '2');
 const TR_PREP_HOUR = Number(process.env.US_SR_TR_PREP_HOUR || '9');
 const TR_NOTIFY_START_HOUR = Number(process.env.US_SR_TR_NOTIFY_START_HOUR || '9');
 const TR_NOTIFY_END_HOUR_EXCLUSIVE = Number(process.env.US_SR_TR_NOTIFY_END_HOUR_EXCLUSIVE || '24');
@@ -55,6 +59,11 @@ function nyDateFromIso(iso) {
 
 function formatPrice(v) {
   return new Intl.NumberFormat('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(v);
+}
+
+function isMissingPushEventLogError(error) {
+  const msg = String(error?.message || '');
+  return error?.code === 'PGRST205' || msg.includes("Could not find the table 'public.push_event_log'");
 }
 
 async function fetchHeldUsAssets() {
@@ -110,19 +119,29 @@ async function fetchTodayLevels(assetIds, levelDate) {
 
 async function fetchHistoryRows(assetIds, sinceIso) {
   const out = [];
-  for (const aidChunk of chunk(assetIds, 50)) {
+  for (const assetId of assetIds) {
     let from = 0;
+    const seenDays = new Set();
     for (;;) {
       const { data, error } = await supabase
         .from('price_history')
         .select('asset_id, price, recorded_at')
-        .in('asset_id', aidChunk)
+        .eq('asset_id', assetId)
         .gte('recorded_at', sinceIso)
-        .order('recorded_at', { ascending: true })
+        .order('recorded_at', { ascending: false })
         .range(from, from + 999);
       if (error) throw new Error(`price_history query failed: ${error.message}`);
       if (!data?.length) break;
-      out.push(...data);
+
+      for (const row of data) {
+        const day = nyDateFromIso(row.recorded_at);
+        if (seenDays.has(day)) continue;
+        seenDays.add(day);
+        out.push(row);
+      }
+
+      // Her asset icin sadece gereken gun sayisini alarak sorgu maliyetini kisitla.
+      if (seenDays.size >= LOOKBACK_DAYS) break;
       if (data.length < 1000) break;
       from += 1000;
     }
@@ -136,24 +155,112 @@ function computeDailyCloses(rows) {
     const p = Number(r.price);
     if (!Number.isFinite(p) || p <= 0) continue;
     const day = nyDateFromIso(r.recorded_at);
-    map.set(`${r.asset_id}:${day}`, { asset_id: r.asset_id, day, price: p, recorded_at: r.recorded_at });
+    map.set(`${r.asset_id}:${day}`, {
+      asset_id: r.asset_id,
+      day,
+      price: p,
+      recorded_at: r.recorded_at,
+    });
   }
   const byAsset = new Map();
   for (const v of map.values()) {
     if (!byAsset.has(v.asset_id)) byAsset.set(v.asset_id, []);
-    byAsset.get(v.asset_id).push(v.price);
+    byAsset.get(v.asset_id).push(v);
+  }
+  for (const [assetId, series] of byAsset.entries()) {
+    series.sort((a, b) => String(a.day).localeCompare(String(b.day)));
+    byAsset.set(
+      assetId,
+      series.map((x) => x.price),
+    );
   }
   return byAsset;
 }
 
+function extractPivotCandidates(prices, windowSize) {
+  const out = [];
+  if (!Array.isArray(prices) || prices.length < windowSize * 2 + 1) return out;
+  for (let i = windowSize; i < prices.length - windowSize; i += 1) {
+    const p = prices[i];
+    if (!Number.isFinite(p) || p <= 0) continue;
+    const left = prices.slice(i - windowSize, i);
+    const right = prices.slice(i + 1, i + 1 + windowSize);
+    const isPivotHigh = left.every((x) => p >= x) && right.every((x) => p >= x);
+    const isPivotLow = left.every((x) => p <= x) && right.every((x) => p <= x);
+    if (isPivotHigh || isPivotLow) out.push(p);
+  }
+  return out;
+}
+
+function clusterLevels(levels, clusterPct) {
+  if (!levels.length) return [];
+  const sorted = [...levels].sort((a, b) => a - b);
+  const clusters = [];
+  for (const level of sorted) {
+    const last = clusters[clusters.length - 1];
+    if (!last) {
+      clusters.push({ center: level, touches: 1 });
+      continue;
+    }
+    const base = Math.max(Math.abs(last.center), 1e-9);
+    const diffPct = (Math.abs(level - last.center) / base) * 100;
+    if (diffPct <= clusterPct) {
+      const nextTouches = last.touches + 1;
+      last.center = (last.center * last.touches + level) / nextTouches;
+      last.touches = nextTouches;
+    } else {
+      clusters.push({ center: level, touches: 1 });
+    }
+  }
+  return clusters;
+}
+
 function computeLevels(currentPrice, dailyCloses) {
   if (!dailyCloses?.length) return { support: null, resistance: null };
-  const sorted = [...dailyCloses].sort((a, b) => a - b);
-  const supports = sorted.filter((x) => x < currentPrice);
-  const resistances = sorted.filter((x) => x > currentPrice);
-  const support = supports.length ? supports[supports.length - 1] : sorted[0];
-  const resistance = resistances.length ? resistances[0] : sorted[sorted.length - 1];
+
+  const pivots = extractPivotCandidates(dailyCloses, Math.max(1, PIVOT_WINDOW));
+  const clustered = clusterLevels(pivots, Math.max(0.1, LEVEL_CLUSTER_PCT));
+  const qualified = clustered.filter((x) => x.touches >= Math.max(1, MIN_TOUCHES));
+
+  const supports = qualified
+    .filter((x) => x.center < currentPrice)
+    .sort((a, b) => b.center - a.center);
+  const resistances = qualified
+    .filter((x) => x.center > currentPrice)
+    .sort((a, b) => a.center - b.center);
+
+  let support = supports[0]?.center ?? null;
+  let resistance = resistances[0]?.center ?? null;
+
+  // Pivot seviyesi cikmazsa guvenli fallback: en yakin kapanis seviyeleri.
+  if (!Number.isFinite(support) || !Number.isFinite(resistance)) {
+    const sorted = [...dailyCloses].sort((a, b) => a - b);
+    if (!Number.isFinite(support)) {
+      const fallbackSupports = sorted.filter((x) => x < currentPrice);
+      support = fallbackSupports.length ? fallbackSupports[fallbackSupports.length - 1] : sorted[0];
+    }
+    if (!Number.isFinite(resistance)) {
+      const fallbackResistances = sorted.filter((x) => x > currentPrice);
+      resistance = fallbackResistances.length ? fallbackResistances[0] : sorted[sorted.length - 1];
+    }
+  }
+
   return { support, resistance };
+}
+
+function pickNearestSide(cur, support, resistance, nearRatio) {
+  let supportDist = Number.POSITIVE_INFINITY;
+  let resistanceDist = Number.POSITIVE_INFINITY;
+  if (Number.isFinite(support) && support > 0 && cur > support) {
+    supportDist = (cur - support) / support;
+  }
+  if (Number.isFinite(resistance) && resistance > 0 && cur < resistance) {
+    resistanceDist = (resistance - cur) / resistance;
+  }
+  const nearestIsSupport = supportDist <= resistanceDist;
+  const nearestDist = nearestIsSupport ? supportDist : resistanceDist;
+  if (!Number.isFinite(nearestDist) || nearestDist > nearRatio) return null;
+  return nearestIsSupport ? 'support' : 'resistance';
 }
 
 async function upsertLevels(levelDate, heldAssets) {
@@ -220,7 +327,13 @@ async function fetchAlreadySentSet(eventDate) {
     .eq('event_type', 'us_sr_alert')
     .eq('event_date', eventDate)
     .limit(100000);
-  if (error) throw new Error(`push_event_log query failed: ${error.message}`);
+  if (error) {
+    if (isMissingPushEventLogError(error)) {
+      console.warn('push_event_log table not found, dedupe log is skipped.');
+      return new Set();
+    }
+    throw new Error(`push_event_log query failed: ${error.message}`);
+  }
   return new Set((data || []).map((r) => `${r.user_id}:${r.event_ref}`));
 }
 
@@ -252,7 +365,13 @@ async function insertPushLogs(rows) {
     onConflict: 'user_id,event_type,event_date,event_ref',
     ignoreDuplicates: true,
   });
-  if (error) throw new Error(`push_event_log upsert failed: ${error.message}`);
+  if (error) {
+    if (isMissingPushEventLogError(error)) {
+      console.warn('push_event_log table not found, event log write is skipped.');
+      return;
+    }
+    throw new Error(`push_event_log upsert failed: ${error.message}`);
+  }
 }
 
 async function main() {
@@ -290,65 +409,68 @@ async function main() {
     const cur = h.current_price;
     const userTokens = tokensByUser.get(h.user_id) || [];
     if (!userTokens.length) continue;
-
-    if (Number.isFinite(resistance) && resistance > 0 && cur < resistance) {
-      const dist = (resistance - cur) / resistance;
-      if (dist <= nearRatio) {
-        const eventRef = `${h.asset_id}:resistance:${nowTr.date}`;
-        if (!sentSet.has(`${h.user_id}:${eventRef}`)) {
-          for (const t of userTokens) {
-            messages.push({
-              to: t,
-              sound: 'default',
-              title: 'Grafik Uyarısı',
-              body: `${h.symbol} da bir sonraki direnc seviyesi olan ${formatPrice(resistance)} ${h.currency} a %${NEAR_PCT} uzaklikta.`,
-              data: {
-                type: 'us_sr_resistance',
-                symbol: h.symbol,
-                resistance,
-                current: cur,
-              },
-            });
-          }
-          logs.push({
-            user_id: h.user_id,
-            event_type: 'us_sr_alert',
-            event_date: nowTr.date,
-            event_ref: eventRef,
-            created_at: new Date().toISOString(),
-          });
-        }
+    if (Number.isFinite(support) && support > 0 && Number.isFinite(resistance) && resistance > 0) {
+      const bandWidthPct = ((resistance - support) / cur) * 100;
+      if (bandWidthPct > 0 && bandWidthPct < MIN_BAND_WIDTH_PCT) {
+        // Seviyeler birbirine asiri yakin ise noise olusur; alarmlari atla.
+        continue;
       }
     }
 
-    if (Number.isFinite(support) && support > 0 && cur > support) {
-      const dist = (cur - support) / support;
-      if (dist <= nearRatio) {
-        const eventRef = `${h.asset_id}:support:${nowTr.date}`;
-        if (!sentSet.has(`${h.user_id}:${eventRef}`)) {
-          for (const t of userTokens) {
-            messages.push({
-              to: t,
-              sound: 'default',
-              title: 'Grafik Uyarısı',
-              body: `${h.symbol} da bir sonraki destek seviyesi olan ${formatPrice(support)} ${h.currency} a %${NEAR_PCT} uzaklikta.`,
-              data: {
-                type: 'us_sr_support',
-                symbol: h.symbol,
-                support,
-                current: cur,
-              },
-            });
-          }
-          logs.push({
-            user_id: h.user_id,
-            event_type: 'us_sr_alert',
-            event_date: nowTr.date,
-            event_ref: eventRef,
-            created_at: new Date().toISOString(),
+    const nearestSide = pickNearestSide(cur, support, resistance, nearRatio);
+    if (!nearestSide) continue;
+
+    if (nearestSide === 'resistance') {
+      const eventRef = `${h.asset_id}:resistance:${nowTr.date}`;
+      if (!sentSet.has(`${h.user_id}:${eventRef}`)) {
+        for (const t of userTokens) {
+          messages.push({
+            to: t,
+            sound: 'default',
+            title: 'Grafik Uyarısı',
+            body: `${h.symbol} da bir sonraki direnc seviyesi olan ${formatPrice(resistance)} ${h.currency} a %${NEAR_PCT} uzaklikta.`,
+            data: {
+              type: 'us_sr_resistance',
+              symbol: h.symbol,
+              resistance,
+              current: cur,
+            },
           });
         }
+        logs.push({
+          user_id: h.user_id,
+          event_type: 'us_sr_alert',
+          event_date: nowTr.date,
+          event_ref: eventRef,
+          created_at: new Date().toISOString(),
+        });
       }
+      continue;
+    }
+
+    const eventRef = `${h.asset_id}:support:${nowTr.date}`;
+    if (!sentSet.has(`${h.user_id}:${eventRef}`)) {
+      for (const t of userTokens) {
+        messages.push({
+          to: t,
+          sound: 'default',
+          title: 'Grafik Uyarısı',
+          body: `${h.symbol} da bir sonraki destek seviyesi olan ${formatPrice(support)} ${h.currency} a %${NEAR_PCT} uzaklikta.`,
+          data: {
+            type: 'us_sr_support',
+            symbol: h.symbol,
+            support,
+            current: cur,
+          },
+        });
+      }
+      logs.push({
+        user_id: h.user_id,
+        event_type: 'us_sr_alert',
+        event_date: nowTr.date,
+        event_ref: eventRef,
+        created_at: new Date().toISOString(),
+      });
     }
   }
 

@@ -64,7 +64,11 @@ jobs:
 
       - name: US support/resistance alerts
         env:
-          US_SR_NEAR_PCT: "3"
+          US_SR_NEAR_PCT: "1.5"
+          US_SR_MIN_BAND_WIDTH_PCT: "2"
+          US_SR_PIVOT_WINDOW: "2"
+          US_SR_LEVEL_CLUSTER_PCT: "1"
+          US_SR_MIN_TOUCHES: "2"
           US_SR_TR_PREP_HOUR: "9"
           US_SR_TR_NOTIFY_START_HOUR: "9"
           US_SR_TR_NOTIFY_END_HOUR_EXCLUSIVE: "24"
