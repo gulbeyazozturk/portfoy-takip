@@ -16,7 +16,7 @@ export async function waitForSupabaseSessionAfterBrowser(maxFrames = 180): Promi
 }
 
 /**
- * Google OAuth: exchange tamamlanınca önce SIGNED_IN gelir, getSession biraz gecikebilir.
+ * Google / Apple OAuth: exchange tamamlanınca önce SIGNED_IN gelir, getSession biraz gecikebilir.
  * Dinleyici + rAF ile bekleme (setTimeout yok).
  */
 export function waitForSignedInAfterOAuth(maxFrames = 180): Promise<boolean> {

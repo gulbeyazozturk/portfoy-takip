@@ -131,7 +131,8 @@ export default function AuthScreen() {
         setError(sessionError.message);
         return;
       }
-      if (!data.session && provider === 'google') {
+      // Google ve Apple (native veya OAuth): PKCE / AsyncStorage gecikmesi — yalnızca Google için beklemek Apple akışını kırıyordu.
+      if (!data.session) {
         await waitForSignedInAfterOAuth();
         const again = await supabase.auth.getSession();
         data = again.data;
