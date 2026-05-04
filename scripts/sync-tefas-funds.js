@@ -1,27 +1,27 @@
 /**
  * TEFAS fon fiyat sync:
- * - tefas.gov.tr gizli API'sinden günlük fon fiyatlarını çeker
+ * - tefas.gov.tr resmi JSON API (Next.js sonrası): POST /api/funds/fonGnlBlgSiraliGetir
+ * - Eski /api/DB/BindHistoryInfo (form POST) 2026’da ERR-006 ile kapatıldı.
  * - Supabase'de category_id = 'fon' olan assets kayıtlarını UPSERT eder
  * - Üç fon tipi: YAT (yatırım fonu), EMK (emeklilik), BYF (borsa yatırım fonu)
  *
  * Çalıştırma: node scripts/sync-tefas-funds.js
  * Gereksinim: .env (Supabase key'leri)
  * Harici API key gerektirmez (ücretsiz).
+ * Rate-limit: TEFAS ~6 istek/dk — fon tipleri arası gecikme TEFAS_INTER_KIND_DELAY_MS (varsayılan 11s).
  */
 
 const TEFAS_BASE = 'https://www.tefas.gov.tr';
-const INFO_ENDPOINT = `${TEFAS_BASE}/api/DB/BindHistoryInfo`;
+const TEFAS_INFO_URL = `${TEFAS_BASE}/api/funds/fonGnlBlgSiraliGetir`;
 
 const FUND_TYPES = ['YAT', 'EMK', 'BYF'];
 
-/** Tarayıcıya yakın UA; TEFAS/WAF bazen datacenter/GitHub IP’lerinde HTML “engel” sayfası döndürür. */
+/** Tarayıcıya yakın UA; WAF bazen datacenter IP’lerinde HTML döndürebilir. */
 const HEADERS = {
-  'X-Requested-With': 'XMLHttpRequest',
-  Accept: 'application/json, text/javascript, */*;q=0.01',
-  'Accept-Language': 'tr-TR,tr;q=0.9,en-US;q=0.8,en;q=0.7',
+  Accept: '*/*',
+  'Content-Type': 'application/json',
   Origin: TEFAS_BASE,
-  Referer: `${TEFAS_BASE}/TarihselVeriler.aspx`,
-  'Content-Type': 'application/x-www-form-urlencoded',
+  Referer: `${TEFAS_BASE}/tr/fon-verileri`,
   'User-Agent':
     'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36',
 };
@@ -40,11 +40,12 @@ async function loadEnv() {
   }
 }
 
-function formatDate(d) {
+/** Takvim günü (script’in çalıştığı ortam saati) → YYYYMMDD */
+function formatYmd(d) {
   const dd = String(d.getDate()).padStart(2, '0');
   const mm = String(d.getMonth() + 1).padStart(2, '0');
   const yyyy = d.getFullYear();
-  return `${dd}.${mm}.${yyyy}`;
+  return `${yyyy}${mm}${dd}`;
 }
 
 function sleep(ms) {
@@ -97,88 +98,41 @@ function sanitizeTefasFiyat(fiyat) {
   return n;
 }
 
-/** Set-Cookie satırlarından name=value parçalarını toplar (aynı isim son değerle ezilir). */
-function absorbSetCookiesIntoJar(res, jar) {
-  const lines =
-    typeof res.headers.getSetCookie === 'function' ? res.headers.getSetCookie() : [];
-  for (const line of lines) {
-    const nv = String(line).split(';')[0].trim();
-    const eq = nv.indexOf('=');
-    if (eq <= 0) continue;
-    jar.set(nv.slice(0, eq), nv);
-  }
-  if (lines.length === 0) {
-    const raw = res.headers.get('set-cookie');
-    if (!raw) return;
-    for (const part of raw.split(/,(?=[^;]+=[^;]*)/)) {
-      const nv = part.split(';')[0].trim();
-      const eq = nv.indexOf('=');
-      if (eq <= 0) continue;
-      jar.set(nv.slice(0, eq), nv);
-    }
-  }
-}
-
-function jarToCookieHeader(jar) {
-  if (!jar || jar.size === 0) return '';
-  return [...jar.values()].join('; ');
-}
-
-/**
- * Ana sayfa + TarihselVeriler GET ile çerez toplar; POST öncesi şart (aksi halde sık sık HTML hata sayfası).
- */
-async function warmTefasCookies() {
-  const jar = new Map();
-  const ua = { 'User-Agent': HEADERS['User-Agent'], 'Accept-Language': HEADERS['Accept-Language'] };
-
-  let r = await fetchWithRetry(
-    `${TEFAS_BASE}/`,
-    { redirect: 'follow', headers: ua },
-    { retries: 2, timeoutMs: 15000, backoffMs: 800 },
-  );
-  absorbSetCookiesIntoJar(r, jar);
-
-  r = await fetchWithRetry(
-    `${TEFAS_BASE}/TarihselVeriler.aspx`,
-    {
-      redirect: 'follow',
-      headers: {
-        ...ua,
-        Accept: 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
-        ...(jar.size ? { Cookie: jarToCookieHeader(jar) } : {}),
-      },
-    },
-    { retries: 2, timeoutMs: 15000, backoffMs: 800 },
-  );
-  absorbSetCookiesIntoJar(r, jar);
-
-  return jarToCookieHeader(jar);
-}
-
-async function fetchFundsByType(fundType, cookieHeader) {
+async function fetchFundsByType(fundType) {
   const today = new Date();
-  // TEFAS hafta sonu/tatil için "dün" datasını döndürmeyebilir.
-  // O yüzden son 3 takvim günü alıp en son 2 kayıttan günlük değişimi hesaplıyoruz.
   const start = new Date(today);
   start.setDate(start.getDate() - 3);
 
-  const bastarih = formatDate(start);
-  const bittarih = formatDate(today);
+  const basTarih = formatYmd(start);
+  const bitTarih = formatYmd(today);
 
-  const body = `fontip=${fundType}&fonkod=&bastarih=${bastarih}&bittarih=${bittarih}`;
-
-  const headers = {
-    ...HEADERS,
-    ...(cookieHeader ? { Cookie: cookieHeader } : {}),
-  };
+  const body = JSON.stringify({
+    fonTipi: fundType,
+    fonKodu: null,
+    aramaMetni: null,
+    fonTurKod: null,
+    fonGrubu: null,
+    sfonTurKod: null,
+    fonTurAciklama: null,
+    kurucuKod: null,
+    basTarih,
+    bitTarih,
+    basSira: 1,
+    bitSira: 100000,
+    dil: 'TR',
+    sFonTurKod: '',
+    fonKod: '',
+    fonGrup: '',
+    fonUnvanTip: '',
+  });
 
   let res;
   try {
     res = await fetchWithRetry(
-      INFO_ENDPOINT,
+      TEFAS_INFO_URL,
       {
         method: 'POST',
-        headers,
+        headers: HEADERS,
         body,
       },
       { retries: 3, timeoutMs: 25000, backoffMs: 1200 },
@@ -197,8 +151,7 @@ async function fetchFundsByType(fundType, cookieHeader) {
   const lead = text.trimStart();
   if (lead.startsWith('<') || lead.startsWith('<!')) {
     throw new Error(
-      `TEFAS ${fundType}: JSON yerine HTML döndü (WAF/bot/oturum). GitHub Actions IP’leri bazen engellenir; ` +
-        `docs/SYNC-SCHEDULE.md — ilk 60 karakter: ${lead.slice(0, 60).replace(/\s+/g, ' ')}`,
+      `TEFAS ${fundType}: JSON yerine HTML döndü (WAF). İlk 60 karakter: ${lead.slice(0, 60).replace(/\s+/g, ' ')}`,
     );
   }
   let json;
@@ -207,12 +160,34 @@ async function fetchFundsByType(fundType, cookieHeader) {
   } catch (e) {
     throw new Error(`TEFAS ${fundType} JSON parse: ${e.message}`);
   }
-  return json.data || [];
+
+  const errMsg = json.errorMessage ? String(json.errorMessage) : '';
+  const errCode = json.errorCode;
+  const emptyOk =
+    errMsg && /out of bounds|veri bulunamadı/i.test(errMsg.toLowerCase());
+  if ((errCode || errMsg) && !emptyOk) {
+    throw new Error(`TEFAS ${fundType} API: ${errMsg || errCode}`);
+  }
+
+  const rows = json.resultList || [];
+  return rows
+    .map((row) => {
+      const tarihStr = row.tarih ? String(row.tarih).trim() : '';
+      const tsMs = tarihStr ? new Date(`${tarihStr}T12:00:00+03:00`).getTime() : 0;
+      return {
+        FONKODU: row.fonKodu,
+        FONUNVAN: row.fonUnvan,
+        FIYAT: row.fiyat,
+        TARIH: tsMs,
+      };
+    })
+    .filter((r) => r.FONKODU && r.TARIH);
 }
 
 async function fetchAllFunds() {
   // code -> { _fundType, entriesByTs: Map<number, item> }
   const allFunds = new Map();
+  const interKindMs = Math.max(0, Number(process.env.TEFAS_INTER_KIND_DELAY_MS || '11000'));
 
   function turkeyDateStrFromMs(ms) {
     return new Date(ms).toLocaleDateString('en-CA', { timeZone: 'Europe/Istanbul' });
@@ -220,25 +195,15 @@ async function fetchAllFunds() {
 
   const todayTurkey = turkeyDateStrFromMs(Date.now());
 
-  let cookieHeader = '';
-  try {
-    cookieHeader = await warmTefasCookies();
-    if (cookieHeader) console.log('  TEFAS çerez oturumu alındı.');
-  } catch (e) {
-    console.warn('  TEFAS çerez oturumu kurulamadı:', describeFetchError(e));
-  }
-
-  for (const ft of FUND_TYPES) {
+  for (let fi = 0; fi < FUND_TYPES.length; fi++) {
+    const ft = FUND_TYPES[fi];
     console.log(`  ${ft} fonları çekiliyor...`);
     let data = [];
     let lastErr = null;
     for (let attempt = 0; attempt < 2; attempt++) {
       try {
-        if (attempt > 0) {
-          await sleep(2500);
-          cookieHeader = await warmTefasCookies();
-        }
-        data = await fetchFundsByType(ft, cookieHeader);
+        if (attempt > 0) await sleep(2500);
+        data = await fetchFundsByType(ft);
         lastErr = null;
         break;
       } catch (err) {
@@ -264,7 +229,7 @@ async function fetchAllFunds() {
         allFunds.set(code, existing);
       }
     }
-    await sleep(1500);
+    if (fi < FUND_TYPES.length - 1 && interKindMs > 0) await sleep(interKindMs);
   }
 
   const out = [];

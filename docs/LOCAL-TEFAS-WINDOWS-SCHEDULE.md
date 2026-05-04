@@ -40,6 +40,7 @@ powershell -ExecutionPolicy Bypass -File .\scripts\windows\register-tefas-mornin
 
 ## Notlar
 
+- **API:** TEFAS 2026’da eski `BindHistoryInfo` kapatıldı; script artık `POST .../api/funds/fonGnlBlgSiraliGetir` (JSON) kullanır. Fon tipleri arası bekleme: ortam `TEFAS_INTER_KIND_DELAY_MS` (varsayılan 11000 ms, dakikada ~6 istek sınırına uyum).
 - Görev **oturum açıkken** tetiklenir (`Interactive`). Kapalı oturumda da çalışsın istersen Görev Zamanlayıcı’dan “Kullanıcı oturum açmış olsun ya da olmasın” ve şifre girmen gerekir.
 - **Node**, görevi çalıştıran kullanıcının **PATH**’inde olmalı (ör. nvm kullanıyorsan PATH’i görev ortamında görmeyebilir; o zaman `register-tefas-morning-task.ps1` içinde tam `node.exe` yolu kullanmak gerekebilir).
 - Supabase Edge’teki TEFAS akışı (`docs/SUPABASE-TEFAS-EDGE.md`) bundan bağımsızdır; bu doküman yalnızca **PC’de yerel** senkron içindir.

@@ -11,19 +11,19 @@
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.49.1';
 
 const TEFAS_BASE = 'https://www.tefas.gov.tr';
-const INFO_ENDPOINT = `${TEFAS_BASE}/api/DB/BindHistoryInfo`;
+const TEFAS_INFO_URL = `${TEFAS_BASE}/api/funds/fonGnlBlgSiraliGetir`;
 const FUND_TYPES = ['YAT', 'EMK', 'BYF'] as const;
 
 const HEADERS: Record<string, string> = {
-  'X-Requested-With': 'XMLHttpRequest',
-  Accept: 'application/json, text/javascript, */*;q=0.01',
-  'Accept-Language': 'tr-TR,tr;q=0.9,en-US;q=0.8,en;q=0.7',
+  Accept: '*/*',
+  'Content-Type': 'application/json',
   Origin: TEFAS_BASE,
-  Referer: `${TEFAS_BASE}/TarihselVeriler.aspx`,
-  'Content-Type': 'application/x-www-form-urlencoded',
+  Referer: `${TEFAS_BASE}/tr/fon-verileri`,
   'User-Agent':
     'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36',
 };
+
+const TEFAS_INTER_KIND_MS = Math.max(0, Number(Deno.env.get('TEFAS_INTER_KIND_DELAY_MS') || '11000'));
 
 function sleep(ms: number) {
   return new Promise((r) => setTimeout(r, ms));
@@ -75,76 +75,58 @@ function sanitizeTefasFiyat(fiyat: unknown): number | null {
   return n;
 }
 
-function absorbSetCookiesIntoJar(res: Response, jar: Map<string, string>) {
-  const h = res.headers as unknown as { getSetCookie?: () => string[] };
-  const lines = typeof h.getSetCookie === 'function' ? h.getSetCookie() : [];
-  for (const line of lines) {
-    const nv = String(line).split(';')[0].trim();
-    const eq = nv.indexOf('=');
-    if (eq > 0) jar.set(nv.slice(0, eq), nv);
-  }
-  if (lines.length === 0) {
-    const raw = res.headers.get('set-cookie');
-    if (!raw) return;
-    for (const part of raw.split(/,(?=[^;]+=[^;]*)/)) {
-      const nv = part.split(';')[0].trim();
-      const eq = nv.indexOf('=');
-      if (eq > 0) jar.set(nv.slice(0, eq), nv);
-    }
-  }
-}
-
-function jarToCookieHeader(jar: Map<string, string>) {
-  return [...jar.values()].join('; ');
-}
-
-async function warmTefasCookies(): Promise<string> {
-  const jar = new Map<string, string>();
-  const ua = { 'User-Agent': HEADERS['User-Agent'], 'Accept-Language': HEADERS['Accept-Language'] };
-
-  let r = await fetchWithRetry(`${TEFAS_BASE}/`, { redirect: 'follow', headers: ua }, {
-    retries: 2,
-    timeoutMs: 15000,
-    backoffMs: 800,
-  });
-  absorbSetCookiesIntoJar(r, jar);
-
-  r = await fetchWithRetry(
-    `${TEFAS_BASE}/TarihselVeriler.aspx`,
-    {
-      redirect: 'follow',
-      headers: {
-        ...ua,
-        Accept: 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
-        ...(jar.size ? { Cookie: jarToCookieHeader(jar) } : {}),
-      },
-    },
-    { retries: 2, timeoutMs: 15000, backoffMs: 800 },
-  );
-  absorbSetCookiesIntoJar(r, jar);
-
-  return jarToCookieHeader(jar);
-}
-
-function formatDate(d: Date) {
+function formatYmd(d: Date) {
   const dd = String(d.getDate()).padStart(2, '0');
   const mm = String(d.getMonth() + 1).padStart(2, '0');
   const yyyy = d.getFullYear();
-  return `${dd}.${mm}.${yyyy}`;
+  return `${yyyy}${mm}${dd}`;
 }
 
-async function fetchFundsByType(fundType: string, cookieHeader: string): Promise<Record<string, unknown>[]> {
+type TefasInfoRow = {
+  fonKodu?: string;
+  fonUnvan?: string;
+  tarih?: string;
+  fiyat?: number;
+};
+
+type TefasInfoResponse = {
+  errorCode?: string | number;
+  errorMessage?: string;
+  resultList?: TefasInfoRow[];
+};
+
+async function fetchFundsByType(fundType: string): Promise<Record<string, unknown>[]> {
   const today = new Date();
   const start = new Date(today);
   start.setDate(start.getDate() - 3);
-  const body = `fontip=${fundType}&fonkod=&bastarih=${formatDate(start)}&bittarih=${formatDate(today)}`;
-  const headers = { ...HEADERS, ...(cookieHeader ? { Cookie: cookieHeader } : {}) };
+  const basTarih = formatYmd(start);
+  const bitTarih = formatYmd(today);
+
+  const body = JSON.stringify({
+    fonTipi: fundType,
+    fonKodu: null,
+    aramaMetni: null,
+    fonTurKod: null,
+    fonGrubu: null,
+    sfonTurKod: null,
+    fonTurAciklama: null,
+    kurucuKod: null,
+    basTarih,
+    bitTarih,
+    basSira: 1,
+    bitSira: 100000,
+    dil: 'TR',
+    sFonTurKod: '',
+    fonKod: '',
+    fonGrup: '',
+    fonUnvanTip: '',
+  });
 
   let res: Response;
   try {
     res = await fetchWithRetry(
-      INFO_ENDPOINT,
-      { method: 'POST', headers, body },
+      TEFAS_INFO_URL,
+      { method: 'POST', headers: HEADERS, body },
       { retries: 3, timeoutMs: 25000, backoffMs: 1200 },
     );
   } catch (err) {
@@ -161,17 +143,38 @@ async function fetchFundsByType(fundType: string, cookieHeader: string): Promise
   const lead = text.trimStart();
   if (lead.startsWith('<') || lead.startsWith('<!')) {
     throw new Error(
-      `TEFAS ${fundType}: JSON yerine HTML (WAF/bot). İlk 60: ${lead.slice(0, 60).replace(/\s+/g, ' ')}`,
+      `TEFAS ${fundType}: JSON yerine HTML (WAF). İlk 60: ${lead.slice(0, 60).replace(/\s+/g, ' ')}`,
     );
   }
-  let json: { data?: unknown };
+  let json: TefasInfoResponse;
   try {
-    json = JSON.parse(text) as { data?: unknown };
+    json = JSON.parse(text) as TefasInfoResponse;
   } catch (e) {
     const m = e instanceof Error ? e.message : String(e);
     throw new Error(`TEFAS ${fundType} JSON parse: ${m}`);
   }
-  return Array.isArray(json.data) ? (json.data as Record<string, unknown>[]) : [];
+
+  const errMsg = json.errorMessage ? String(json.errorMessage) : '';
+  const emptyOk = errMsg && /out of bounds|veri bulunamadı/i.test(errMsg.toLowerCase());
+  if ((json.errorCode || errMsg) && !emptyOk) {
+    throw new Error(`TEFAS ${fundType} API: ${errMsg || json.errorCode}`);
+  }
+
+  const rows = json.resultList || [];
+  const out: Record<string, unknown>[] = [];
+  for (const row of rows) {
+    const tarihStr = row.tarih ? String(row.tarih).trim() : '';
+    const tsMs = tarihStr ? new Date(`${tarihStr}T12:00:00+03:00`).getTime() : 0;
+    const code = (row.fonKodu || '').trim();
+    if (!code || !tsMs) continue;
+    out.push({
+      FONKODU: row.fonKodu,
+      FONUNVAN: row.fonUnvan,
+      FIYAT: row.fiyat,
+      TARIH: tsMs,
+    });
+  }
+  return out;
 }
 
 type FundEntry = Record<string, unknown> & { _tsMs: number };
@@ -184,23 +187,15 @@ async function fetchAllFunds(): Promise<FundEntry[]> {
   }
 
   const todayTurkey = turkeyDateStrFromMs(Date.now());
-  let cookieHeader = '';
-  try {
-    cookieHeader = await warmTefasCookies();
-  } catch (e) {
-    console.warn('TEFAS çerez oturumu kurulamadı:', describeFetchError(e));
-  }
 
-  for (const ft of FUND_TYPES) {
+  for (let fi = 0; fi < FUND_TYPES.length; fi++) {
+    const ft = FUND_TYPES[fi];
     let data: Record<string, unknown>[] = [];
     let lastErr: unknown = null;
     for (let attempt = 0; attempt < 2; attempt++) {
       try {
-        if (attempt > 0) {
-          await sleep(2500);
-          cookieHeader = await warmTefasCookies();
-        }
-        data = await fetchFundsByType(ft, cookieHeader);
+        if (attempt > 0) await sleep(2500);
+        data = await fetchFundsByType(ft);
         lastErr = null;
         break;
       } catch (err) {
@@ -224,7 +219,7 @@ async function fetchAllFunds(): Promise<FundEntry[]> {
         allFunds.set(code, existing);
       }
     }
-    await sleep(1500);
+    if (fi < FUND_TYPES.length - 1 && TEFAS_INTER_KIND_MS > 0) await sleep(TEFAS_INTER_KIND_MS);
   }
 
   const out: FundEntry[] = [];
