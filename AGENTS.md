@@ -5,6 +5,7 @@ Bu dosya Cursor ve benzeri araçlar için **proje özgü** kısa kurallar içeri
 ## Stack
 - **Expo SDK 54** + **expo-router**, **Supabase** (auth + Postgres + RLS), **EAS** ile iOS/Android build.
 - Ortam: `.env` içinde `EXPO_PUBLIC_SUPABASE_*`; script’ler için ayrıca `SUPABASE_SERVICE_ROLE_KEY`.
+- EAS: `package.json` içindeki `ios:testflight:build` / `android:preview:build` vb. `scripts/eas-with-vcs.mjs` ile çalışır; ortamda `EAS_NO_VCS=1` olsa bile kaldırılır ve EAS git/commit bilgisini kullanabilir. Ham `npx eas-cli build` yerine bu npm script’leri kullan.
 
 ## Portföy ve auth
 - Seçili portföy: `context/portfolio.tsx` — `refresh()` boş listede **Ana Portföy** oluşturur; toplu yüklemede `price_updated_at` / oturum uyumu önemli.
