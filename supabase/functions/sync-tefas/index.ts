@@ -264,20 +264,56 @@ async function upsertFonAssets(
   funds: FundEntry[],
 ): Promise<number> {
   const now = new Date().toISOString();
+  const symbols = Array.from(
+    new Set(
+      funds
+        .map((f) => String(f.FONKODU || '').trim().toUpperCase())
+        .filter(Boolean),
+    ),
+  );
+  const prevPriceBySymbol = new Map<string, number>();
+  if (symbols.length) {
+    const { data: existing, error: exErr } = await supabase
+      .from('assets')
+      .select('symbol, current_price')
+      .eq('category_id', 'fon')
+      .in('symbol', symbols);
+    if (exErr) throw new Error('Fon mevcut fiyatları okunamadı: ' + exErr.message);
+    for (const row of existing || []) {
+      const s = String(row.symbol || '')
+        .trim()
+        .toUpperCase();
+      const p = row.current_price != null ? Number(row.current_price) : NaN;
+      if (s && Number.isFinite(p) && p > 0) prevPriceBySymbol.set(s, p);
+    }
+  }
+
   const rows = funds.map((f) => {
     const code = String(f.FONKODU || '')
       .trim()
       .toUpperCase();
     const ch = f._change_24h_pct;
-    const change_24h_pct =
+    const apiChange =
       ch != null && Number.isFinite(Number(ch)) ? Number(ch) : null;
+    const nextPrice = sanitizeTefasFiyat(f.FIYAT);
+    let change_24h_pct = apiChange;
+    const prevPrice = prevPriceBySymbol.get(code);
+    if (
+      (change_24h_pct == null || Math.abs(change_24h_pct) < 1e-12) &&
+      nextPrice != null &&
+      prevPrice != null &&
+      Number.isFinite(prevPrice) &&
+      prevPrice > 0
+    ) {
+      change_24h_pct = ((nextPrice - prevPrice) / prevPrice) * 100;
+    }
     return {
       category_id: 'fon',
       symbol: code,
       name: String(f.FONUNVAN || code).trim(),
       currency: 'TRY',
       external_id: code,
-      current_price: sanitizeTefasFiyat(f.FIYAT),
+      current_price: nextPrice,
       change_24h_pct,
       price_updated_at: now,
     };
