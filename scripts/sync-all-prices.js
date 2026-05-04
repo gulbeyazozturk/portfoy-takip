@@ -1,6 +1,6 @@
 /**
  * Tüm varlık türleri için güncel fiyatları çeker (listeleri doldurmaz; mevcut assets satırlarını günceller).
- * Sıra: döviz → kripto → BIST → emtia → kapalıçarşı → yurtdışı fiyat → TEFAS → price_history anlık görüntü.
+ * Sıra: döviz → kripto → BIST scrape → BIST Yahoo → emtia → kapalıçarşı → yurtdışı fiyat → TEFAS → price_history anlık görüntü.
  *
  *   node scripts/sync-all-prices.js
  *
@@ -14,6 +14,7 @@ const SCRIPTS = [
   { file: 'sync-doviz-dev.js', args: [] },
   { file: 'sync-crypto-prices.js', args: [] },
   { file: 'sync-bist-scrape.js', args: [] },
+  { file: 'sync-bist-yahoo.js', args: [] },
   { file: 'sync-emtia-scrape.js', args: [] },
   // Dış kaynak timeout verebilir; tüm zinciri düşürmemek için bu adım hata toleranslı.
   { file: 'sync-kapalicarsi-gold.js', args: [], continueOnError: true },

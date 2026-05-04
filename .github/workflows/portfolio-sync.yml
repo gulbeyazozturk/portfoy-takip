@@ -1,4 +1,4 @@
-# Senkron: kripto, BIST scrape, döviz, emtia, altın, yurtdışı holdings, snapshot.
+# Senkron: kripto, BIST scrape + Yahoo (ücretsiz yedek), döviz, emtia, altın, yurtdışı holdings, snapshot.
 #
 # Zamanlama GitHub cron ile değil: Supabase pg_cron (~15 dk) → Edge dispatch-portfolio-sync
 # → bu workflow workflow_dispatch ile tetiklenir. Dış servis alternatifi: docs/SYNC-SCHEDULE.md
@@ -47,6 +47,11 @@ jobs:
 
       - name: Sync BIST (scrape)
         run: node scripts/sync-bist-scrape.js
+
+      - name: Sync BIST (Yahoo, ücretsiz — mevcut satırlar)
+        env:
+          BIST_YAHOO_DELAY_MS: "120"
+        run: node scripts/sync-bist-yahoo.js
 
       - name: Sync Döviz (doviz.dev)
         run: node scripts/sync-doviz-dev.js

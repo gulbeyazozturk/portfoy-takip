@@ -25,6 +25,7 @@
     "reset-for-csv": "node ./scripts/reset-for-csv-import.js",
     "delete-kripto-assets": "node ./scripts/delete-kripto-assets.js",
     "sync-bist-scrape": "node ./scripts/sync-bist-scrape.js",
+    "sync-bist-yahoo": "node ./scripts/sync-bist-yahoo.js",
     "sync-doviz-dev": "node ./scripts/sync-doviz-dev.js",
     "sync-emtia-scrape": "node ./scripts/sync-emtia-scrape.js",
     "sync-kapalicarsi-gold": "node ./scripts/sync-kapalicarsi-gold.js",

@@ -1,9 +1,9 @@
 /**
  * BIST hisse senedi batch (ekran kazıma):
- * - https://www.borsa.net/hisse sayfasından HTML tabloyu çeker
- * - Kod, ad, son fiyat, son güncelleme alanlarını parse eder
+ * - Öncelik sırasıyla kaynaklar: borsa.net (tam tablo) → BigPara canlı borsa → Uzmanpara canlı borsa
+ * - Kod, ad, son fiyat, değişim %, (varsa) güncelleme alanlarını parse eder
  * - Supabase'de category_id = 'bist' olan assets kayıtlarını sembole göre UPSERT eder
- * - Borsa.net listesinden düşen ve holdings'te kullanılmayan eski BIST asset'leri siler
+ * - Eski BIST asset silme: yalnızca “tam liste” sayılırken (varsayılan ≥350 satır); kısmi yedeklerde silme yapılmaz
  *
  * Çalıştırma:
  *   npm run sync-bist-scrape
@@ -22,10 +22,12 @@
  *   BIST_SCRAPE_FETCH_ATTEMPTS=3
  *   BIST_SCRAPE_RETRY_DELAY_MS=2500
  *   BIST_SCRAPE_FETCH_TIMEOUT_MS=45000
- *   BIST_SCRAPE_USER_AGENT=...   (GitHub Actions IP’sinde 522 görülürse NosyAPI tabanlı sync-bist-assets.js alternatifi: NOSYAPI_KEY)
+ *   BIST_SCRAPE_USER_AGENT=...
+ *   BIST_SCRAPE_FULL_LIST_MIN=350   (bu sayıdan az satır “kısmi liste”; silme adımı atlanır)
+ *   (Ücretli API: sync-bist-assets.js — NOSYAPI_KEY)
  */
 
-const BIST_URLS = [
+const BORSA_NET_URLS = [
   'https://www.borsa.net/hisse',
   'https://www.borsa.net/borsa/hisseler',
   'https://borsa.net/hisse',
@@ -33,6 +35,7 @@ const BIST_URLS = [
 const BIST_SCRAPE_ALLOW_FAILURE = process.env.BIST_SCRAPE_ALLOW_FAILURE === '1';
 const BIST_SCRAPE_FETCH_ATTEMPTS = Math.max(1, Number(process.env.BIST_SCRAPE_FETCH_ATTEMPTS || '3'));
 const BIST_SCRAPE_RETRY_DELAY_MS = Math.max(0, Number(process.env.BIST_SCRAPE_RETRY_DELAY_MS || '2500'));
+const BIST_SCRAPE_FULL_LIST_MIN = Math.max(1, Number(process.env.BIST_SCRAPE_FULL_LIST_MIN || '350'));
 
 function sleep(ms) {
   return new Promise((r) => setTimeout(r, ms));
@@ -77,13 +80,14 @@ async function fetchHtmlOnce(url) {
   }
 }
 
-async function fetchHtml() {
+/** @param {string[]} urls */
+async function fetchHtmlFromUrlList(urls) {
   let lastError = null;
   for (let attempt = 1; attempt <= BIST_SCRAPE_FETCH_ATTEMPTS; attempt++) {
-    for (const url of BIST_URLS) {
+    for (const url of urls) {
       try {
-        if (attempt > 1 || url !== BIST_URLS[0]) {
-          console.log(`BIST deneme ${attempt}/${BIST_SCRAPE_FETCH_ATTEMPTS} → ${url}`);
+        if (attempt > 1 || url !== urls[0]) {
+          console.log(`BIST fetch deneme ${attempt}/${BIST_SCRAPE_FETCH_ATTEMPTS} → ${url}`);
         }
         return await fetchHtmlOnce(url);
       } catch (e) {
@@ -91,7 +95,10 @@ async function fetchHtml() {
       }
     }
     if (attempt < BIST_SCRAPE_FETCH_ATTEMPTS && BIST_SCRAPE_RETRY_DELAY_MS > 0) {
-      console.warn(`BIST fetch denemesi ${attempt} başarısız, ${BIST_SCRAPE_RETRY_DELAY_MS}ms bekleniyor…`, lastError?.message || lastError);
+      console.warn(
+        `BIST fetch turu ${attempt} başarısız, ${BIST_SCRAPE_RETRY_DELAY_MS}ms bekleniyor…`,
+        lastError?.message || lastError,
+      );
       await sleep(BIST_SCRAPE_RETRY_DELAY_MS);
     }
   }
@@ -117,7 +124,7 @@ function normalizeNumber(str) {
   return Number.isFinite(num) ? num : null;
 }
 
-function parseBistRows(html) {
+function parseBorsaNetTableRows(html) {
   const cheerio = require('cheerio');
   const $ = cheerio.load(html);
 
@@ -173,6 +180,111 @@ function parseBistRows(html) {
   });
 
   return rows;
+}
+
+/** BigPara canlı borsa: ul.live-stock-item (tablo değil); ~BIST100 civarı kısmi liste. */
+function parseBigparaLiveRows(html) {
+  const cheerio = require('cheerio');
+  const $ = cheerio.load(html);
+  const rows = [];
+  $('ul.live-stock-item[data-symbol]').each((_, el) => {
+    const $ul = $(el);
+    const code = String($ul.attr('data-symbol') || '')
+      .trim()
+      .toUpperCase();
+    if (!code || code.length < 2) return;
+    const lastText = $ul.find(`li#h_td_fiyat_id_${code}`).text().trim();
+    const changeText = $ul.find(`li#h_td_yuzde_id_${code}`).text().trim();
+    const updatedText = $ul.find(`li#h_td_saat_id_${code}`).text().trim();
+    const last = normalizeNumber(lastText);
+    const changePct = normalizeNumber(changeText);
+    let updatedAtIso = null;
+    if (updatedText) {
+      const safe = updatedText.replace(' ', 'T');
+      const d = new Date(safe);
+      if (!Number.isNaN(d.getTime())) updatedAtIso = d.toISOString();
+    }
+    const href = $ul.find('a[href*="/borsa/hisse-fiyatlari/"]').first().attr('href') || '';
+    const slugMatch = href.match(/hisse-fiyatlari\/([^/?#]+)/i);
+    let name = code;
+    if (slugMatch) {
+      const parts = slugMatch[1].split('-').filter(Boolean);
+      const noDetay = parts.filter((p) => p.toLowerCase() !== 'detay');
+      const tail = noDetay.slice(1).join(' ');
+      if (tail) name = tail;
+    }
+    rows.push({ code, name, last, changePct, updatedAtIso });
+  });
+  return rows;
+}
+
+/** Uzmanpara (Milliyet) canlı borsa: 5 sütunlu tablo; kısmi liste. */
+function parseUzmanparaTableRows(html) {
+  const cheerio = require('cheerio');
+  const $ = cheerio.load(html);
+  const rows = [];
+  $('table tbody tr').each((_, tr) => {
+    const tds = $(tr).find('td');
+    if (tds.length !== 5) return;
+    const rawCode = $(tds[0]).text().trim();
+    const code = rawCode.replace(/[\[\]\s]/g, '').toUpperCase();
+    if (!code || code.length < 2) return;
+    const lastText = $(tds[2]).text().trim();
+    const changeText = $(tds[3]).text().trim();
+    const updatedText = $(tds[4]).text().trim();
+    const last = normalizeNumber(lastText);
+    const changePct = normalizeNumber(changeText);
+    let updatedAtIso = null;
+    if (updatedText) {
+      const safe = updatedText.replace(' ', 'T');
+      const d = new Date(safe);
+      if (!Number.isNaN(d.getTime())) updatedAtIso = d.toISOString();
+    }
+    rows.push({ code, name: code, last, changePct, updatedAtIso });
+  });
+  return rows;
+}
+
+const BIST_SCRAPE_SOURCES = [
+  {
+    id: 'borsa.net',
+    urls: BORSA_NET_URLS,
+    minRows: 50,
+    parse: parseBorsaNetTableRows,
+  },
+  {
+    id: 'bigpara.hurriyet.com.tr',
+    urls: ['https://bigpara.hurriyet.com.tr/borsa/canli-borsa/'],
+    minRows: 40,
+    parse: parseBigparaLiveRows,
+  },
+  {
+    id: 'uzmanpara.milliyet.com.tr',
+    urls: ['https://uzmanpara.milliyet.com.tr/canli-borsa/'],
+    minRows: 40,
+    parse: parseUzmanparaTableRows,
+  },
+];
+
+/** Sırayla kaynakları dener: fetch → parse; yeterli satır yoksa sıradaki kaynak. */
+async function fetchAndParseBistChain() {
+  let lastError = null;
+  for (const src of BIST_SCRAPE_SOURCES) {
+    try {
+      console.log(`BIST kaynak: ${src.id}`);
+      const { html, sourceUrl } = await fetchHtmlFromUrlList(src.urls);
+      const rows = src.parse(html);
+      if (rows.length >= src.minRows) {
+        console.log(`BIST parse OK (${src.id}): ${rows.length} satır, URL: ${sourceUrl}`);
+        return { rows, sourceUrl, sourceId: src.id };
+      }
+      console.warn(`BIST ${src.id}: yetersiz satır (${rows.length} < ${src.minRows}), sıradaki kaynak…`);
+    } catch (e) {
+      lastError = e;
+      console.warn(`BIST ${src.id} başarısız:`, e?.message || e);
+    }
+  }
+  throw lastError || new Error('Tüm BIST scrape kaynakları başarısız veya parse yetersiz.');
 }
 
 async function upsertBistAssets(supabase, rows) {
@@ -268,14 +380,16 @@ async function main() {
   const { createClient } = require('@supabase/supabase-js');
   const supabase = createClient(url, key);
 
-  console.log('BIST HTML çekiliyor…', BIST_URLS[0]);
-  let html;
+  console.log('BIST scrape zinciri (borsa.net → BigPara → Uzmanpara)…');
+  let rows;
   let sourceUrl = null;
+  let sourceId = null;
   try {
-    const fetched = await fetchHtml();
-    html = fetched.html;
-    sourceUrl = fetched.sourceUrl;
-    console.log('BIST kaynak URL:', sourceUrl);
+    const parsed = await fetchAndParseBistChain();
+    rows = parsed.rows;
+    sourceUrl = parsed.sourceUrl;
+    sourceId = parsed.sourceId;
+    console.log('BIST kaynak:', sourceId, 'URL:', sourceUrl);
   } catch (e) {
     if (BIST_SCRAPE_ALLOW_FAILURE) {
       console.warn(
@@ -287,8 +401,6 @@ async function main() {
     throw e;
   }
 
-  console.log('HTML parse ediliyor…');
-  const rows = parseBistRows(html);
   console.log('Toplam satır:', rows.length);
 
   if (!rows.length) {
@@ -304,17 +416,25 @@ async function main() {
   const affected = await upsertBistAssets(supabase, rows);
   console.log('Etkilenen asset sayısı (insert + update):', affected);
 
-  console.log('Listede olmayan eski BIST assetleri temizleniyor…');
   const codes = rows.map((r) => r.code);
-  const delStats = await deleteRemovedBistAssets(supabase, codes);
-  console.log(
-    'Silme özeti -> Aday:',
-    delStats.tried,
-    'Silinen:',
-    delStats.deleted,
-    'Başarısız:',
-    delStats.failed,
-  );
+  const fullList = rows.length >= BIST_SCRAPE_FULL_LIST_MIN;
+  if (!fullList) {
+    console.warn(
+      `[sync-bist-scrape] Kısmi liste (${rows.length} satır < ${BIST_SCRAPE_FULL_LIST_MIN}): ` +
+        'listede olmayan BIST asset silme adımı atlandı (yedek kaynak veya eksik parse).',
+    );
+  } else {
+    console.log('Listede olmayan eski BIST assetleri temizleniyor…');
+    const delStats = await deleteRemovedBistAssets(supabase, codes);
+    console.log(
+      'Silme özeti -> Aday:',
+      delStats.tried,
+      'Silinen:',
+      delStats.deleted,
+      'Başarısız:',
+      delStats.failed,
+    );
+  }
 }
 
 main().catch((e) => {
