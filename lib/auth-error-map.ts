@@ -6,6 +6,15 @@ export function mapAuthErrorMessage(message: string | null | undefined): string 
 
   const normalized = raw.toLowerCase();
 
+  // Supabase Auth: provider toggle kapalı (Dashboard → Authentication → Providers).
+  if (
+    normalized.includes('unsupported provider') ||
+    normalized.includes('provider is not enabled') ||
+    normalized.includes('provider not enabled')
+  ) {
+    return i18n.t('auth.providerNotEnabled');
+  }
+
   if (normalized.includes('invalid login credentials')) return i18n.t('auth.invalidCredentials');
   if (normalized.includes('email not confirmed')) return i18n.t('auth.emailNotConfirmed');
   if (normalized.includes('new password should be different')) return i18n.t('auth.newPasswordMustDiffer');

@@ -20,6 +20,8 @@ export default {
     signupThenSignIn: 'Kaydın oluşturuldu. Giriş için "Giriş yap" sekmesinden devam et.',
     signupSuccess: 'Kaydın oluşturuldu ve giriş yapıldı.',
     genericError: 'İşlem sırasında bir hata oluştu.',
+    providerNotEnabled:
+      'Bu giriş yöntemi sunucuda kapalı. Supabase panelinde Authentication → Providers bölümünden Google ve Apple sağlayıcılarını açıp istemci bilgilerini kaydetmen gerekir.',
     sessionFailed: 'Oturum oluşturulamadı. Bir süre bekleyip tekrar dene veya uygulamayı yeniden aç.',
     socialError: 'Giriş sırasında bir hata oluştu.',
     timeout: 'İstek zaman aşımına uğradı. Lütfen tekrar dene.',

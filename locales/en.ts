@@ -20,6 +20,8 @@ export default {
     signupThenSignIn: 'Account created. Continue from the “Sign in” tab.',
     signupSuccess: 'Account created and you are signed in.',
     genericError: 'Something went wrong.',
+    providerNotEnabled:
+      'This sign-in method is disabled on the server. In the Supabase dashboard, open Authentication → Providers and enable Google and Apple with the correct client credentials.',
     sessionFailed: 'Could not create a session. Wait and try again, or restart the app.',
     socialError: 'Something went wrong during sign-in.',
     timeout: 'Request timed out. Please try again.',
