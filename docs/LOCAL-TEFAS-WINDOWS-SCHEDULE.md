@@ -43,3 +43,11 @@ powershell -ExecutionPolicy Bypass -File .\scripts\windows\register-tefas-mornin
 - Görev **oturum açıkken** tetiklenir (`Interactive`). Kapalı oturumda da çalışsın istersen Görev Zamanlayıcı’dan “Kullanıcı oturum açmış olsun ya da olmasın” ve şifre girmen gerekir.
 - **Node**, görevi çalıştıran kullanıcının **PATH**’inde olmalı (ör. nvm kullanıyorsan PATH’i görev ortamında görmeyebilir; o zaman `register-tefas-morning-task.ps1` içinde tam `node.exe` yolu kullanmak gerekebilir).
 - Supabase Edge’teki TEFAS akışı (`docs/SUPABASE-TEFAS-EDGE.md`) bundan bağımsızdır; bu doküman yalnızca **PC’de yerel** senkron içindir.
+
+## “Hiç çalışmıyor” kontrol listesi
+
+1. **Saat penceresi:** Görev yalnızca günde **6 kez** (07:30, 08:30, … 12:30) çalışır. Bu saatler dışında tetiklenmez.
+2. **Elle test:** `.\scripts\windows\tefas-sync-once.cmd` — hata varsa ekranda görünür.
+3. **Log:** Aynı klasörde `scripts\windows\tefas-sync.log` oluşur; Görev Zamanlayıcı başarısız olsa bile burada Node / script çıktısı olur.
+4. **Node yolu:** Görev `cmd` ile çalışır; nvm ile kurulu Node bazen PATH’te olmaz. Çözüm: sistem ortam değişkeni **`NODE_EXE`** = `node.exe` tam yolu (ör. `C:\Program Files\nodejs\node.exe`) veya Görev eylemine `set NODE_EXE=...` ile aynı satırda ekleme.
+5. **Görev Geçmişi:** `taskschd.msc` → ilgili görev → **Geçmiş** sekmesi (Windows sürümüne göre “History” / son çalışma kodu).

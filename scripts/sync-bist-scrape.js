@@ -17,6 +17,12 @@
  *
  * Not: Bu script, üçüncü parti bir sitenin HTML yapısına bağımlıdır.
  * Site yapısı değişirse selector'lar güncellenmelidir.
+ *
+ * Opsiyonel ortam (522 / geçici ağ için):
+ *   BIST_SCRAPE_FETCH_ATTEMPTS=3
+ *   BIST_SCRAPE_RETRY_DELAY_MS=2500
+ *   BIST_SCRAPE_FETCH_TIMEOUT_MS=45000
+ *   BIST_SCRAPE_USER_AGENT=...   (GitHub Actions IP’sinde 522 görülürse NosyAPI tabanlı sync-bist-assets.js alternatifi: NOSYAPI_KEY)
  */
 
 const BIST_URLS = [
@@ -25,6 +31,12 @@ const BIST_URLS = [
   'https://borsa.net/hisse',
 ];
 const BIST_SCRAPE_ALLOW_FAILURE = process.env.BIST_SCRAPE_ALLOW_FAILURE === '1';
+const BIST_SCRAPE_FETCH_ATTEMPTS = Math.max(1, Number(process.env.BIST_SCRAPE_FETCH_ATTEMPTS || '3'));
+const BIST_SCRAPE_RETRY_DELAY_MS = Math.max(0, Number(process.env.BIST_SCRAPE_RETRY_DELAY_MS || '2500'));
+
+function sleep(ms) {
+  return new Promise((r) => setTimeout(r, ms));
+}
 
 async function loadEnv() {
   const path = require('path');
@@ -40,23 +52,47 @@ async function loadEnv() {
   }
 }
 
+async function fetchHtmlOnce(url) {
+  const controller = new AbortController();
+  const t = setTimeout(() => controller.abort(), Number(process.env.BIST_SCRAPE_FETCH_TIMEOUT_MS || '45000'));
+  try {
+    const res = await fetch(url, {
+      signal: controller.signal,
+      headers: {
+        'User-Agent':
+          process.env.BIST_SCRAPE_USER_AGENT ||
+          'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36',
+        Accept: 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+        'Accept-Language': 'tr-TR,tr;q=0.9,en-US;q=0.8,en;q=0.7',
+      },
+    });
+    if (!res.ok) {
+      const body = await res.text().catch(() => '');
+      throw new Error(`BIST HTML fetch hatası ${res.status} @ ${url}: ${body.slice(0, 200)}`);
+    }
+    const html = await res.text();
+    return { html, sourceUrl: url };
+  } finally {
+    clearTimeout(t);
+  }
+}
+
 async function fetchHtml() {
   let lastError = null;
-  for (const url of BIST_URLS) {
-    try {
-      const res = await fetch(url, {
-        headers: {
-          // Basit bir User-Agent; bazı siteler botsuz isteği kısıtlayabiliyor
-          'User-Agent': 'Mozilla/5.0 (compatible; PortfoyTakipBot/1.0)',
-        },
-      });
-      if (!res.ok) {
-        throw new Error(`BIST HTML fetch hatası ${res.status} @ ${url}: ${await res.text()}`);
+  for (let attempt = 1; attempt <= BIST_SCRAPE_FETCH_ATTEMPTS; attempt++) {
+    for (const url of BIST_URLS) {
+      try {
+        if (attempt > 1 || url !== BIST_URLS[0]) {
+          console.log(`BIST deneme ${attempt}/${BIST_SCRAPE_FETCH_ATTEMPTS} → ${url}`);
+        }
+        return await fetchHtmlOnce(url);
+      } catch (e) {
+        lastError = e;
       }
-      const html = await res.text();
-      return { html, sourceUrl: url };
-    } catch (e) {
-      lastError = e;
+    }
+    if (attempt < BIST_SCRAPE_FETCH_ATTEMPTS && BIST_SCRAPE_RETRY_DELAY_MS > 0) {
+      console.warn(`BIST fetch denemesi ${attempt} başarısız, ${BIST_SCRAPE_RETRY_DELAY_MS}ms bekleniyor…`, lastError?.message || lastError);
+      await sleep(BIST_SCRAPE_RETRY_DELAY_MS);
     }
   }
   throw lastError || new Error('BIST HTML fetch başarısız.');
