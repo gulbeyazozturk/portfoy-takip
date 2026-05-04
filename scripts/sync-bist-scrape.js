@@ -220,7 +220,36 @@ async function fetchAndParseBistChain() {
 
 async function upsertBistAssets(supabase, rows) {
   const now = new Date().toISOString();
-  const payload = rows.map((r) => ({
+
+  // Aynı sembol birden fazla kez gelirse (sayfa tekrarları), tek satıra indir.
+  const bySymbol = new Map();
+  for (const r of rows) {
+    const symbol = String(r.code || '')
+      .trim()
+      .toUpperCase();
+    if (!symbol) continue;
+    const prev = bySymbol.get(symbol);
+    if (!prev) {
+      bySymbol.set(symbol, r);
+      continue;
+    }
+    const prevHasPrice = prev.last != null && Number.isFinite(Number(prev.last));
+    const curHasPrice = r.last != null && Number.isFinite(Number(r.last));
+    if (!prevHasPrice && curHasPrice) {
+      bySymbol.set(symbol, r);
+      continue;
+    }
+    if (curHasPrice) bySymbol.set(symbol, r);
+  }
+
+  const dedupedRows = Array.from(bySymbol.values());
+  if (dedupedRows.length !== rows.length) {
+    console.warn(
+      `[sync-bist-scrape] Yinelenen semboller ayıklandı: toplam=${rows.length}, tekil=${dedupedRows.length}`,
+    );
+  }
+
+  const payload = dedupedRows.map((r) => ({
     category_id: 'bist',
     symbol: r.code,
     name: r.name,
