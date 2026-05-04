@@ -50,6 +50,55 @@ function isMissingPushEventLogError(error) {
   return error?.code === 'PGRST205' || msg.includes("Could not find the table 'public.push_event_log'");
 }
 
+function isMissingDailyGainPushLogError(error) {
+  const msg = String(error?.message || '');
+  return error?.code === 'PGRST205' || msg.includes("Could not find the table 'public.daily_gain_push_log'");
+}
+
+function gainDedupeKey(userId, assetId, threshold) {
+  return `${userId}:${assetId}:${threshold}`;
+}
+
+/** Aynı kullanıcı + varlık + eşik + İstanbul günü için en fazla bir kez uyarı (15 dk cron tekrarını keser). */
+async function fetchDailyGainSentKeySet(eventDate, userIds) {
+  if (!userIds.length) return new Set();
+  const keys = new Set();
+  for (const idChunk of chunk(userIds, 200)) {
+    const { data, error } = await supabase
+      .from('daily_gain_push_log')
+      .select('user_id, asset_id, threshold')
+      .eq('alert_date', eventDate)
+      .in('user_id', idChunk)
+      .limit(100000);
+    if (error) {
+      if (isMissingDailyGainPushLogError(error)) {
+        console.warn('daily_gain_push_log table not found, per-asset dedupe is skipped.');
+        return new Set();
+      }
+      throw new Error(`daily_gain_push_log query failed: ${error.message}`);
+    }
+    for (const r of data || []) {
+      keys.add(gainDedupeKey(String(r.user_id), String(r.asset_id), Number(r.threshold)));
+    }
+  }
+  return keys;
+}
+
+async function writeDailyGainLogRows(rows) {
+  if (!rows.length) return;
+  const { error } = await supabase.from('daily_gain_push_log').upsert(rows, {
+    onConflict: 'user_id,asset_id,alert_date,threshold',
+    ignoreDuplicates: true,
+  });
+  if (error) {
+    if (isMissingDailyGainPushLogError(error)) {
+      console.warn('daily_gain_push_log table not found, per-asset log write is skipped.');
+      return;
+    }
+    throw new Error(`daily_gain_push_log upsert failed: ${error.message}`);
+  }
+}
+
 function todayInIstanbul() {
   const fmt = new Intl.DateTimeFormat('en-CA', {
     timeZone: 'Europe/Istanbul',
@@ -386,8 +435,12 @@ async function main() {
   const uniqueUserIds = [...new Set([...targets.map((t) => t.user_id), ...summaryByUser.keys()])];
   const tokensByUser = await fetchTokensByUser(uniqueUserIds);
 
+  const targetUserIds = [...new Set(targets.map((t) => t.user_id))];
+  const dailyGainSentKeys = await fetchDailyGainSentKeySet(eventDate, targetUserIds);
+
   const pushMessages = [];
   const summaryLogRows = [];
+  const dailyGainLogRows = [];
 
   for (const t of targets) {
     if (!isFreshForCategory(t)) continue;
@@ -398,6 +451,10 @@ async function main() {
     const isRise = t.change_24h_pct >= RISE_THRESHOLD;
     const isFall = t.change_24h_pct <= FALL_THRESHOLD;
     if (!isRise && !isFall) continue;
+    const threshold = isRise ? RISE_THRESHOLD : FALL_THRESHOLD;
+    const dedupeKey = gainDedupeKey(String(t.user_id), String(t.asset_id), threshold);
+    if (dailyGainSentKeys.has(dedupeKey)) continue;
+
     const rocket = isRise && t.change_24h_pct >= 5 ? ' 🚀' : '';
     const priceText = Number.isFinite(t.current_price) ? formatNumberTr(t.current_price) : '0,00';
     const ccy = currencyLabel(t.currency);
@@ -405,6 +462,7 @@ async function main() {
     const body = isRise
       ? `${accent} ${t.symbol}, ${pctText} artisla ${priceText} ${ccy} oldu.${rocket}`
       : `${accent} ${t.symbol}, ${pctText} dususle ${priceText} ${ccy} oldu.`;
+    let queuedForThisAsset = false;
     for (const device of devices) {
       if (!isWithinLocalWindow(device.timezone)) continue;
       pushMessages.push({
@@ -420,6 +478,16 @@ async function main() {
           riseThreshold: RISE_THRESHOLD,
           fallThreshold: FALL_THRESHOLD,
         },
+      });
+      queuedForThisAsset = true;
+    }
+    if (queuedForThisAsset) {
+      dailyGainLogRows.push({
+        user_id: t.user_id,
+        asset_id: t.asset_id,
+        alert_date: eventDate,
+        threshold,
+        change_24h_pct: t.change_24h_pct,
       });
     }
   }
@@ -480,9 +548,17 @@ async function main() {
     console.warn('Some Expo push batches failed:', result.failed);
   }
 
+  if (!result.failed.length && dailyGainLogRows.length) {
+    await writeDailyGainLogRows(dailyGainLogRows);
+  } else if (result.failed.length && dailyGainLogRows.length) {
+    console.warn(
+      'Skipping daily_gain_push_log write because some Expo batches failed; threshold alerts may retry on next run.',
+    );
+  }
+
   await writeSummaryLogRows(summaryLogRows);
   console.log(
-    `Daily alert push done. tokens_sent=${result.sent} summary_users_logged=${summaryLogRows.length} candidates=${targets.length}`,
+    `Daily alert push done. tokens_sent=${result.sent} summary_users_logged=${summaryLogRows.length} daily_gain_logs=${dailyGainLogRows.length} candidates=${targets.length}`,
   );
 }
 
