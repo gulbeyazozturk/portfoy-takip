@@ -126,16 +126,24 @@ async function instantEmtia(symbol: string): Promise<number | null> {
 }
 
 async function instantBist(symbol: string): Promise<number | null> {
-  const html = await fetchText('https://www.borsa.net/hisse');
-  if (!html) return null;
   const upper = symbol.toUpperCase();
-  const rowRegex = new RegExp(
-    `<tr[^>]*>[\\s\\S]*?<td[^>]*>\\s*${upper}\\s*</td>[\\s\\S]*?<td[^>]*>[\\s\\S]*?</td>[\\s\\S]*?<td[^>]*>([\\d.,]+)</td>`,
-    'i'
-  );
-  const m = html.match(rowRegex);
-  if (!m?.[1]) return null;
-  return parseTrNum(m[1]);
+  if (/^XU\d{3}$/.test(upper)) return null;
+  try {
+    const url = `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(upper)}.IS?interval=1d&range=5d`;
+    const r = await fetch(url, {
+      headers: {
+        Accept: 'application/json',
+        'User-Agent':
+          'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36',
+      },
+    });
+    if (!r.ok) return null;
+    const j = await r.json();
+    const price = j?.chart?.result?.[0]?.meta?.regularMarketPrice;
+    return toNum(price);
+  } catch {
+    return null;
+  }
 }
 
 export async function fetchInstantUnitPrice({ categoryId, symbol }: Params): Promise<number | null> {

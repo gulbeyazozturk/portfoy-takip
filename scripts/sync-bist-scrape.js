@@ -1,6 +1,6 @@
 /**
  * BIST hisse senedi batch (ekran kazıma):
- * - Öncelik sırasıyla kaynaklar: borsa.net (tam tablo) → BigPara canlı borsa → Uzmanpara canlı borsa
+ * - Öncelik sırasıyla kaynaklar: BigPara canlı borsa → Uzmanpara canlı borsa (borsa.net kaldırıldı; sürekli 522/WAF)
  * - Kod, ad, son fiyat, değişim %, (varsa) güncelleme alanlarını parse eder
  * - Supabase'de category_id = 'bist' olan assets kayıtlarını sembole göre UPSERT eder
  * - Eski BIST asset silme: yalnızca “tam liste” sayılırken (varsayılan ≥350 satır); kısmi yedeklerde silme yapılmaz
@@ -27,11 +27,6 @@
  *   (Ücretli API: sync-bist-assets.js — NOSYAPI_KEY)
  */
 
-const BORSA_NET_URLS = [
-  'https://www.borsa.net/hisse',
-  'https://www.borsa.net/borsa/hisseler',
-  'https://borsa.net/hisse',
-];
 const BIST_SCRAPE_ALLOW_FAILURE = process.env.BIST_SCRAPE_ALLOW_FAILURE === '1';
 const BIST_SCRAPE_FETCH_ATTEMPTS = Math.max(1, Number(process.env.BIST_SCRAPE_FETCH_ATTEMPTS || '3'));
 const BIST_SCRAPE_RETRY_DELAY_MS = Math.max(0, Number(process.env.BIST_SCRAPE_RETRY_DELAY_MS || '2500'));
@@ -124,64 +119,6 @@ function normalizeNumber(str) {
   return Number.isFinite(num) ? num : null;
 }
 
-function parseBorsaNetTableRows(html) {
-  const cheerio = require('cheerio');
-  const $ = cheerio.load(html);
-
-  const rows = [];
-
-  // Sayfadaki ana BIST tablosu tek olduğu için basit selector kullanıyoruz.
-  // Header yapısı: Kod | Ad | Son Fiyat | Değişim % | Hacim | Trend | Son Güncelleme
-  $('table tbody tr').each((_, tr) => {
-    const tds = $(tr).find('td');
-    if (tds.length < 4) return;
-
-    const rawCode = $(tds[0]).text().trim();
-    const code = rawCode.replace(/[\[\]\s]/g, '').toUpperCase();
-    if (!code) return;
-
-    const nameCell = $(tds[1]);
-    const anchor = nameCell.find('a').first();
-    const title = anchor.attr('title')?.trim();
-    const linkText = anchor.text().trim();
-    const cellText = nameCell.text().trim();
-    const sameAsCode = (s) => !s || s.replace(/\s/g, '').toUpperCase() === code;
-    // Önce title (genelde tam unvan), sonra link, sonra hücre metni
-    let name = code;
-    for (const c of [title, linkText, cellText]) {
-      if (c && !sameAsCode(c)) {
-        name = c.trim();
-        break;
-      }
-    }
-    const lastText = $(tds[2]).text().trim();
-    const changeText = $(tds[3]).text().trim();
-    const updatedText = tds.length >= 7 ? $(tds[6]).text().trim() : null;
-
-    const last = normalizeNumber(lastText);
-    const changePct = normalizeNumber(changeText);
-
-    let updatedAtIso = null;
-    if (updatedText) {
-      const safe = updatedText.replace(' ', 'T');
-      const d = new Date(safe);
-      if (!Number.isNaN(d.getTime())) {
-        updatedAtIso = d.toISOString();
-      }
-    }
-
-    rows.push({
-      code,
-      name,
-      last,
-      changePct,
-      updatedAtIso,
-    });
-  });
-
-  return rows;
-}
-
 /** BigPara canlı borsa: ul.live-stock-item (tablo değil); ~BIST100 civarı kısmi liste. */
 function parseBigparaLiveRows(html) {
   const cheerio = require('cheerio');
@@ -246,12 +183,6 @@ function parseUzmanparaTableRows(html) {
 }
 
 const BIST_SCRAPE_SOURCES = [
-  {
-    id: 'borsa.net',
-    urls: BORSA_NET_URLS,
-    minRows: 50,
-    parse: parseBorsaNetTableRows,
-  },
   {
     id: 'bigpara.hurriyet.com.tr',
     urls: ['https://bigpara.hurriyet.com.tr/borsa/canli-borsa/'],
@@ -380,7 +311,7 @@ async function main() {
   const { createClient } = require('@supabase/supabase-js');
   const supabase = createClient(url, key);
 
-  console.log('BIST scrape zinciri (borsa.net → BigPara → Uzmanpara)…');
+  console.log('BIST scrape zinciri (BigPara → Uzmanpara)…');
   let rows;
   let sourceUrl = null;
   let sourceId = null;
