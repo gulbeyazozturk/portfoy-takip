@@ -1,7 +1,8 @@
-# Senkron: kripto, BIST scrape + Yahoo (ücretsiz yedek), döviz, emtia, altın, yurtdışı holdings, snapshot.
+# Senkron: kripto, BIST scrape + Yahoo, döviz, emtia, altın, TEFAS (TSİ 07–12), yurtdışı holdings, snapshot, push.
 #
 # Zamanlama GitHub cron ile değil: Supabase pg_cron (~15 dk) → Edge dispatch-portfolio-sync
-# → bu workflow workflow_dispatch ile tetiklenir. Dış servis alternatifi: docs/SYNC-SCHEDULE.md
+# → bu workflow workflow_dispatch ile tetiklenir. TEFAS adımı yalnızca Europe/Istanbul 07:00–12:59 arasında çalışır; diğer saatlerde atlanır.
+# Dış servis / pg_cron: docs/SYNC-SCHEDULE.md, TEFAS Edge: docs/SUPABASE-TEFAS-EDGE.md
 name: Portfolio sync
 
 on:
@@ -62,7 +63,17 @@ jobs:
       - name: Sync Kapalıçarşı Altın
         run: node scripts/sync-kapalicarsi-gold.js
 
-      # TEFAS: GitHub IP engeli — Supabase Edge + pg_cron: docs/SUPABASE-TEFAS-EDGE.md
+      - name: Sync TEFAS (fon) — yalnızca TSİ 07:00–12:59
+        env:
+          TEFAS_INTER_KIND_DELAY_MS: "11000"
+        run: |
+          H=$(TZ=Europe/Istanbul date +%H)
+          if [ "$H" -ge 7 ] && [ "$H" -le 12 ]; then
+            echo "TEFAS senkronu (TSİ saat ${H}) çalıştırılıyor…"
+            node scripts/sync-tefas-funds.js
+          else
+            echo "TEFAS bu turda atlandı (TSİ saat ${H}; pencere 07–12)."
+          fi
 
       - name: Sync ABD (yalnızca holdings)
         run: node scripts/sync-yurtdisi-prices.js --mode=holdings --batch=500 --delay=140
