@@ -27,7 +27,13 @@
     }
   },
   "submit": {
-    "production": {},
+    "production": {
+      "ios": {
+        "appleId": "gulbeyazvatanseverozturk@gmail.com",
+        "ascAppId": "6761783988",
+        "appleTeamId": "ZZP9DF22BB"
+      }
+    },
     "testflight": {
       "extends": "production"
     }
