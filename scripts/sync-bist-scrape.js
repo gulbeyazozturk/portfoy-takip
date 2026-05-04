@@ -1,6 +1,6 @@
 /**
  * BIST hisse senedi batch (ekran kazıma):
- * - Öncelik sırasıyla kaynaklar: BigPara canlı borsa → Uzmanpara canlı borsa (borsa.net kaldırıldı; sürekli 522/WAF)
+ * - Öncelik sırasıyla kaynaklar: BigPara (harf sayfaları ile geniş liste) → Uzmanpara canlı borsa
  * - Kod, ad, son fiyat, değişim %, (varsa) güncelleme alanlarını parse eder
  * - Supabase'de category_id = 'bist' olan assets kayıtlarını sembole göre UPSERT eder
  * - Eski BIST asset silme: yalnızca “tam liste” sayılırken (varsayılan ≥350 satır); kısmi yedeklerde silme yapılmaz
@@ -155,6 +155,30 @@ function parseBigparaLiveRows(html) {
   return rows;
 }
 
+async function collectBigparaRows() {
+  // BigPara ana sayfada çoğunlukla ~100 kayıt var; harf sayfaları ile evren genişletilir.
+  const letters = ['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'I', 'J', 'K', 'L', 'M', 'N', 'O', 'P', 'R', 'S', 'T', 'U', 'V', 'X', 'Y', 'Z'];
+  const urls = [
+    'https://bigpara.hurriyet.com.tr/borsa/canli-borsa/',
+    ...letters.map((l) => `https://bigpara.hurriyet.com.tr/borsa/canli-borsa/?harf=${l}`),
+  ];
+  const out = [];
+  for (const url of urls) {
+    try {
+      const { html } = await fetchHtmlFromUrlList([url]);
+      const rows = parseBigparaLiveRows(html);
+      if (rows.length) {
+        out.push(...rows);
+        console.log(`BIST BigPara sayfa: ${url} → ${rows.length} satır`);
+      }
+      await sleep(150);
+    } catch (e) {
+      console.warn(`BIST BigPara sayfa hatası ${url}:`, e?.message || e);
+    }
+  }
+  return out;
+}
+
 /** Uzmanpara (Milliyet) canlı borsa: 5 sütunlu tablo; kısmi liste. */
 function parseUzmanparaTableRows(html) {
   const cheerio = require('cheerio');
@@ -185,8 +209,8 @@ function parseUzmanparaTableRows(html) {
 const BIST_SCRAPE_SOURCES = [
   {
     id: 'bigpara.hurriyet.com.tr',
-    urls: ['https://bigpara.hurriyet.com.tr/borsa/canli-borsa/'],
-    minRows: 40,
+    collectRows: collectBigparaRows,
+    minRows: 180,
     parse: parseBigparaLiveRows,
   },
   {
@@ -203,8 +227,16 @@ async function fetchAndParseBistChain() {
   for (const src of BIST_SCRAPE_SOURCES) {
     try {
       console.log(`BIST kaynak: ${src.id}`);
-      const { html, sourceUrl } = await fetchHtmlFromUrlList(src.urls);
-      const rows = src.parse(html);
+      let rows = [];
+      let sourceUrl = '';
+      if (typeof src.collectRows === 'function') {
+        rows = await src.collectRows();
+        sourceUrl = 'multi-page';
+      } else {
+        const fetched = await fetchHtmlFromUrlList(src.urls);
+        rows = src.parse(fetched.html);
+        sourceUrl = fetched.sourceUrl;
+      }
       if (rows.length >= src.minRows) {
         console.log(`BIST parse OK (${src.id}): ${rows.length} satır, URL: ${sourceUrl}`);
         return { rows, sourceUrl, sourceId: src.id };

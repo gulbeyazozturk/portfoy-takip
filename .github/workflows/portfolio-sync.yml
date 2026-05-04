@@ -1,4 +1,4 @@
-# Senkron: kripto, BIST scrape + Yahoo, döviz, emtia, altın, TEFAS (TSİ 07–12), yurtdışı holdings, snapshot, push.
+# Senkron: kripto, BIST scrape, döviz, emtia, altın, TEFAS (TSİ 07–12), yurtdışı holdings, snapshot, push.
 #
 # Zamanlama GitHub cron ile değil: Supabase pg_cron (~15 dk) → Edge dispatch-portfolio-sync
 # → bu workflow workflow_dispatch ile tetiklenir. TEFAS adımı yalnızca Europe/Istanbul 07:00–12:59 arasında çalışır; diğer saatlerde atlanır.
@@ -48,11 +48,6 @@ jobs:
 
       - name: Sync BIST (scrape)
         run: node scripts/sync-bist-scrape.js
-
-      - name: Sync BIST (Yahoo, ücretsiz — mevcut satırlar)
-        env:
-          BIST_YAHOO_DELAY_MS: "120"
-        run: node scripts/sync-bist-yahoo.js
 
       - name: Sync Döviz (doviz.dev)
         run: node scripts/sync-doviz-dev.js
