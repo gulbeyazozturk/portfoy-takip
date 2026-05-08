@@ -1,4 +1,5 @@
 import * as LocalAuthentication from 'expo-local-authentication';
+import { Ionicons } from '@expo/vector-icons';
 import { useFocusEffect, useRouter } from 'expo-router';
 import React, { useCallback, useState } from 'react';
 import {
@@ -22,6 +23,8 @@ import { useAppLock } from '@/context/app-lock';
 import { useAuth } from '@/context/auth';
 import type { PortfolioRow } from '@/context/portfolio';
 import { usePortfolio } from '@/context/portfolio';
+import { getNotificationsEnabledPreference, setNotificationsEnabledPreference } from '@/lib/notification-preferences';
+import { syncPushTokenForUser } from '@/lib/push-token-sync';
 import { supabase } from '@/lib/supabase';
 import { useTranslation } from 'react-i18next';
 import Constants from 'expo-constants';
@@ -37,7 +40,7 @@ const githubRepoSlug = extra?.githubRepoSlug ?? 'portfoy-takip';
 const APP_VERSION = Constants.expoConfig?.version ?? '1.0.0';
 /** GitHub Pages: `docs/privacy-policy.html`, branch `main`, klasör `/docs` — bkz. docs/HESAP-DEVRI.md */
 const PRIVACY_POLICY_URL = `https://${githubUsername}.github.io/${githubRepoSlug}/privacy-policy.html`;
-const SUPPORT_URL = `https://github.com/${githubUsername}/${githubRepoSlug}/issues`;
+const SUPPORT_URL = `https://${githubUsername}.github.io/${githubRepoSlug}/support.html`;
 
 /** Portföy sekmesi (index) ile aynı seçim / hap paleti */
 const PRIMARY = '#89acff';
@@ -46,16 +49,22 @@ const SURFACE_CONTAINER = '#191919';
 const SURFACE_CONTAINER_HIGH = '#1f1f1f';
 const ON_SURFACE_VARIANT = '#ababab';
 const OUTLINE_VARIANT = '#484848';
+const ON_SURFACE = '#ffffff';
 
 export default function SettingsScreen() {
   const { t } = useTranslation();
   const router = useRouter();
-  const { signOut } = useAuth();
+  const { signOut, user } = useAuth();
   const { appLockEnabled, setAppLockEnabled, biometricSupported, refreshBiometricSupport } = useAppLock();
   const { portfolios, refresh, addPortfolio, renamePortfolio, deletePortfolio } = usePortfolio();
   const [signingOut, setSigningOut] = useState(false);
   const [deletingAccount, setDeletingAccount] = useState(false);
   const [lockBusy, setLockBusy] = useState(false);
+  const [notificationsEnabled, setNotificationsEnabled] = useState(true);
+  const [notificationsBusy, setNotificationsBusy] = useState(false);
+  const [expandedMenu, setExpandedMenu] = useState<'general' | 'portfolio' | 'notifications' | 'security' | 'support' | null>(
+    null,
+  );
 
   const [addModalOpen, setAddModalOpen] = useState(false);
   const [renameModalOpen, setRenameModalOpen] = useState(false);
@@ -63,12 +72,35 @@ export default function SettingsScreen() {
   const [renameTarget, setRenameTarget] = useState<PortfolioRow | null>(null);
   const [portfolioBusy, setPortfolioBusy] = useState(false);
 
+  const loadNotificationPreference = useCallback(async () => {
+    const enabled = await getNotificationsEnabledPreference();
+    setNotificationsEnabled(enabled);
+  }, []);
+
   useFocusEffect(
     useCallback(() => {
       void refreshBiometricSupport();
       void refresh();
-    }, [refreshBiometricSupport, refresh]),
+      void loadNotificationPreference();
+    }, [refreshBiometricSupport, refresh, loadNotificationPreference]),
   );
+
+  const handleNotificationsToggle = async (value: boolean) => {
+    if (notificationsBusy) return;
+    setNotificationsBusy(true);
+    try {
+      await setNotificationsEnabledPreference(value);
+      setNotificationsEnabled(value);
+      if (user?.id) {
+        await supabase.from('user_push_tokens').update({ enabled: value }).eq('user_id', user.id);
+        if (value) {
+          await syncPushTokenForUser(user.id);
+        }
+      }
+    } finally {
+      setNotificationsBusy(false);
+    }
+  };
 
   const handleSignOut = async () => {
     try {
@@ -253,90 +285,167 @@ export default function SettingsScreen() {
           showsVerticalScrollIndicator={false}>
           <ThemedText type="subtitle">{t('settings.title')}</ThemedText>
           <ThemedText style={styles.version}>{t('settings.version', { v: APP_VERSION })}</ThemedText>
-
-          <View style={styles.section}>
-            <ThemedText style={styles.sectionTitle}>{t('settings.aboutTitle')}</ThemedText>
-            <ThemedText style={styles.aboutLine}>{t('settings.aboutLine', { tagline: t('brand.tagline') })}</ThemedText>
-            <Pressable onPress={() => Linking.openURL(SUPPORT_URL)}>
-              <ThemedText style={styles.link}>{t('settings.support')}</ThemedText>
-            </Pressable>
-            <ThemedText style={styles.mutedSmall}>{t('settings.version', { v: APP_VERSION })}</ThemedText>
-          </View>
-
-          <View style={styles.section}>
-            <ThemedText style={styles.sectionTitle}>{t('settings.portfoliosSection')}</ThemedText>
-            <ThemedText style={styles.mutedSmall}>{t('settings.portfoliosHint')}</ThemedText>
-            <View style={styles.portfolioList}>
-              {portfolios.map((p) => (
-                <View key={p.id} style={styles.portfolioRow}>
-                  <ThemedText style={styles.portfolioName} numberOfLines={2}>
-                    {p.name}
-                  </ThemedText>
-                  <View style={styles.portfolioActions}>
-                    <Pressable
-                      style={styles.renameBtn}
-                      onPress={() => openRename(p)}
-                      hitSlop={8}
-                      disabled={portfolioBusy}>
-                      <ThemedText style={styles.renameBtnText}>{t('settings.renamePortfolio')}</ThemedText>
-                    </Pressable>
-                    <Pressable
-                      style={styles.deletePortfolioBtn}
-                      onPress={() => handleDeletePortfolio(p)}
-                      hitSlop={8}
-                      disabled={portfolioBusy}>
-                      <ThemedText style={styles.deletePortfolioBtnText}>{t('settings.deletePortfolio')}</ThemedText>
-                    </Pressable>
-                  </View>
+          <View style={styles.menuCard}>
+            <Pressable style={styles.menuRow} onPress={() => setExpandedMenu(expandedMenu === 'general' ? null : 'general')}>
+              <View style={styles.menuRowLeft}>
+                <View style={styles.menuIconWrap}>
+                  <Ionicons name="settings-outline" size={18} color={PRIMARY} />
                 </View>
-              ))}
-            </View>
+                <ThemedText style={styles.menuLabel}>{t('settings.menuGeneral')}</ThemedText>
+              </View>
+              <ThemedText style={styles.menuChevron}>{expandedMenu === 'general' ? '˅' : '›'}</ThemedText>
+            </Pressable>
+            {expandedMenu === 'general' ? (
+              <View style={styles.menuContent}>
+                <View style={styles.langRow}>
+                  <ThemedText style={styles.langLabel}>{t('settings.language')}</ThemedText>
+                  <LanguageToggle compact />
+                </View>
+              </View>
+            ) : null}
+
             <Pressable
-              style={styles.addPortfolioBtn}
-              onPress={() => {
-                setNameDraft('');
-                setAddModalOpen(true);
-              }}>
-              <ThemedText style={styles.addPortfolioBtnText}>{t('settings.addPortfolio')}</ThemedText>
-            </Pressable>
-          </View>
-
-          <View style={styles.langRow}>
-            <ThemedText style={styles.langLabel}>{t('settings.language')}</ThemedText>
-            <LanguageToggle compact />
-          </View>
-
-          <View style={styles.lockSection}>
-            {biometricSupported ? (
-              <View style={styles.lockRow}>
-                <View style={styles.lockTextCol}>
-                  <ThemedText style={styles.lockTitle}>{t('settings.appLock')}</ThemedText>
-                  <ThemedText style={styles.mutedSmall}>{t('settings.appLockHint')}</ThemedText>
+              style={styles.menuRow}
+              onPress={() => setExpandedMenu(expandedMenu === 'portfolio' ? null : 'portfolio')}>
+              <View style={styles.menuRowLeft}>
+                <View style={styles.menuIconWrap}>
+                  <Ionicons name="briefcase-outline" size={18} color={PRIMARY} />
                 </View>
-                {lockBusy ? (
-                  <ActivityIndicator color={PRIMARY} />
+                <ThemedText style={styles.menuLabel}>{t('settings.menuPortfolio')}</ThemedText>
+              </View>
+              <ThemedText style={styles.menuChevron}>{expandedMenu === 'portfolio' ? '˅' : '›'}</ThemedText>
+            </Pressable>
+            {expandedMenu === 'portfolio' ? (
+              <View style={styles.menuContent}>
+                <ThemedText style={styles.mutedSmall}>{t('settings.portfoliosHint')}</ThemedText>
+                <View style={styles.portfolioList}>
+                  {portfolios.map((p) => (
+                    <View key={p.id} style={styles.portfolioRow}>
+                      <ThemedText style={styles.portfolioName} numberOfLines={2}>
+                        {p.name}
+                      </ThemedText>
+                      <View style={styles.portfolioActions}>
+                        <Pressable style={styles.renameBtn} onPress={() => openRename(p)} hitSlop={8} disabled={portfolioBusy}>
+                          <ThemedText style={styles.renameBtnText}>{t('settings.renamePortfolio')}</ThemedText>
+                        </Pressable>
+                        <Pressable
+                          style={styles.deletePortfolioBtn}
+                          onPress={() => handleDeletePortfolio(p)}
+                          hitSlop={8}
+                          disabled={portfolioBusy}>
+                          <ThemedText style={styles.deletePortfolioBtnText}>{t('settings.deletePortfolio')}</ThemedText>
+                        </Pressable>
+                      </View>
+                    </View>
+                  ))}
+                </View>
+                <Pressable
+                  style={styles.addPortfolioBtn}
+                  onPress={() => {
+                    setNameDraft('');
+                    setAddModalOpen(true);
+                  }}>
+                  <ThemedText style={styles.addPortfolioBtnText}>{t('settings.addPortfolio')}</ThemedText>
+                </Pressable>
+              </View>
+            ) : null}
+
+            <Pressable
+              style={styles.menuRow}
+              onPress={() => setExpandedMenu(expandedMenu === 'notifications' ? null : 'notifications')}>
+              <View style={styles.menuRowLeft}>
+                <View style={styles.menuIconWrap}>
+                  <Ionicons name="notifications-outline" size={18} color={PRIMARY} />
+                </View>
+                <ThemedText style={styles.menuLabel}>{t('settings.menuNotifications')}</ThemedText>
+              </View>
+              <ThemedText style={styles.menuChevron}>{expandedMenu === 'notifications' ? '˅' : '›'}</ThemedText>
+            </Pressable>
+            {expandedMenu === 'notifications' ? (
+              <View style={styles.menuContent}>
+                <View style={styles.lockRow}>
+                  <View style={styles.lockTextCol}>
+                    <ThemedText style={styles.lockTitle}>{t('settings.notificationsToggleTitle')}</ThemedText>
+                    <ThemedText style={styles.mutedSmall}>{t('settings.notificationsToggleHint')}</ThemedText>
+                  </View>
+                  {notificationsBusy ? (
+                    <ActivityIndicator color={PRIMARY} />
+                  ) : (
+                    <Switch
+                      value={notificationsEnabled}
+                      onValueChange={(v) => void handleNotificationsToggle(v)}
+                      trackColor={{ false: '#374151', true: PRIMARY }}
+                      thumbColor="#f9fafb"
+                      ios_backgroundColor="#374151"
+                    />
+                  )}
+                </View>
+              </View>
+            ) : null}
+
+            <Pressable
+              style={styles.menuRow}
+              onPress={() => setExpandedMenu(expandedMenu === 'security' ? null : 'security')}>
+              <View style={styles.menuRowLeft}>
+                <View style={styles.menuIconWrap}>
+                  <Ionicons name="lock-closed-outline" size={18} color={PRIMARY} />
+                </View>
+                <ThemedText style={styles.menuLabel}>{t('settings.menuSecurity')}</ThemedText>
+              </View>
+              <ThemedText style={styles.menuChevron}>{expandedMenu === 'security' ? '˅' : '›'}</ThemedText>
+            </Pressable>
+            {expandedMenu === 'security' ? (
+              <View style={styles.menuContent}>
+                {biometricSupported ? (
+                  <View style={styles.lockRow}>
+                    <View style={styles.lockTextCol}>
+                      <ThemedText style={styles.lockTitle}>{t('settings.appLock')}</ThemedText>
+                      <ThemedText style={styles.mutedSmall}>{t('settings.appLockHint')}</ThemedText>
+                    </View>
+                    {lockBusy ? (
+                      <ActivityIndicator color={PRIMARY} />
+                    ) : (
+                      <Switch
+                        value={appLockEnabled}
+                        onValueChange={(v) => void handleAppLockToggle(v)}
+                        trackColor={{ false: '#374151', true: PRIMARY }}
+                        thumbColor="#f9fafb"
+                        ios_backgroundColor="#374151"
+                      />
+                    )}
+                  </View>
                 ) : (
-                  <Switch
-                    value={appLockEnabled}
-                    onValueChange={(v) => void handleAppLockToggle(v)}
-                    trackColor={{ false: '#374151', true: PRIMARY }}
-                    thumbColor="#f9fafb"
-                    ios_backgroundColor="#374151"
-                  />
+                  <ThemedText style={styles.muted}>{t('settings.appLockUnavailable')}</ThemedText>
                 )}
               </View>
-            ) : (
-              <ThemedText style={styles.muted}>{t('settings.appLockUnavailable')}</ThemedText>
-            )}
+            ) : null}
+
+            <Pressable style={styles.menuRow} onPress={() => setExpandedMenu(expandedMenu === 'support' ? null : 'support')}>
+              <View style={styles.menuRowLeft}>
+                <View style={styles.menuIconWrap}>
+                  <Ionicons name="help-buoy-outline" size={18} color={PRIMARY} />
+                </View>
+                <ThemedText style={styles.menuLabel}>{t('settings.menuSupport')}</ThemedText>
+              </View>
+              <ThemedText style={styles.menuChevron}>{expandedMenu === 'support' ? '˅' : '›'}</ThemedText>
+            </Pressable>
+            {expandedMenu === 'support' ? (
+              <View style={styles.menuContent}>
+                <ThemedText style={styles.aboutLine}>{t('settings.aboutLine', { tagline: t('brand.tagline') })}</ThemedText>
+                <Pressable onPress={() => Linking.openURL(SUPPORT_URL)}>
+                  <ThemedText style={styles.link}>{t('settings.support')}</ThemedText>
+                </Pressable>
+                {PRIVACY_POLICY_URL ? (
+                  <Pressable onPress={() => Linking.openURL(PRIVACY_POLICY_URL)}>
+                    <ThemedText style={styles.link}>{t('settings.privacy')}</ThemedText>
+                  </Pressable>
+                ) : (
+                  <ThemedText style={styles.muted}>{t('settings.privacyStore')}</ThemedText>
+                )}
+              </View>
+            ) : null}
           </View>
 
-          {PRIVACY_POLICY_URL ? (
-            <Pressable onPress={() => Linking.openURL(PRIVACY_POLICY_URL)}>
-              <ThemedText style={styles.link}>{t('settings.privacy')}</ThemedText>
-            </Pressable>
-          ) : (
-            <ThemedText style={styles.muted}>{t('settings.privacyStore')}</ThemedText>
-          )}
           <Pressable style={styles.signOutBtn} onPress={handleSignOut} disabled={signingOut}>
             {signingOut ? (
               <ActivityIndicator color="#fff" />
@@ -442,15 +551,45 @@ const styles = StyleSheet.create({
     gap: 14,
   },
   version: { color: '#9ca3af', marginTop: 4 },
-  section: {
+  menuCard: {
     width: '100%',
     maxWidth: 360,
     marginTop: 8,
-    paddingTop: 12,
-    borderTopWidth: StyleSheet.hairlineWidth,
-    borderTopColor: 'rgba(255,255,255,0.12)',
+    backgroundColor: 'transparent',
   },
-  sectionTitle: { color: '#e5e7eb', fontSize: 16, fontWeight: '700', marginBottom: 6 },
+  menuRow: {
+    minHeight: 64,
+    paddingHorizontal: 16,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    backgroundColor: SURFACE_CONTAINER,
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: 'rgba(72,72,72,0.35)',
+    marginBottom: 10,
+  },
+  menuRowLeft: { flexDirection: 'row', alignItems: 'center', gap: 12 },
+  menuIconWrap: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: 'rgba(137,172,255,0.2)',
+  },
+  menuLabel: { color: ON_SURFACE, fontSize: 18, fontWeight: '600' },
+  menuChevron: { color: ON_SURFACE_VARIANT, fontSize: 22, fontWeight: '600' },
+  menuContent: {
+    paddingHorizontal: 16,
+    paddingVertical: 14,
+    marginTop: -4,
+    marginBottom: 10,
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: 'rgba(72,72,72,0.35)',
+    backgroundColor: '#111111',
+  },
   aboutLine: { color: '#d1d5db', fontSize: 14, lineHeight: 20 },
   portfolioList: { gap: 8, marginTop: 8 },
   portfolioRow: {
@@ -497,16 +636,10 @@ const styles = StyleSheet.create({
   langRow: {
     flexDirection: 'row',
     alignItems: 'center',
+    justifyContent: 'space-between',
     gap: 12,
-    marginTop: 8,
   },
   langLabel: { color: '#d1d5db', fontSize: 14 },
-  lockSection: {
-    width: '100%',
-    maxWidth: 360,
-    marginTop: 8,
-    marginBottom: 4,
-  },
   lockRow: {
     flexDirection: 'row',
     alignItems: 'center',

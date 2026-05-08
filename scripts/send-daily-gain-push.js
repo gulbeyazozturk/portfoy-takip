@@ -8,8 +8,8 @@ const SUPABASE_URL =
   process.env.EXPO_PUBLIC_SUPABASE_URL ||
   '';
 const SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY || '';
-const RISE_THRESHOLD = Number(process.env.DAILY_GAIN_PUSH_THRESHOLD || '2');
-const FALL_THRESHOLD = Number(process.env.DAILY_FALL_PUSH_THRESHOLD || '-3');
+const RISE_THRESHOLD = Number(process.env.DAILY_GAIN_PUSH_THRESHOLD || '4');
+const FALL_THRESHOLD = Number(process.env.DAILY_FALL_PUSH_THRESHOLD || '-4');
 const EXPO_PUSH_URL = 'https://exp.host/--/api/v2/push/send';
 const NOTIFY_HOUR_START = Number(process.env.DAILY_GAIN_PUSH_LOCAL_START_HOUR || '9');
 const NOTIFY_HOUR_END_EXCLUSIVE = Number(process.env.DAILY_GAIN_PUSH_LOCAL_END_HOUR || '22');

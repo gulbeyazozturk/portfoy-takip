@@ -89,10 +89,10 @@ jobs:
       - name: Snapshot prices (grafik geçmişi)
         run: node scripts/snapshot-prices.js
 
-      - name: Push %2+ daily gain alerts
+      - name: Push %4/-4 daily gain-loss alerts
         env:
-          DAILY_GAIN_PUSH_THRESHOLD: "2"
-          DAILY_FALL_PUSH_THRESHOLD: "-3"
+          DAILY_GAIN_PUSH_THRESHOLD: "4"
+          DAILY_FALL_PUSH_THRESHOLD: "-4"
           DAILY_GAIN_PUSH_LOCAL_START_HOUR: "9"
           DAILY_GAIN_PUSH_LOCAL_END_HOUR: "22"
           DAILY_SUMMARY_LOCAL_HOUR: "23"

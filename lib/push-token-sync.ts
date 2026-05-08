@@ -4,6 +4,7 @@ import { getCalendars } from 'expo-localization';
 import * as Notifications from 'expo-notifications';
 import { Platform } from 'react-native';
 
+import { getNotificationsEnabledPreference } from '@/lib/notification-preferences';
 import { supabase } from '@/lib/supabase';
 
 let handlerSet = false;
@@ -49,6 +50,12 @@ function resolveDeviceTimeZone(): string {
 export async function syncPushTokenForUser(userId: string): Promise<void> {
   if (!userId || Platform.OS === 'web') return;
   ensureForegroundHandler();
+
+  const notificationsEnabled = await getNotificationsEnabledPreference();
+  if (!notificationsEnabled) {
+    await supabase.from('user_push_tokens').update({ enabled: false }).eq('user_id', userId);
+    return;
+  }
 
   // Fiziksel cihaz dışında push token güvenilir değil (simülatör/emülatör).
   if (!Device.isDevice) return;
