@@ -34,63 +34,149 @@
       padding: 0.1em 0.35em;
       border-radius: 6px;
     }
+    .lang-switch {
+      display: inline-flex;
+      gap: 8px;
+      margin: 6px 0 14px;
+    }
+    .lang-btn {
+      border: 1px solid #d1d5db;
+      background: #fff;
+      color: #111827;
+      border-radius: 999px;
+      padding: 6px 12px;
+      font-size: 0.9rem;
+      cursor: pointer;
+    }
+    .lang-btn.active {
+      background: #111827;
+      color: #fff;
+      border-color: #111827;
+    }
+    .lang-panel { display: none; }
+    .lang-panel.active { display: block; }
   </style>
 </head>
 <body>
-  <h1>Omnifolio Destek</h1>
-  <p class="muted">Son güncelleme: 8 Mayıs 2026</p>
-
-  <p>
-    Omnifolio ile ilgili soru, hata bildirimi, hesap sorunu veya veri silme talebi
-    için aşağıdaki kanallardan bize ulaşabilirsiniz.
-  </p>
-
-  <h2>1) E-posta ile destek</h2>
-  <div class="card">
-    <p>
-      E-posta:
-      <a href="mailto:gulbeyazvatanseverozturk@gmail.com">gulbeyazvatanseverozturk@gmail.com</a>
-    </p>
-    <p class="muted">
-      Ortalama geri dönüş süresi: 1-3 iş günü.
-    </p>
+  <h1>Omnifolio Support / Destek</h1>
+  <div class="lang-switch" role="tablist" aria-label="Language switcher">
+    <button id="btn-tr" class="lang-btn active" type="button" aria-selected="true">TR</button>
+    <button id="btn-en" class="lang-btn" type="button" aria-selected="false">EN</button>
   </div>
 
-  <h2>2) GitHub üzerinden hata bildirimi</h2>
-  <div class="card">
+  <section id="panel-tr" class="lang-panel active" lang="tr">
+    <p class="muted">Son guncelleme: 8 Mayis 2026</p>
+
     <p>
-      Hata/öneri için:
-      <a href="https://github.com/gulbeyazozturk/portfoy-takip/issues" target="_blank" rel="noopener noreferrer">
-        github.com/gulbeyazozturk/portfoy-takip/issues
-      </a>
+      Omnifolio ile ilgili soru, hata bildirimi, hesap sorunu veya veri silme talebi
+      icin asagidaki kanallardan bize ulasabilirsiniz.
     </p>
-    <p class="muted">
-      Genel ürün desteği için e-posta, teknik hata takibi için Issue kullanılması önerilir.
+
+    <h2>1) E-posta ile destek</h2>
+    <div class="card">
+      <p>
+        E-posta:
+        <a href="mailto:gulbeyazvatanseverozturk@gmail.com">gulbeyazvatanseverozturk@gmail.com</a>
+      </p>
+      <p class="muted">
+        Ortalama geri donus suresi: 1-3 is gunu.
+      </p>
+    </div>
+
+    <h2>2) GitHub uzerinden hata bildirimi</h2>
+    <div class="card">
+      <p>
+        Hata/oneri icin:
+        <a href="https://github.com/gulbeyazozturk/portfoy-takip/issues" target="_blank" rel="noopener noreferrer">
+          github.com/gulbeyazozturk/portfoy-takip/issues
+        </a>
+      </p>
+      <p class="muted">
+        Genel urun destegi icin e-posta, teknik hata takibi icin Issue kullanilmasi onerilir.
+      </p>
+    </div>
+
+    <h2>3) Destek talebinde paylasman faydali olur</h2>
+    <ul>
+      <li>Uygulama surumu (orn. <code>1.0.0</code>)</li>
+      <li>Cihaz modeli ve iOS surumu</li>
+      <li>Sorunu tekrarlama adimlari</li>
+      <li>Varsa ekran goruntusu</li>
+    </ul>
+
+    <h2>4) Veri silme talepleri</h2>
+    <p>
+      Hesabinizla iliskili verilerin kaldirilmasini talep etmek icin e-posta uzerinden
+      bize yazabilirsiniz. Talebiniz dogrulama sonrasi makul sure icinde isleme alinir.
     </p>
-  </div>
+  </section>
 
-  <h2>3) Destek talebinde paylaşman faydalı olur</h2>
-  <ul>
-    <li>Uygulama sürümü (örn. <code>1.0.0</code>)</li>
-    <li>Cihaz modeli ve iOS sürümü</li>
-    <li>Sorunu tekrarlama adımları</li>
-    <li>Varsa ekran görüntüsü</li>
-  </ul>
+  <section id="panel-en" class="lang-panel" lang="en">
+    <p class="muted">Last updated: May 8, 2026</p>
 
-  <h2>4) Veri silme talepleri</h2>
-  <p>
-    Hesabınızla ilişkili verilerin kaldırılmasını talep etmek için e-posta üzerinden
-    bize yazabilirsiniz. Talebiniz doğrulama sonrası makul süre içinde işleme alınır.
-  </p>
+    <p>
+      For questions, bug reports, account issues, or data deletion requests
+      regarding Omnifolio, you can contact us through the channels below.
+    </p>
 
-  <h2>English Support (Short)</h2>
-  <p>
-    For support requests, contact
-    <a href="mailto:gulbeyazvatanseverozturk@gmail.com">gulbeyazvatanseverozturk@gmail.com</a>
-    or open an issue at
-    <a href="https://github.com/gulbeyazozturk/portfoy-takip/issues" target="_blank" rel="noopener noreferrer">
-      github.com/gulbeyazozturk/portfoy-takip/issues
-    </a>.
-  </p>
+    <h2>1) Email support</h2>
+    <div class="card">
+      <p>
+        Email:
+        <a href="mailto:gulbeyazvatanseverozturk@gmail.com">gulbeyazvatanseverozturk@gmail.com</a>
+      </p>
+      <p class="muted">
+        Typical response time: 1-3 business days.
+      </p>
+    </div>
+
+    <h2>2) Report issues on GitHub</h2>
+    <div class="card">
+      <p>
+        For bugs and suggestions:
+        <a href="https://github.com/gulbeyazozturk/portfoy-takip/issues" target="_blank" rel="noopener noreferrer">
+          github.com/gulbeyazozturk/portfoy-takip/issues
+        </a>
+      </p>
+      <p class="muted">
+        We recommend email for general product support and GitHub Issues for technical bug tracking.
+      </p>
+    </div>
+
+    <h2>3) Helpful details to include in support requests</h2>
+    <ul>
+      <li>App version (e.g. <code>1.0.0</code>)</li>
+      <li>Device model and iOS version</li>
+      <li>Steps to reproduce the issue</li>
+      <li>Screenshot (if available)</li>
+    </ul>
+
+    <h2>4) Data deletion requests</h2>
+    <p>
+      You can request deletion of your account-related data by email.
+      Your request is processed within a reasonable time after verification.
+    </p>
+  </section>
+
+  <script>
+    const trBtn = document.getElementById("btn-tr");
+    const enBtn = document.getElementById("btn-en");
+    const trPanel = document.getElementById("panel-tr");
+    const enPanel = document.getElementById("panel-en");
+
+    function setLang(lang) {
+      const isTr = lang === "tr";
+      trBtn.classList.toggle("active", isTr);
+      enBtn.classList.toggle("active", !isTr);
+      trBtn.setAttribute("aria-selected", String(isTr));
+      enBtn.setAttribute("aria-selected", String(!isTr));
+      trPanel.classList.toggle("active", isTr);
+      enPanel.classList.toggle("active", !isTr);
+      document.documentElement.lang = lang;
+    }
+
+    trBtn.addEventListener("click", () => setLang("tr"));
+    enBtn.addEventListener("click", () => setLang("en"));
+  </script>
 </body>
 </html>
