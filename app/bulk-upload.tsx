@@ -809,7 +809,7 @@ export default function BulkUploadScreen() {
         errors.push(t('bulk.rowInvalidChangeKind', { row: row.rowNumber }));
         continue;
       }
-      if (!Number.isFinite(row.quantity) || row.quantity <= 0) {
+      if (!Number.isFinite(row.quantity) || row.quantity < 0) {
         errors.push(
           t('bulk.rowInvalidQty', {
             row: row.rowNumber,
@@ -902,6 +902,13 @@ export default function BulkUploadScreen() {
 
     const groupErrors: string[] = [];
     for (const [, lines] of byKey) {
+      const hasZeroQty = lines.some((l) => l.quantity === 0);
+      const hasPositiveQty = lines.some((l) => l.quantity > 0);
+      if (hasZeroQty && hasPositiveQty) {
+        const nums = [...new Set(lines.map((l) => l.rowNumber))].sort((a, b) => a - b).join(', ');
+        groupErrors.push(t('bulk.mixedZeroAndPositive', { rows: nums }));
+        continue;
+      }
       const kind0 = lines[0]!.changeKind;
       if (!lines.every((l) => l.changeKind === kind0)) {
         const nums = [...new Set(lines.map((l) => l.rowNumber))].sort((a, b) => a - b).join(', ');
@@ -930,6 +937,9 @@ export default function BulkUploadScreen() {
     }[] = [];
     const updates: { holdingId: string; quantity: number; avgPrice?: number | null; notes?: string | null }[] =
       [];
+    const deleteHoldingIds = new Set<string>();
+    const touchedPortfolioIds = new Set<string>();
+    const desiredAssetIdsByPortfolio = new Map<string, Set<string>>();
 
     const lastLineOf = (lines: ResolvedBulkLine[]) =>
       lines.reduce((a, b) => (a.rowNumber >= b.rowNumber ? a : b));
@@ -938,9 +948,25 @@ export default function BulkUploadScreen() {
       const kind = lines[0]!.changeKind;
       const asset0 = assetList.find((x) => x.id === lines[0]!.assetId);
       const isMevduat = asset0?.category_id === 'mevduat';
+      const portfolioId = lines[0]!.portfolioId;
+      const assetId = lines[0]!.assetId;
+      touchedPortfolioIds.add(portfolioId);
       const holding = holdingList.find(
-        (h) => h.portfolio_id === lines[0]!.portfolioId && h.asset_id === lines[0]!.assetId
+        (h) => h.portfolio_id === portfolioId && h.asset_id === assetId
       );
+      const hasZeroQty = lines.some((l) => l.quantity === 0);
+      if (hasZeroQty) {
+        if (holding) deleteHoldingIds.add(holding.id);
+        continue;
+      }
+
+      let keepSet = desiredAssetIdsByPortfolio.get(portfolioId);
+      if (!keepSet) {
+        keepSet = new Set<string>();
+        desiredAssetIdsByPortfolio.set(portfolioId, keepSet);
+      }
+      keepSet.add(assetId);
+
       const last = lastLineOf(lines);
       const notesFromLast = last.purchaseDateIso
         ? upsertCostDateInNotes(holding?.notes ?? null, last.purchaseDateIso)
@@ -984,8 +1010,8 @@ export default function BulkUploadScreen() {
           }
         } else {
           inserts.push({
-            portfolioId: lines[0]!.portfolioId,
-            assetId: lines[0]!.assetId,
+          portfolioId,
+          assetId,
             quantity: fileSumQty,
             avgPrice: isMevduat || fileAvg === undefined ? null : fileAvg,
             notes: last.purchaseDateIso ? upsertCostDateInNotes(null, last.purchaseDateIso) : null,
@@ -1005,12 +1031,32 @@ export default function BulkUploadScreen() {
         });
       } else {
         inserts.push({
-          portfolioId: lines[0]!.portfolioId,
-          assetId: lines[0]!.assetId,
+          portfolioId,
+          assetId,
           quantity: sumQty,
           avgPrice: isMevduat || mergedAvg === undefined ? null : mergedAvg,
           notes: last.purchaseDateIso ? upsertCostDateInNotes(null, last.purchaseDateIso) : null,
         });
+      }
+    }
+
+    // Senkron davranışı: CSV'de bulunmayan mevcut varlıklar portföyden silinir.
+    for (const h of holdingList) {
+      if (!touchedPortfolioIds.has(h.portfolio_id)) continue;
+      const keepSet = desiredAssetIdsByPortfolio.get(h.portfolio_id) ?? new Set<string>();
+      if (!keepSet.has(h.asset_id)) deleteHoldingIds.add(h.id);
+    }
+
+    if (deleteHoldingIds.size > 0) {
+      const ids = [...deleteHoldingIds];
+      const CHUNK = 200;
+      for (let i = 0; i < ids.length; i += CHUNK) {
+        const chunk = ids.slice(i, i + CHUNK);
+        const { error } = await supabase.from('holdings').delete().in('id', chunk);
+        if (error) {
+          showAlert(t('bulk.errorTitle'), t('bulk.deleteError', { message: error.message }));
+          return;
+        }
       }
     }
 
@@ -1049,7 +1095,7 @@ export default function BulkUploadScreen() {
 
     showAlert(
       t('bulk.successTitle'),
-      t('bulk.successBody', { adds: inserts.length, updates: updates.length })
+      t('bulk.successBody', { adds: inserts.length, updates: updates.length, deletes: deleteHoldingIds.size })
     );
   };
 

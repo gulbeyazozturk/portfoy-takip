@@ -341,6 +341,22 @@ export default function AssetEntryScreen() {
     router.back();
   };
 
+  const openChartScreen = () => {
+    if (!assetId) return;
+    router.push({
+      pathname: '/(tabs)/asset-chart',
+      params: {
+        assetId,
+        categoryId: categoryId ?? '',
+        symbol,
+        name,
+        price: String(currentPrice || 0),
+        spotCurrency: spotCurrency ?? '',
+        holdingId: holdingId ?? '',
+      },
+    });
+  };
+
   const amountUnitLabel = useMemo(() => {
     if (categoryId === 'mevduat') return 'TL';
     if (categoryId === 'doviz') return symbol || '—';
@@ -1489,47 +1505,23 @@ export default function AssetEntryScreen() {
                       {change24hPct.toLocaleString(numberLocale, { maximumFractionDigits: 2 })}%){' '}
                       {t('assetEntry.today')}
                     </ThemedText>
+                    <TouchableOpacity
+                      onPress={openChartScreen}
+                      activeOpacity={0.8}
+                      hitSlop={10}
+                      style={styles.chartOpenBtn}
+                    >
+                      <Ionicons
+                        name="analytics-outline"
+                        size={17}
+                        color={change24hPct >= 0 ? CHART_GREEN : CHART_RED}
+                      />
+                    </TouchableOpacity>
                   </View>
                 ) : null}
               </View>
             )}
           </View>
-
-          {showPriceSection && (
-            <>
-              {loadingChart ? (
-                <ActivityIndicator style={{ marginVertical: 32 }} color={PRIMARY} />
-              ) : (
-                <PriceChart
-                  series={priceHistory}
-                  isPositive={isChartPositive}
-                  currPre={curr}
-                  currSuf={currSuffix}
-                  selectedIdx={selectedIdx}
-                  onSelect={setSelectedIdx}
-                  numberLocale={numberLocale}
-                />
-              )}
-              {selectedIdx != null && (
-                <View style={styles.chartScrubBanner}>
-                  <ThemedText style={styles.chartScrubPrice}>{bigPriceText}</ThemedText>
-                  {selectedDate ? <ThemedText style={styles.chartScrubDate}>{selectedDate}</ThemedText> : null}
-                </View>
-              )}
-              <View style={styles.tfRowObsidian}>
-                {TIMEFRAMES.map((tf) => (
-                  <Pressable
-                    key={tf}
-                    style={[styles.tfPill, activeTimeframe === tf && styles.tfPillActive]}
-                    onPress={() => setActiveTimeframe(tf)}>
-                    <ThemedText style={[styles.tfPillText, activeTimeframe === tf && styles.tfPillTextActive]}>
-                      {tf}
-                    </ThemedText>
-                  </Pressable>
-                ))}
-              </View>
-            </>
-          )}
 
           <ThemedText style={styles.sectionKicker}>{t('assetEntry.myPosition')}</ThemedText>
           <View style={styles.positionCard}>
@@ -2092,6 +2084,11 @@ const styles = StyleSheet.create({
     fontWeight: '600',
     flexShrink: 1,
     textAlign: 'center',
+  },
+  chartOpenBtn: {
+    marginLeft: 4,
+    paddingHorizontal: 2,
+    paddingVertical: 2,
   },
   chartScrubBanner: {
     alignSelf: 'center',

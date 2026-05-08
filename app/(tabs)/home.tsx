@@ -1,6 +1,6 @@
 import { Manrope_800ExtraBold } from '@expo-google-fonts/manrope';
 import { Ionicons } from '@expo/vector-icons';
-import { useFocusEffect } from '@react-navigation/native';
+import { useFocusEffect, useScrollToTop } from '@react-navigation/native';
 import { useFonts } from 'expo-font';
 import { type Href, useRouter } from 'expo-router';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
@@ -62,7 +62,10 @@ export default function HomeScreen() {
   const [portfolioPickerOpen, setPortfolioPickerOpen] = useState(false);
   const [valueCurrency, setValueCurrency] = useState<'TL' | 'USD'>('TL');
   const [valueScope, setValueScope] = useState<'daily' | 'all'>('daily');
+  const [hideAmounts, setHideAmounts] = useState(false);
+  const scrollRef = useRef<ScrollView | null>(null);
   const { filter, selectAllCategories, setCategoryFromChart } = useSelectedCategories();
+  useScrollToTop(scrollRef);
 
   /**
    * Oku + yatay kol (radialStep + horizontalLen ≈ 75px) tuval kenarından içeride kalmalı.
@@ -182,6 +185,8 @@ export default function HomeScreen() {
     setCategoryFromChart(onlyThis ? null : row.categoryId);
   };
 
+  const maskIfHidden = (text: string) => (hideAmounts ? '*****' : text);
+
   return (
     <View style={styles.root}>
       <SafeAreaView style={styles.safe} edges={['top', 'bottom']}>
@@ -198,6 +203,7 @@ export default function HomeScreen() {
           </View>
         ) : (
           <ScrollView
+            ref={scrollRef}
             style={styles.scroll}
             contentContainerStyle={styles.scrollContent}
             showsVerticalScrollIndicator={false}
@@ -211,17 +217,36 @@ export default function HomeScreen() {
                 style={styles.heroTopRowPressable}>
                 <View style={styles.heroTopRow}>
                   <Text style={styles.heroValue} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.55}>
-                    {mainTotal > 0 ? fmtMoney(mainTotal) : valueCurrency === 'USD' ? '$0' : `0 ${t('home.currencyTL')}`}
+                    {maskIfHidden(
+                      mainTotal > 0
+                        ? fmtMoney(mainTotal)
+                        : valueCurrency === 'USD'
+                          ? '$0'
+                          : `0 ${t('home.currencyTL')}`,
+                    )}
                   </Text>
                   {mainTotal > 0 ? (
                     <View style={styles.heroDeltaWrap}>
-                      <Text style={[styles.heroPct, pctPositive ? styles.heroPctUp : styles.heroPctDown]}>
-                        {pctStr}
-                      </Text>
+                      <View style={styles.heroPctRow}>
+                        <Text style={[styles.heroPct, pctPositive ? styles.heroPctUp : styles.heroPctDown]}>
+                          {pctStr}
+                        </Text>
+                        <Pressable
+                          onPress={() => setHideAmounts((v) => !v)}
+                          accessibilityRole="button"
+                          accessibilityLabel={hideAmounts ? 'Show amounts' : 'Hide amounts'}
+                          style={styles.eyeBtn}>
+                          <Ionicons
+                            name={hideAmounts ? 'eye-off-outline' : 'eye-outline'}
+                            size={16}
+                            color={pctPositive ? SECONDARY_MINT : PCT_NEGATIVE}
+                          />
+                        </Pressable>
+                      </View>
                       <Text
                         style={[styles.heroAmt, pctPositive ? styles.heroPctUp : styles.heroPctDown]}
                         numberOfLines={1}>
-                        {heroAmtStr}
+                        {maskIfHidden(heroAmtStr)}
                       </Text>
                     </View>
                   ) : null}
@@ -402,13 +427,14 @@ export default function HomeScreen() {
                               dayPos ? styles.gridDayPositive : styles.gridDayNegative,
                             ]}
                             numberOfLines={1}>
-                            {dayAmtStr}
-                            {valueCurrency === 'TL' ? ` ${t('home.currencyTL')}` : ' USD'}
+                            {maskIfHidden(
+                              `${dayAmtStr}${valueCurrency === 'TL' ? ` ${t('home.currencyTL')}` : ' USD'}`,
+                            )}
                           </Text>
                         </View>
                       </View>
                       <Text style={styles.gridAmount} numberOfLines={1}>
-                        {fmtRowMoney(row.amountTL, row.amountUSD)}
+                        {maskIfHidden(fmtRowMoney(row.amountTL, row.amountUSD))}
                       </Text>
                       <Text style={[styles.gridPct, { color: neon }]}>{row.pct.toFixed(1)}%</Text>
                     </Pressable>
@@ -495,6 +521,8 @@ const styles = StyleSheet.create({
   },
   heroPct: { fontSize: 15, fontWeight: '700', flexShrink: 0 },
   heroDeltaWrap: { alignItems: 'flex-start', gap: 2, flexShrink: 1 },
+  heroPctRow: { flexDirection: 'row', alignItems: 'center', gap: 6 },
+  eyeBtn: { padding: 2, marginRight: 2 },
   heroAmt: { fontSize: 13, fontWeight: '700' },
   heroPctUp: { color: SECONDARY_MINT },
   heroPctDown: { color: PCT_NEGATIVE },

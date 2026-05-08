@@ -674,7 +674,12 @@ export function PortfolioScreen() {
                           {asset.symbol}
                         </Text>
                         <Text style={[styles.assetSubtitle, { fontFamily: fontBody }]} numberOfLines={1}>
-                          {assetDisplayName}
+                          {hasLivePrice
+                            ? `${currentPrice.toLocaleString(
+                                valueCurrency === 'USD' ? 'en-US' : numberLocale,
+                                { minimumFractionDigits: 2, maximumFractionDigits: 2 },
+                              )} ${valueCurrency}`
+                            : ''}
                         </Text>
                       </View>
                     </View>

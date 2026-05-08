@@ -197,9 +197,10 @@ export default {
     portfolioCreateError: 'Could not create portfolio (“{{name}}”): {{message}}',
     errorTitle: 'Error',
     successTitle: 'Success',
-    successBody: 'File processed.\n{{adds}} added, {{updates}} updated.',
+    successBody: 'File processed.\n{{adds}} added, {{updates}} updated, {{deletes}} deleted.',
     insertError: 'Error while inserting:\n{{message}}',
     updateError: 'Update error:\n{{message}}',
+    deleteError: 'Delete error:\n{{message}}',
     readFailedTitle: 'Could not read file',
     readFailedBody: 'Error while reading file: {{message}}',
     emptyFileBody: 'File is empty or has no rows.\n\nDetected delimiter: "{{delim}}"\nFirst 3 lines:\n{{lines}}',
@@ -215,7 +216,7 @@ export default {
     delimTab: 'tab (TAB)',
     delimComma: 'comma (,)',
     formatBody:
-      '- Export from Excel as CSV. Turkish Excel often uses **semicolon (;)** as delimiter and **comma** for decimals.\n- A header row is required: **Portfolio** (optional; if empty the selected portfolio is used), **Asset Type**, **Asset**, **Quantity**, **Average Cost** (optional), **Purchase date** (optional, **DD.MM.YYYY**; dot, slash, or hyphen), **Change type** (optional). If line 1 is a sheet title, headers are read from the next matching line (first 12 lines scanned).\n- If **Purchase date** is filled, we add `[cost_date:YYYY-MM-DD]` to notes; for merged rows (same portfolio+asset) the **last row by file order** wins; leaving it empty does **not** clear existing notes.\n- With **no Change type column** or an **empty** cell: rows for the same portfolio+asset merge into **one holding** — **quantities summed**; if **every** row has average cost, a **weighted average** is stored; if some omit it, average cost is **left unchanged** in the DB (null on new rows).\n- **ADD / EKLE / EKLEME**: the file’s quantity total is **added** to the current holding; averages are **blended** when costs allow.\n- **UPDATE / GÜNCELLE / …**: the position is set from the **last file row** (by row number) for that asset; **fails** if there is no holding yet. You cannot mix change types (e.g. ADD and UPDATE) on the same portfolio+asset in one upload.\n- Unknown **Portfolio** names are **created** automatically.\n- **USA (global stocks)** and **Crypto**: if **Purchase date** is **empty**, **Average Cost** is **USD**. If **Purchase date** is set, **Average Cost** is **TRY** and we convert to **USD** using that day’s **USD/TRY** rate (same idea as manual asset entry).\n- For all other categories, **Average Cost** is **TRY**.\n- **TL Mevduat / cash deposit** rows: **Average Cost** is **always ignored** (not saved); only **quantity** is applied.',
+      '- Export from Excel as CSV. Turkish Excel often uses **semicolon (;)** as delimiter and **comma** for decimals.\n- A header row is required: **Portfolio** (optional; if empty the selected portfolio is used), **Asset Type**, **Asset**, **Quantity**, **Average Cost** (optional), **Purchase date** (optional, **DD.MM.YYYY**; dot, slash, or hyphen), **Change type** (optional). If line 1 is a sheet title, headers are read from the next matching line (first 12 lines scanned).\n- If **Purchase date** is filled, we add `[cost_date:YYYY-MM-DD]` to notes; for merged rows (same portfolio+asset) the **last row by file order** wins; leaving it empty does **not** clear existing notes.\n- With **no Change type column** or an **empty** cell: rows for the same portfolio+asset merge into **one holding** — **quantities summed**; if **every** row has average cost, a **weighted average** is stored; if some omit it, average cost is **left unchanged** in the DB (null on new rows).\n- **ADD / EKLE / EKLEME**: the file’s quantity total is **added** to the current holding; averages are **blended** when costs allow.\n- **UPDATE / GÜNCELLE / …**: the position is set from the **last file row** (by row number) for that asset; **fails** if there is no holding yet. You cannot mix change types (e.g. ADD and UPDATE) on the same portfolio+asset in one upload.\n- A row with **Quantity = 0** is treated as a delete command for that asset in that portfolio.\n- For portfolios included in the CSV, existing assets not present in the file are also deleted to keep holdings synchronized with the file.\n- Unknown **Portfolio** names are **created** automatically.\n- **USA (global stocks)** and **Crypto**: if **Purchase date** is **empty**, **Average Cost** is **USD**. If **Purchase date** is set, **Average Cost** is **TRY** and we convert to **USD** using that day’s **USD/TRY** rate (same idea as manual asset entry).\n- For all other categories, **Average Cost** is **TRY**.\n- **TL Mevduat / cash deposit** rows: **Average Cost** is **always ignored** (not saved); only **quantity** is applied.',
     sampleCsv: 'Download sample CSV',
     allValuesCsv: 'Download all values (CSV)',
     uploadsTitle: 'Uploaded files',
@@ -233,6 +234,8 @@ export default {
       'Row {{row}}: Invalid change type. Leave empty or use ADD, EKLE, EKLEME, UPDATE, GÜNCELLE, GÜNCELLEME.',
     mixedChangeKind:
       'Mixed change types for the same portfolio and asset are not allowed (rows: {{rows}}).',
+    mixedZeroAndPositive:
+      'Rows with zero quantity and positive quantity cannot be mixed for the same portfolio and asset (rows: {{rows}}).',
     updateRequiresExisting:
       'UPDATE / GÜNCELLE: cannot update when this asset is not in the portfolio yet (rows: {{rows}}).',
     exportHeaderCategory: 'Category',

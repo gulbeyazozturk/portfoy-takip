@@ -201,9 +201,10 @@ export default {
     portfolioCreateError: 'Portföy oluşturulamadı (“{{name}}”): {{message}}',
     errorTitle: 'Hata',
     successTitle: 'Başarılı',
-    successBody: 'Dosyadaki kayıtlar işlendi.\n{{adds}} ekleme, {{updates}} güncelleme.',
+    successBody: 'Dosyadaki kayıtlar işlendi.\n{{adds}} ekleme, {{updates}} güncelleme, {{deletes}} silme.',
     insertError: 'Yeni kayıtlar eklenirken hata:\n{{message}}',
     updateError: 'Güncelleme hatası:\n{{message}}',
+    deleteError: 'Silme hatası:\n{{message}}',
     readFailedTitle: 'Dosya okunamadı',
     readFailedBody: 'Dosya okunurken hata: {{message}}',
     emptyFileBody:
@@ -220,7 +221,7 @@ export default {
     delimTab: 'sekme (TAB)',
     delimComma: 'virgül (,)',
     formatBody:
-      '- Excel’den CSV dışa aktarın (Türkiye’de genelde sütun ayırıcı **noktalı virgül**; ondalık **virgül**).\n- Başlık satırı zorunlu: **Portföy** (opsiyonel, boşsa seçili portföy), **Varlık Tipi**, **Varlık**, **Adet**, **Ortalama Maliyet** (opsiyonel), **Satın Alma Tarihi** (opsiyonel, **GG.AA.YYYY**; nokta, tire veya eğik çizgi), **Değişiklik Tipi** (opsiyonel). İlk satır sayfa adıysa başlıklar sonraki satırdan okunur.\n- **Satın Alma Tarihi** doluysa notlara `[cost_date:YYYY-MM-DD]` eklenir; aynı grupta (aynı portföy+varlık) **en son satırın** tarihi kullanılır; boş bırakılırsa mevcut notlar **silinmez**.\n- **Değişiklik Tipi** yoksa veya hücre boşsa: aynı portföy+varlık satırları **tek holdinge** birleşir — adetler **toplanır**, her satırda maliyet doluysa **ağırlıklı ortalama**; eksik maliyette DB’deki ortalama **değişmez** (yeni kayıtta null).\n- **EKLE / EKLEME / ADD**: dosyadaki adet toplamı mevcut adedin **üzerine eklenir**; maliyetler uygunsa ortalama **birleştirilir**.\n- **GÜNCELLE / GÜNCELLEME / UPDATE**: pozisyon **dosyadaki en son satıra** göre ayarlanır; kayıt yoksa hata. Birden fazla satırda farklı tipler (EKLE ile GÜNCELLE vb.) aynı varlıkta **karıştırılamaz**.\n- **Portföy** adı sistemde yoksa otomatik oluşturulur.\n- **ABD** ve **Kripto**: **Satın Alma Tarihi boşsa** **Ortalama Maliyet** **USD** kabul edilir. **Tarih doluysa** maliyet **TL** kabul edilir; o günün **USD/TRY** kuruyla **USD** birim fiyat kaydedilir (manuel varlık girişiyle uyumlu).\n- Diğer varlık tiplerinde **Ortalama Maliyet** **TL** kabul edilir.\n- **TL Mevduat** satırlarında **Ortalama Maliyet** doldurulmuş olsa bile **yok sayılır**; veritabanına yazılmaz (yalnızca adet).',
+      '- Excel’den CSV dışa aktarın (Türkiye’de genelde sütun ayırıcı **noktalı virgül**; ondalık **virgül**).\n- Başlık satırı zorunlu: **Portföy** (opsiyonel, boşsa seçili portföy), **Varlık Tipi**, **Varlık**, **Adet**, **Ortalama Maliyet** (opsiyonel), **Satın Alma Tarihi** (opsiyonel, **GG.AA.YYYY**; nokta, tire veya eğik çizgi), **Değişiklik Tipi** (opsiyonel). İlk satır sayfa adıysa başlıklar sonraki satırdan okunur.\n- **Satın Alma Tarihi** doluysa notlara `[cost_date:YYYY-MM-DD]` eklenir; aynı grupta (aynı portföy+varlık) **en son satırın** tarihi kullanılır; boş bırakılırsa mevcut notlar **silinmez**.\n- **Değişiklik Tipi** yoksa veya hücre boşsa: aynı portföy+varlık satırları **tek holdinge** birleşir — adetler **toplanır**, her satırda maliyet doluysa **ağırlıklı ortalama**; eksik maliyette DB’deki ortalama **değişmez** (yeni kayıtta null).\n- **EKLE / EKLEME / ADD**: dosyadaki adet toplamı mevcut adedin **üzerine eklenir**; maliyetler uygunsa ortalama **birleştirilir**.\n- **GÜNCELLE / GÜNCELLEME / UPDATE**: pozisyon **dosyadaki en son satıra** göre ayarlanır; kayıt yoksa hata. Birden fazla satırda farklı tipler (EKLE ile GÜNCELLE vb.) aynı varlıkta **karıştırılamaz**.\n- **Adet = 0** olan satır, ilgili varlığın portföyden silinmesi olarak yorumlanır.\n- CSV’de adı geçen portföylerde, dosyada bulunmayan mevcut varlıklar da otomatik silinerek portföy içerikleri dosya ile senkronlanır.\n- **Portföy** adı sistemde yoksa otomatik oluşturulur.\n- **ABD** ve **Kripto**: **Satın Alma Tarihi boşsa** **Ortalama Maliyet** **USD** kabul edilir. **Tarih doluysa** maliyet **TL** kabul edilir; o günün **USD/TRY** kuruyla **USD** birim fiyat kaydedilir (manuel varlık girişiyle uyumlu).\n- Diğer varlık tiplerinde **Ortalama Maliyet** **TL** kabul edilir.\n- **TL Mevduat** satırlarında **Ortalama Maliyet** doldurulmuş olsa bile **yok sayılır**; veritabanına yazılmaz (yalnızca adet).',
     sampleCsv: 'Örnek CSV indir',
     allValuesCsv: 'Tüm değerleri CSV indir',
     uploadsTitle: 'Yüklenen dosyalar',
@@ -238,6 +239,8 @@ export default {
       'Satır {{row}}: Değişiklik Tipi geçersiz. Boş bırakın veya EKLE, EKLEME, ADD, GÜNCELLE, GÜNCELLEME, UPDATE yazın.',
     mixedChangeKind:
       'Aynı portföy ve varlık için satırlarda farklı Değişiklik Tipi kullanılamaz (satırlar: {{rows}}).',
+    mixedZeroAndPositive:
+      'Aynı portföy ve varlık için 0 adet ve pozitif adet satırları birlikte kullanılamaz (satırlar: {{rows}}).',
     updateRequiresExisting:
       'GÜNCELLE / UPDATE: Bu varlık portföyde yokken güncellenemez (satırlar: {{rows}}).',
     exportHeaderCategory: 'Varlık Tipi',

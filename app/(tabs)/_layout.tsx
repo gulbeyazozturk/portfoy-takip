@@ -116,6 +116,10 @@ export default function TabLayout() {
         name="asset-list"
         options={{ href: null }}
       />
+      <Tabs.Screen
+        name="asset-chart"
+        options={{ href: null }}
+      />
     </Tabs>
   );
 }
