@@ -241,8 +241,8 @@ async function fetchAllFunds() {
     const last = entries[entries.length - 1];
     const prev = entries[entries.length - 2];
 
-    const todayPrice = last?.FIYAT != null ? Number(last.FIYAT) : null;
-    const prevPrice = prev?.FIYAT != null ? Number(prev.FIYAT) : null;
+    const todayPrice = sanitizeTefasFiyat(last?.FIYAT);
+    const prevPrice = sanitizeTefasFiyat(prev?.FIYAT);
 
     const lastDateTurkey = last?._tsMs ? turkeyDateStrFromMs(last._tsMs) : null;
     // TEFAS fonları TR saatine göre sabah bir kez fiyatlanır.
@@ -256,7 +256,7 @@ async function fetchAllFunds() {
         Number.isFinite(todayPrice) &&
         Number.isFinite(prevPrice) &&
         prevPrice > 0;
-      changePct = hasValid ? ((todayPrice - prevPrice) / prevPrice) * 100 : 0;
+      changePct = hasValid ? ((todayPrice - prevPrice) / prevPrice) * 100 : null;
     }
 
     out.push({
@@ -297,7 +297,9 @@ async function upsertFonAssets(supabase, funds) {
     const code = (f.FONKODU || '').trim().toUpperCase();
     const nextPrice = sanitizeTefasFiyat(f.FIYAT);
     const apiChange =
-      f._change_24h_pct != null && Number.isFinite(Number(f._change_24h_pct)) ? Number(f._change_24h_pct) : null;
+      nextPrice != null && f._change_24h_pct != null && Number.isFinite(Number(f._change_24h_pct))
+        ? Number(f._change_24h_pct)
+        : null;
     let change_24h_pct = apiChange;
     const prevPrice = prevPriceBySymbol.get(code);
     // Yeni API bazı fonlarda tek gün döndürdüğünde apiChange=0 kalabiliyor; DB önceki fiyatıyla fallback yap.

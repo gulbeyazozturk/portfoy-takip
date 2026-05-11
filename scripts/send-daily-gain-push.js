@@ -14,6 +14,10 @@ const EXPO_PUSH_URL = 'https://exp.host/--/api/v2/push/send';
 const NOTIFY_HOUR_START = Number(process.env.DAILY_GAIN_PUSH_LOCAL_START_HOUR || '9');
 const NOTIFY_HOUR_END_EXCLUSIVE = Number(process.env.DAILY_GAIN_PUSH_LOCAL_END_HOUR || '22');
 const SUMMARY_HOUR = Number(process.env.DAILY_SUMMARY_LOCAL_HOUR || '23');
+const BIST_SESSION_START_MINUTE = 10 * 60;
+const BIST_SESSION_END_MINUTE = 18 * 60;
+const US_SESSION_START_MINUTE = 9 * 60 + 30;
+const US_SESSION_END_MINUTE = 16 * 60;
 
 if (!SUPABASE_URL || !SERVICE_ROLE_KEY) {
   console.error('Missing SUPABASE_URL/EXPO_PUBLIC_SUPABASE_URL or SUPABASE_SERVICE_ROLE_KEY');
@@ -128,7 +132,9 @@ async function fetchCandidates() {
   for (const a of assets) {
     const id = a.id;
     const change = Number(a.change_24h_pct);
+    const currentPrice = a.current_price != null ? Number(a.current_price) : NaN;
     if (!id || !Number.isFinite(change)) continue;
+    if (!Number.isFinite(currentPrice) || currentPrice <= 0) continue;
     if (change < RISE_THRESHOLD && change > FALL_THRESHOLD) continue;
     assetMap.set(id, {
       asset_id: id,
@@ -136,7 +142,7 @@ async function fetchCandidates() {
       symbol: a.symbol || 'Varlik',
       name: a.name || a.symbol || 'Varlik',
       currency: String(a.currency || 'TRY').toUpperCase(),
-      current_price: Number(a.current_price),
+      current_price: currentPrice,
       change_24h_pct: change,
       price_updated_at: a.price_updated_at || null,
     });
@@ -214,13 +220,81 @@ function localHourInTimeZone(timeZone) {
   }
 }
 
-function isWithinLocalWindow(timeZone) {
-  const hour = localHourInTimeZone(timeZone);
+function localTimePartsInTimeZone(timeZone, now = new Date()) {
+  try {
+    const fmt = new Intl.DateTimeFormat('en-US', {
+      weekday: 'short',
+      hour: '2-digit',
+      minute: '2-digit',
+      hour12: false,
+      timeZone,
+    });
+    const parts = fmt.formatToParts(now);
+    const weekday = parts.find((p) => p.type === 'weekday')?.value ?? 'Mon';
+    const hour = Number(parts.find((p) => p.type === 'hour')?.value ?? '0');
+    const minute = Number(parts.find((p) => p.type === 'minute')?.value ?? '0');
+    return {
+      weekday,
+      hour: Number.isFinite(hour) ? hour : 0,
+      minute: Number.isFinite(minute) ? minute : 0,
+    };
+  } catch {
+    if (timeZone === 'Europe/Istanbul') {
+      return { weekday: 'Mon', hour: 0, minute: 0 };
+    }
+    return localTimePartsInTimeZone('Europe/Istanbul', now);
+  }
+}
+
+function isWithinLocalWindow(timeZone, now = new Date()) {
+  const { hour } = localTimePartsInTimeZone(timeZone, now);
   return hour >= NOTIFY_HOUR_START && hour < NOTIFY_HOUR_END_EXCLUSIVE;
 }
 
 function isSummaryHour(timeZone) {
   return localHourInTimeZone(timeZone) === SUMMARY_HOUR;
+}
+
+function isWeekdayInTimeZone(timeZone, now = new Date()) {
+  const { weekday } = localTimePartsInTimeZone(timeZone, now);
+  return ['Mon', 'Tue', 'Wed', 'Thu', 'Fri'].includes(weekday);
+}
+
+function isWithinTimeRangeInTimeZone(timeZone, startMinute, endMinuteExclusive, now = new Date()) {
+  const { hour, minute } = localTimePartsInTimeZone(timeZone, now);
+  const totalMinute = hour * 60 + minute;
+  return totalMinute >= startMinute && totalMinute < endMinuteExclusive;
+}
+
+function isWithinCategoryNotificationWindow(asset, deviceTimeZone, now = new Date()) {
+  if (!isWithinLocalWindow(deviceTimeZone, now)) return false;
+  const category = String(asset?.category_id || '').toLowerCase();
+
+  if (category === 'kripto') return true;
+
+  if (category === 'yurtdisi') {
+    return (
+      isWeekdayInTimeZone('America/New_York', now) &&
+      isWithinTimeRangeInTimeZone('America/New_York', US_SESSION_START_MINUTE, US_SESSION_END_MINUTE, now)
+    );
+  }
+
+  if (['bist', 'fon', 'mevduat'].includes(category)) {
+    return (
+      isWeekdayInTimeZone('Europe/Istanbul', now) &&
+      isWithinTimeRangeInTimeZone('Europe/Istanbul', BIST_SESSION_START_MINUTE, BIST_SESSION_END_MINUTE, now)
+    );
+  }
+
+  if (category === 'emtia') {
+    return isWeekdayInTimeZone('Europe/Istanbul', now);
+  }
+
+  if (category === 'doviz') {
+    return isWeekdayInTimeZone('Europe/Istanbul', now);
+  }
+
+  return true;
 }
 
 function formatNumberTr(value) {
@@ -269,6 +343,113 @@ function isFreshForCategory(asset) {
   }
   // Bilinmeyen kategorilerde en azından bugünün tarihine bak.
   return dateInTimeZone(asset.price_updated_at, 'Europe/Istanbul') === dateInTimeZone(now, 'Europe/Istanbul');
+}
+
+async function fetchUsdTryRate() {
+  const { data, error } = await supabase
+    .from('assets')
+    .select('current_price')
+    .eq('category_id', 'doviz')
+    .eq('symbol', 'USD')
+    .maybeSingle();
+  if (error) throw new Error(`USD rate query failed: ${error.message}`);
+  const rate = Number(data?.current_price);
+  return Number.isFinite(rate) && rate > 0 ? rate : 1;
+}
+
+function legacyCryptoStoredUnitToUsd(unitPrice, usdTryRate, referenceUsd) {
+  if (!Number.isFinite(unitPrice) || unitPrice <= 0) return unitPrice;
+  if (!Number.isFinite(usdTryRate) || usdTryRate < 5) return unitPrice;
+
+  const asUsdFromTry = unitPrice / usdTryRate;
+  if (unitPrice >= 500000) return asUsdFromTry;
+
+  if (referenceUsd != null && referenceUsd > 0) {
+    const distSame = Math.abs(unitPrice - referenceUsd) / referenceUsd;
+    const distConverted = Math.abs(asUsdFromTry - referenceUsd) / referenceUsd;
+    if (distConverted < distSame && distConverted < 0.4) return asUsdFromTry;
+  }
+  return unitPrice;
+}
+
+function kriptoStoredUnitToUsd(unitPrice, usdTryRate, storedCurrency, referenceUsd) {
+  if (!Number.isFinite(unitPrice) || unitPrice <= 0) return unitPrice;
+  const c = String(storedCurrency || '')
+    .trim()
+    .toUpperCase();
+  if (c === 'TRY' || c === 'TL') {
+    if (!Number.isFinite(usdTryRate) || usdTryRate < 5) return unitPrice;
+    return unitPrice / usdTryRate;
+  }
+  return legacyCryptoStoredUnitToUsd(unitPrice, usdTryRate, referenceUsd);
+}
+
+function fonUnitNativeTry(currentPrice, avgPrice) {
+  const raw = currentPrice != null ? Number(currentPrice) : NaN;
+  const avg = avgPrice != null ? Number(avgPrice) : NaN;
+  const avgOk = Number.isFinite(avg) && avg > 0;
+  if (raw === -100 || (Number.isFinite(raw) && raw < 0)) {
+    return avgOk ? avg : 0;
+  }
+  if (Number.isFinite(raw) && raw > 0) return raw;
+  return avgOk ? avg : 0;
+}
+
+function isUsdNativeCategory(categoryId) {
+  return categoryId === 'yurtdisi' || categoryId === 'kripto';
+}
+
+function effectiveChange24hPctForSummary(categoryId, change24hPct, priceUpdatedAt, now = new Date()) {
+  if (change24hPct == null) return null;
+  const raw = Number(change24hPct);
+  if (!Number.isFinite(raw)) return null;
+  if (categoryId === 'kripto') return raw;
+
+  let sessionTz = null;
+  if (['bist', 'fon', 'emtia', 'mevduat', 'doviz'].includes(categoryId)) {
+    sessionTz = 'Europe/Istanbul';
+  } else if (categoryId === 'yurtdisi') {
+    sessionTz = 'America/New_York';
+  }
+  if (!sessionTz) return raw;
+  if (!priceUpdatedAt) return null;
+  return dateInTimeZone(priceUpdatedAt, sessionTz) === dateInTimeZone(now, sessionTz) ? raw : null;
+}
+
+function dailyPrevValueFromChangePct(value, change24hPct) {
+  const pctRaw = change24hPct ?? 0;
+  const pct = Number(pctRaw);
+  const pctSafe = Number.isFinite(pct) ? pct : 0;
+  const denom = 1 + pctSafe / 100;
+  const canUse = pctSafe !== 0 && Number.isFinite(denom) && Math.abs(denom) > 1e-9;
+  const prevValue = canUse ? value / denom : value;
+  const dailyDelta = canUse ? value - prevValue : 0;
+  return { prevValue, dailyDelta };
+}
+
+function holdingUnitNativeForSummary(row, usdTry) {
+  const categoryId = String(row.category_id || '').toLowerCase();
+  const currentPrice = row.current_price != null ? Number(row.current_price) : NaN;
+  const avgPrice = row.avg_price != null ? Number(row.avg_price) : NaN;
+  const safeRate = usdTry > 0 ? usdTry : 1;
+
+  if (categoryId === 'kripto') {
+    if (Number.isFinite(currentPrice) && currentPrice > 0) {
+      return kriptoStoredUnitToUsd(currentPrice, safeRate, row.currency);
+    }
+    if (Number.isFinite(avgPrice) && avgPrice > 0) {
+      return legacyCryptoStoredUnitToUsd(avgPrice, safeRate);
+    }
+    return 0;
+  }
+
+  if (categoryId === 'fon') {
+    return fonUnitNativeTry(currentPrice, avgPrice);
+  }
+
+  if (Number.isFinite(currentPrice) && currentPrice > 0) return currentPrice;
+  if (Number.isFinite(avgPrice) && avgPrice > 0) return avgPrice;
+  return 0;
 }
 
 async function sendExpo(messages) {
@@ -335,91 +516,111 @@ async function fetchUserHoldingsWithPrices() {
     .limit(100000);
   if (portfoliosError) throw new Error(`portfolios query failed: ${portfoliosError.message}`);
 
-  const portfolioUserMap = new Map((portfolios || []).map((p) => [p.id, p.user_id]));
-  const portfolioNameByUser = new Map();
-  for (const p of portfolios || []) {
-    const uid = p.user_id;
-    if (!uid) continue;
-    const prev = portfolioNameByUser.get(uid);
-    if (!prev) {
-      portfolioNameByUser.set(uid, { name: p.name || 'Portfoy', created_at: p.created_at || '' });
-      continue;
-    }
-    if ((p.created_at || '') < prev.created_at) {
-      portfolioNameByUser.set(uid, { name: p.name || 'Portfoy', created_at: p.created_at || '' });
-    }
-  }
-  const portfolioIds = [...portfolioUserMap.keys()];
-  if (!portfolioIds.length) return { rows: [], portfolioNameByUser: new Map() };
+  const portfolioMetaById = new Map(
+    (portfolios || []).map((p) => [
+      p.id,
+      {
+        user_id: p.user_id,
+        name: p.name || 'Portfoy',
+        created_at: p.created_at || '',
+      },
+    ]),
+  );
+  const portfolioIds = [...portfolioMetaById.keys()];
+  if (!portfolioIds.length) return { rows: [] };
 
   const rows = [];
   for (const pidChunk of chunk(portfolioIds, 200)) {
     const { data: holdings, error } = await supabase
       .from('holdings')
-      .select('portfolio_id, quantity, asset:assets(symbol, currency, current_price, change_24h_pct)')
+      .select(
+        'portfolio_id, quantity, avg_price, asset:assets(category_id, symbol, currency, current_price, change_24h_pct, price_updated_at)',
+      )
       .in('portfolio_id', pidChunk)
       .limit(100000);
     if (error) throw new Error(`holdings summary query failed: ${error.message}`);
     for (const h of holdings || []) {
-      const userId = portfolioUserMap.get(h.portfolio_id);
-      if (!userId) continue;
+      const portfolioMeta = portfolioMetaById.get(h.portfolio_id);
+      if (!portfolioMeta?.user_id) continue;
       const qty = Number(h.quantity);
-      const price = Number(h?.asset?.current_price);
-      const chg = Number(h?.asset?.change_24h_pct);
-      if (!Number.isFinite(qty) || qty <= 0 || !Number.isFinite(price) || price <= 0) continue;
+      if (!Number.isFinite(qty) || qty <= 0 || !h?.asset) continue;
       rows.push({
-        user_id: userId,
+        user_id: portfolioMeta.user_id,
+        portfolio_id: h.portfolio_id,
+        portfolio_name: portfolioMeta.name,
         quantity: qty,
+        avg_price: h.avg_price != null ? Number(h.avg_price) : null,
+        category_id: String(h?.asset?.category_id || '').toLowerCase(),
         symbol: String(h?.asset?.symbol || 'VARLIK').toUpperCase(),
         currency: String(h?.asset?.currency || 'TRY').toUpperCase(),
-        current_price: price,
-        change_24h_pct: Number.isFinite(chg) ? chg : null,
+        current_price: h?.asset?.current_price != null ? Number(h.asset.current_price) : null,
+        change_24h_pct:
+          h?.asset?.change_24h_pct != null && Number.isFinite(Number(h.asset.change_24h_pct))
+            ? Number(h.asset.change_24h_pct)
+            : null,
+        price_updated_at: h?.asset?.price_updated_at || null,
       });
     }
   }
-  return { rows, portfolioNameByUser };
+  return { rows };
 }
 
-function computePortfolioDailySummaryByUser(rows) {
+function computePortfolioDailySummaryByUser(rows, usdTry) {
   const agg = new Map();
+  const now = new Date();
   for (const r of rows) {
-    const cur = r.quantity * r.current_price;
-    const pct = r.change_24h_pct;
-    const denom = Number.isFinite(pct) && pct > -99.9 ? 1 + pct / 100 : null;
-    const prev = denom && denom > 0 ? cur / denom : cur;
-    const entry = agg.get(r.user_id) || { cur: 0, prev: 0, topRisers: new Map(), currencyTotals: new Map() };
-    entry.cur += cur;
-    entry.prev += prev;
-    const ccy = r.currency || 'TRY';
-    entry.currencyTotals.set(ccy, (entry.currencyTotals.get(ccy) || 0) + cur);
+    const unitNative = holdingUnitNativeForSummary(r, usdTry);
+    if (!Number.isFinite(unitNative) || unitNative <= 0) continue;
+    const isUSD = isUsdNativeCategory(r.category_id);
+    const rateTL = isUSD ? usdTry : 1;
+    const curTL = r.quantity * unitNative * rateTL;
+    const effPct = effectiveChange24hPctForSummary(r.category_id, r.change_24h_pct, r.price_updated_at, now);
+    const { dailyDelta } = dailyPrevValueFromChangePct(r.quantity * unitNative, effPct);
+    const dailyDeltaTL = dailyDelta * rateTL;
+    const key = `${r.user_id}:${r.portfolio_id}`;
+    const entry =
+      agg.get(key) || {
+        user_id: r.user_id,
+        portfolio_id: r.portfolio_id,
+        portfolio_name: r.portfolio_name || 'Portfoy',
+        total_tl: 0,
+        daily_change_tl: 0,
+        topRisers: new Map(),
+      };
+    entry.total_tl += curTL;
+    entry.daily_change_tl += dailyDeltaTL;
     const oldR = entry.topRisers.get(r.symbol);
-    if (!oldR || (Number.isFinite(r.change_24h_pct) && r.change_24h_pct > oldR.change_24h_pct)) {
+    if (!oldR || (Number.isFinite(effPct) && effPct > oldR.change_24h_pct)) {
       entry.topRisers.set(r.symbol, {
         symbol: r.symbol,
-        change_24h_pct: Number.isFinite(r.change_24h_pct) ? r.change_24h_pct : -9999,
+        change_24h_pct: Number.isFinite(effPct) ? effPct : -9999,
       });
     }
-    agg.set(r.user_id, entry);
+    agg.set(key, entry);
   }
+
   const out = new Map();
-  for (const [userId, v] of agg.entries()) {
-    if (!Number.isFinite(v.cur) || !Number.isFinite(v.prev) || v.prev <= 0) continue;
-    const delta = v.cur - v.prev;
-    const pct = (delta / v.prev) * 100;
-    let topCurrency = 'TRY';
-    let topTotal = -Infinity;
-    for (const [ccy, total] of v.currencyTotals.entries()) {
-      if (total > topTotal) {
-        topTotal = total;
-        topCurrency = ccy;
-      }
-    }
+  for (const v of agg.values()) {
+    if (!Number.isFinite(v.total_tl) || v.total_tl <= 0) continue;
+    const prevTL = v.total_tl - v.daily_change_tl;
+    const pct =
+      prevTL > 0 ? Math.round((v.daily_change_tl / prevTL) * 10000) / 100 : 0;
     const topRisers = [...v.topRisers.values()]
       .filter((x) => Number.isFinite(x.change_24h_pct) && x.change_24h_pct > 0)
       .sort((a, b) => b.change_24h_pct - a.change_24h_pct)
       .slice(0, 3)
       .map((x) => x.symbol);
-    out.set(userId, { delta, pct, total: v.cur, currency: topCurrency, topRisers });
+    const existing = out.get(v.user_id);
+    if (!existing || v.total_tl > existing.total_tl) {
+      out.set(v.user_id, {
+        portfolio_id: v.portfolio_id,
+        portfolio_name: v.portfolio_name,
+        total_tl: v.total_tl,
+        daily_change_tl: v.daily_change_tl,
+        daily_pct_tl: pct,
+        topRisers,
+      });
+    }
   }
   return out;
 }
@@ -428,10 +629,10 @@ async function main() {
   const eventDate = todayInIstanbul();
   const candidates = await fetchCandidates();
   const targets = candidates;
+  const usdTry = await fetchUsdTryRate();
   const summaryPayload = await fetchUserHoldingsWithPrices();
   const summaryRows = summaryPayload.rows;
-  const portfolioNameByUser = summaryPayload.portfolioNameByUser;
-  const summaryByUser = computePortfolioDailySummaryByUser(summaryRows);
+  const summaryByUser = computePortfolioDailySummaryByUser(summaryRows, usdTry);
   const uniqueUserIds = [...new Set([...targets.map((t) => t.user_id), ...summaryByUser.keys()])];
   const tokensByUser = await fetchTokensByUser(uniqueUserIds);
 
@@ -456,7 +657,7 @@ async function main() {
     if (dailyGainSentKeys.has(dedupeKey)) continue;
 
     const rocket = isRise && t.change_24h_pct >= 5 ? ' 🚀' : '';
-    const priceText = Number.isFinite(t.current_price) ? formatNumberTr(t.current_price) : '0,00';
+    const priceText = formatNumberTr(t.current_price);
     const ccy = currencyLabel(t.currency);
     const accent = isRise ? '🟢' : '🔴';
     const body = isRise
@@ -464,7 +665,7 @@ async function main() {
       : `${accent} ${t.symbol}, ${pctText} dususle ${priceText} ${ccy} oldu.`;
     let queuedForThisAsset = false;
     for (const device of devices) {
-      if (!isWithinLocalWindow(device.timezone)) continue;
+      if (!isWithinCategoryNotificationWindow(t, device.timezone)) continue;
       pushMessages.push({
         to: device.token,
         sound: 'default',
@@ -499,11 +700,11 @@ async function main() {
     const devices = tokensByUser.get(userId) || [];
     if (!devices.length) continue;
 
-    const pctText = formatPct(summary.pct);
-    const totalText = formatNumberTr(summary.total);
-    const ccy = currencyLabel(summary.currency);
-    const portfolioName = String(portfolioNameByUser.get(userId)?.name || 'Portfoy');
-    const isUp = summary.delta >= 0;
+    const pctText = formatPct(summary.daily_pct_tl);
+    const totalText = formatNumberTr(summary.total_tl);
+    const ccy = 'TL';
+    const portfolioName = String(summary.portfolio_name || 'Portfoy');
+    const isUp = summary.daily_change_tl >= 0;
     const accent = isUp ? '🟢' : '🔴';
     const directionText = isUp ? 'artisla' : 'dususle';
     const risersText =
@@ -520,8 +721,9 @@ async function main() {
         body,
         data: {
           type: 'daily_portfolio_summary',
-          delta: summary.delta,
-          pct: summary.pct,
+          delta: summary.daily_change_tl,
+          pct: summary.daily_pct_tl,
+          portfolioId: summary.portfolio_id,
           eventDate,
         },
       });

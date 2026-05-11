@@ -606,6 +606,7 @@ export function PortfolioScreen() {
                 const asset = normalizeAsset(h.asset);
                 if (!asset) return null;
                 const rawSpot = Number(asset.current_price ?? h.avg_price ?? 0);
+                const rate = usdTry > 0 ? usdTry : 1;
                 const currentPrice =
                   asset.category_id === 'kripto'
                     ? kriptoStoredUnitToUsd(rawSpot, usdTry, asset.currency)
@@ -621,7 +622,21 @@ export function PortfolioScreen() {
                     asset.price_updated_at,
                     new Date(),
                   ) ?? null;
-                const valueCurrency = isUsdNativeCategory(asset.category_id) ? 'USD' : 'TL';
+                const nativeCurrency = isUsdNativeCategory(asset.category_id) ? 'USD' : 'TL';
+                const displayCurrency = summaryDisplayCurrency;
+                const displayLocale = displayCurrency === 'USD' ? 'en-US' : numberLocale;
+                const displayedUnitPrice =
+                  nativeCurrency === displayCurrency
+                    ? currentPrice
+                    : nativeCurrency === 'USD'
+                      ? currentPrice * rate
+                      : currentPrice / rate;
+                const displayedValue =
+                  nativeCurrency === displayCurrency
+                    ? value
+                    : nativeCurrency === 'USD'
+                      ? value * rate
+                      : value / rate;
                 const iconStyle =
                   ASSET_ICONS[asset.symbol] ??
                   ASSET_ICONS[asset.category_id] ??
@@ -675,10 +690,10 @@ export function PortfolioScreen() {
                         </Text>
                         <Text style={[styles.assetSubtitle, { fontFamily: fontBody }]} numberOfLines={1}>
                           {hasLivePrice
-                            ? `${currentPrice.toLocaleString(
-                                valueCurrency === 'USD' ? 'en-US' : numberLocale,
+                            ? `${displayedUnitPrice.toLocaleString(
+                                displayLocale,
                                 { minimumFractionDigits: 2, maximumFractionDigits: 2 },
-                              )} ${valueCurrency}`
+                              )} ${displayCurrency}`
                             : ''}
                         </Text>
                       </View>
@@ -687,9 +702,9 @@ export function PortfolioScreen() {
                       <Text style={[styles.assetValue, { fontFamily: fontHead700 }]}>
                         {hasLivePrice
                           ? `${formatPortfolioMoneyCeil(
-                              value,
-                              valueCurrency === 'USD' ? 'en-US' : numberLocale,
-                            )} ${valueCurrency}`
+                              displayedValue,
+                              displayLocale,
+                            )} ${displayCurrency}`
                           : 'Fiyat güncelleniyor...'}
                       </Text>
                       {(() => {

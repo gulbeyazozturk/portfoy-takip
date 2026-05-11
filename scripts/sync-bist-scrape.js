@@ -1,6 +1,8 @@
 /**
  * BIST hisse senedi batch (ekran kazıma):
  * - Öncelik sırasıyla kaynaklar: BigPara (harf sayfaları ile geniş liste) → Uzmanpara canlı borsa
+ * - Buna ek olarak herkese açık bir master BIST listesi ile birleştirilir; böylece eksik / yeni halka arz
+ *   semboller de assets tablosuna düzenli düşer.
  * - Kod, ad, son fiyat, değişim %, (varsa) güncelleme alanlarını parse eder
  * - Supabase'de category_id = 'bist' olan assets kayıtlarını sembole göre UPSERT eder
  * - Eski BIST asset silme: yalnızca “tam liste” sayılırken (varsayılan ≥350 satır); kısmi yedeklerde silme yapılmaz
@@ -31,6 +33,21 @@ const BIST_SCRAPE_ALLOW_FAILURE = process.env.BIST_SCRAPE_ALLOW_FAILURE === '1';
 const BIST_SCRAPE_FETCH_ATTEMPTS = Math.max(1, Number(process.env.BIST_SCRAPE_FETCH_ATTEMPTS || '3'));
 const BIST_SCRAPE_RETRY_DELAY_MS = Math.max(0, Number(process.env.BIST_SCRAPE_RETRY_DELAY_MS || '2500'));
 const BIST_SCRAPE_FULL_LIST_MIN = Math.max(1, Number(process.env.BIST_SCRAPE_FULL_LIST_MIN || '350'));
+const BIST_MASTER_LIST_URL =
+  process.env.BIST_MASTER_LIST_URL ||
+  'https://raw.githubusercontent.com/ahmeterenodaci/Istanbul-Stock-Exchange--BIST--including-symbols-and-logos/main/bist.json';
+const BIST_BIGPARA_UNIVERSE_URL =
+  process.env.BIST_BIGPARA_UNIVERSE_URL ||
+  'https://bigpara.hurriyet.com.tr/borsa/hisse-fiyatlari/garan-detay/';
+const BIST_BIGPARA_NAME_LOOKUP_CONCURRENCY = Math.max(
+  1,
+  Number(process.env.BIST_BIGPARA_NAME_LOOKUP_CONCURRENCY || '8'),
+);
+const BIST_BIGPARA_NAME_LOOKUP_LIMIT = Math.max(
+  0,
+  Number(process.env.BIST_BIGPARA_NAME_LOOKUP_LIMIT || '160'),
+);
+const BIGPARA_NON_SYMBOL_STOPWORDS = new Set(['OCAK', 'SUBAT', 'MART', 'NISAN', 'MAYIS', 'EYLUL', 'EKIM', 'KASIM']);
 
 function sleep(ms) {
   return new Promise((r) => setTimeout(r, ms));
@@ -75,6 +92,30 @@ async function fetchHtmlOnce(url) {
   }
 }
 
+async function fetchJsonOnce(url) {
+  const controller = new AbortController();
+  const t = setTimeout(() => controller.abort(), Number(process.env.BIST_SCRAPE_FETCH_TIMEOUT_MS || '45000'));
+  try {
+    const res = await fetch(url, {
+      signal: controller.signal,
+      headers: {
+        'User-Agent':
+          process.env.BIST_SCRAPE_USER_AGENT ||
+          'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36',
+        Accept: 'application/json,text/plain;q=0.9,*/*;q=0.8',
+        'Accept-Language': 'tr-TR,tr;q=0.9,en-US;q=0.8,en;q=0.7',
+      },
+    });
+    if (!res.ok) {
+      const body = await res.text().catch(() => '');
+      throw new Error(`BIST JSON fetch hatası ${res.status} @ ${url}: ${body.slice(0, 200)}`);
+    }
+    return await res.json();
+  } finally {
+    clearTimeout(t);
+  }
+}
+
 /** @param {string[]} urls */
 async function fetchHtmlFromUrlList(urls) {
   let lastError = null;
@@ -98,6 +139,207 @@ async function fetchHtmlFromUrlList(urls) {
     }
   }
   throw lastError || new Error('BIST HTML fetch başarısız.');
+}
+
+async function fetchPublicBistMasterList() {
+  let lastError = null;
+  for (let attempt = 1; attempt <= BIST_SCRAPE_FETCH_ATTEMPTS; attempt++) {
+    try {
+      if (attempt > 1) {
+        console.log(`BIST master liste deneme ${attempt}/${BIST_SCRAPE_FETCH_ATTEMPTS} → ${BIST_MASTER_LIST_URL}`);
+      }
+      const body = await fetchJsonOnce(BIST_MASTER_LIST_URL);
+      const rows = Array.isArray(body) ? body : [];
+      const out = rows
+        .map((row) => ({
+          code: String(row?.symbol || '')
+            .trim()
+            .toUpperCase(),
+          name: String(row?.name || '')
+            .trim(),
+          last: null,
+          changePct: null,
+          updatedAtIso: null,
+        }))
+        .filter((row) => row.code.length >= 2);
+      if (out.length > 0) return out;
+      throw new Error('Master liste boş döndü.');
+    } catch (e) {
+      lastError = e;
+      if (attempt < BIST_SCRAPE_FETCH_ATTEMPTS && BIST_SCRAPE_RETRY_DELAY_MS > 0) {
+        await sleep(BIST_SCRAPE_RETRY_DELAY_MS);
+      }
+    }
+  }
+  throw lastError || new Error('BIST master liste fetch başarısız.');
+}
+
+function mergeScrapedRowsWithMasterList(scrapedRows, masterRows) {
+  const bySymbol = new Map();
+
+  for (const row of masterRows) {
+    const symbol = String(row.code || '').trim().toUpperCase();
+    if (!symbol) continue;
+    bySymbol.set(symbol, {
+      code: symbol,
+      name: row.name || symbol,
+      last: null,
+      changePct: null,
+      updatedAtIso: null,
+    });
+  }
+
+  for (const row of scrapedRows) {
+    const symbol = String(row.code || '').trim().toUpperCase();
+    if (!symbol) continue;
+    const prev = bySymbol.get(symbol);
+    const hasPrice = row.last != null && Number.isFinite(Number(row.last));
+    const prevHasPrice = prev?.last != null && Number.isFinite(Number(prev.last));
+    const merged = {
+      code: symbol,
+      // Master listedeki şirket adı, scrape slug'ından genelde daha temiz.
+      name: prev?.name || row.name || symbol,
+      last: hasPrice ? row.last : (prev?.last ?? null),
+      changePct: hasPrice ? row.changePct : (prev?.changePct ?? null),
+      updatedAtIso: hasPrice ? row.updatedAtIso : (prev?.updatedAtIso ?? null),
+    };
+    if (!prev || (!prevHasPrice && hasPrice)) {
+      bySymbol.set(symbol, merged);
+      continue;
+    }
+    if (hasPrice) bySymbol.set(symbol, merged);
+  }
+
+  return Array.from(bySymbol.values());
+}
+
+function isBigparaUniverseSymbolCandidate(symbol) {
+  if (!symbol) return false;
+  if (!/^[A-Z0-9]{4,5}$/.test(symbol)) return false;
+  if (/^\d+$/.test(symbol)) return false;
+  if (BIGPARA_NON_SYMBOL_STOPWORDS.has(symbol)) return false;
+  return true;
+}
+
+function parseBigparaUniverseSymbols(html) {
+  const cheerio = require('cheerio');
+  const $ = cheerio.load(html);
+  const out = new Set();
+  $('option').each((_, el) => {
+    const value = String($(el).attr('value') || '')
+      .trim()
+      .toUpperCase();
+    const label = $(el).text().trim().toUpperCase();
+    const symbol = value || label;
+    if (!symbol || symbol !== label) return;
+    if (!isBigparaUniverseSymbolCandidate(symbol)) return;
+    out.add(symbol);
+  });
+  return Array.from(out.values()).sort();
+}
+
+async function fetchBigparaUniverseSymbols() {
+  const fetched = await fetchHtmlFromUrlList([BIST_BIGPARA_UNIVERSE_URL]);
+  return parseBigparaUniverseSymbols(fetched.html);
+}
+
+async function fetchExistingBistAssetNameMap(supabase) {
+  const pageSize = 1000;
+  let from = 0;
+  const out = new Map();
+  for (;;) {
+    const { data, error } = await supabase
+      .from('assets')
+      .select('symbol, name')
+      .eq('category_id', 'bist')
+      .order('symbol', { ascending: true })
+      .range(from, from + pageSize - 1);
+    if (error) throw new Error(`BIST mevcut asset isimleri: ${error.message}`);
+    const chunk = data || [];
+    for (const row of chunk) {
+      const symbol = String(row.symbol || '')
+        .trim()
+        .toUpperCase();
+      const name = String(row.name || '').trim();
+      if (symbol) out.set(symbol, name);
+    }
+    if (chunk.length < pageSize) break;
+    from += pageSize;
+  }
+  return out;
+}
+
+function hasUsefulName(name, symbol) {
+  const cleaned = String(name || '').trim();
+  return Boolean(cleaned) && cleaned.toUpperCase() !== symbol;
+}
+
+function slugToName(symbol, location) {
+  const slugMatch = String(location || '').match(/hisse-fiyatlari\/([^/?#]+)/i);
+  if (!slugMatch) return symbol;
+  const parts = slugMatch[1]
+    .split('-')
+    .filter(Boolean)
+    .filter((part) => part.toLowerCase() !== 'detay');
+  if (parts[0] && parts[0].toUpperCase() === symbol) parts.shift();
+  const tail = parts.join(' ').trim();
+  return tail ? tail.toUpperCase() : symbol;
+}
+
+async function resolveBigparaSymbolName(symbol) {
+  const controller = new AbortController();
+  const t = setTimeout(() => controller.abort(), Number(process.env.BIST_SCRAPE_FETCH_TIMEOUT_MS || '45000'));
+  try {
+    const url = `https://bigpara.hurriyet.com.tr/borsa/hisse-fiyatlari/${symbol.toLowerCase()}-detay/`;
+    const res = await fetch(url, {
+      redirect: 'manual',
+      signal: controller.signal,
+      headers: {
+        'User-Agent':
+          process.env.BIST_SCRAPE_USER_AGENT ||
+          'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36',
+        Accept: 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+        'Accept-Language': 'tr-TR,tr;q=0.9,en-US;q=0.8,en;q=0.7',
+      },
+    });
+    const location = res.headers.get('location') || '';
+    if (/\/borsa\/hisse-fiyatlari\/?$/.test(location)) return symbol;
+    return slugToName(symbol, location);
+  } catch {
+    return symbol;
+  } finally {
+    clearTimeout(t);
+  }
+}
+
+async function resolveBigparaUniversePlaceholderRows(symbols, existingNameMap) {
+  const resolvedNameMap = new Map();
+  const targets = symbols
+    .filter((symbol) => !hasUsefulName(existingNameMap.get(symbol), symbol))
+    .slice(0, BIST_BIGPARA_NAME_LOOKUP_LIMIT);
+
+  let cursor = 0;
+  async function worker() {
+    for (;;) {
+      const index = cursor++;
+      if (index >= targets.length) return;
+      const symbol = targets[index];
+      const name = await resolveBigparaSymbolName(symbol);
+      resolvedNameMap.set(symbol, name);
+    }
+  }
+
+  await Promise.all(
+    Array.from({ length: Math.min(BIST_BIGPARA_NAME_LOOKUP_CONCURRENCY, targets.length) }, () => worker()),
+  );
+
+  return symbols.map((symbol) => ({
+    code: symbol,
+    name: existingNameMap.get(symbol) || resolvedNameMap.get(symbol) || symbol,
+    last: null,
+    changePct: null,
+    updatedAtIso: null,
+  }));
 }
 
 function normalizeNumber(str) {
@@ -402,6 +644,37 @@ async function main() {
     }
     console.error('Hiç satır parse edilemedi, script iptal.');
     process.exit(1);
+  }
+
+  let masterRows = [];
+  try {
+    console.log('BIST master liste çekiliyor…');
+    masterRows = await fetchPublicBistMasterList();
+    console.log('BIST master liste satırı:', masterRows.length);
+  } catch (e) {
+    console.warn('[sync-bist-scrape] BIST master liste alınamadı, scrape listesiyle devam ediliyor:', e?.message || e);
+  }
+
+  if (masterRows.length > 0) {
+    rows = mergeScrapedRowsWithMasterList(rows, masterRows);
+    console.log('Master liste ile birleştirilmiş toplam BIST satırı:', rows.length);
+  }
+
+  try {
+    console.log('BigPara sembol evreni çekiliyor…');
+    const universeSymbols = await fetchBigparaUniverseSymbols();
+    console.log('BigPara sembol evreni satırı:', universeSymbols.length);
+    const currentSymbols = new Set(rows.map((row) => String(row.code || '').trim().toUpperCase()).filter(Boolean));
+    const missingUniverseSymbols = universeSymbols.filter((symbol) => !currentSymbols.has(symbol));
+    if (missingUniverseSymbols.length > 0) {
+      console.log('Master/scrape dışında kalan ek BigPara sembolleri:', missingUniverseSymbols.length);
+      const existingNameMap = await fetchExistingBistAssetNameMap(supabase);
+      const placeholderRows = await resolveBigparaUniversePlaceholderRows(missingUniverseSymbols, existingNameMap);
+      rows = mergeScrapedRowsWithMasterList(rows, placeholderRows);
+      console.log('BigPara evreni ile birleştirilmiş toplam BIST satırı:', rows.length);
+    }
+  } catch (e) {
+    console.warn('[sync-bist-scrape] BigPara sembol evreni alınamadı, mevcut listeyle devam ediliyor:', e?.message || e);
   }
 
   console.log('Supabase assets (bist) upsert…');
