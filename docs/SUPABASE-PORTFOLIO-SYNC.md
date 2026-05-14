@@ -76,3 +76,11 @@ select cron.schedule(
 
 - ABD tam senkron (ayrı workflow): `docs/SUPABASE-ABD-SYNC.md`
 - Harici cron (cron-job.org) alternatifi: `docs/SYNC-SCHEDULE.md`
+
+## GitHub workflow: günlük fiyat push’ları
+
+`portfolio-sync.yml` sonunda `node scripts/send-daily-gain-push.js` çalışır.
+
+- **Kademeli eşikler (varsayılan):** günlük artış için `4, 7, 10, 15` %; düşüş için `-4, -7, -10, -15` %. Aynı kullanıcı + varlık + İstanbul günü için **her eşik değeri** en fazla bir bildirim (`public.daily_gain_push_log` satırındaki `threshold`).
+- **Ortam değişkenleri:** `DAILY_GAIN_PUSH_TIERS` ve `DAILY_FALL_PUSH_TIERS` virgülle ayrılmış liste (workflow’da set edilir; boş bırakılırsa script varsayılanları kullanır). Bildirim saat penceresi: `DAILY_GAIN_PUSH_LOCAL_START_HOUR`, `DAILY_GAIN_PUSH_LOCAL_END_HOUR`. Gün sonu portföy özeti: `DAILY_SUMMARY_LOCAL_HOUR`.
+- **ABD destek/direnç yaklaşım bildirimleri:** Kaldırıldı; `send-us-sr-alerts` script’i ve workflow adımı artık yok.

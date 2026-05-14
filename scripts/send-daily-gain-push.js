@@ -8,8 +8,28 @@ const SUPABASE_URL =
   process.env.EXPO_PUBLIC_SUPABASE_URL ||
   '';
 const SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY || '';
-const RISE_THRESHOLD = Number(process.env.DAILY_GAIN_PUSH_THRESHOLD || '4');
-const FALL_THRESHOLD = Number(process.env.DAILY_FALL_PUSH_THRESHOLD || '-4');
+
+/** Günlük artış bildirim eşikleri (%) — her biri günde en fazla bir kez (aynı varlık). */
+const DEFAULT_RISE_TIERS = [4, 7, 10, 15];
+/** Günlük düşüş bildirim eşikleri (%) — negatif; sıra dıştan içe: -4, -7, ... */
+const DEFAULT_FALL_TIERS = [-4, -7, -10, -15];
+
+function parseTierCsv(envKey, fallback) {
+  const raw = process.env[envKey];
+  if (raw == null || !String(raw).trim()) return [...fallback];
+  const arr = String(raw)
+    .split(',')
+    .map((s) => Number(String(s).trim()))
+    .filter((n) => Number.isFinite(n));
+  return arr.length ? arr : [...fallback];
+}
+
+const RISE_TIERS = parseTierCsv('DAILY_GAIN_PUSH_TIERS', DEFAULT_RISE_TIERS).sort((a, b) => a - b);
+const FALL_TIERS = parseTierCsv('DAILY_FALL_PUSH_TIERS', DEFAULT_FALL_TIERS).sort((a, b) => b - a);
+
+const MIN_RISE_FOR_QUERY = Math.min(...RISE_TIERS);
+const MAX_FALL_FOR_QUERY = Math.max(...FALL_TIERS);
+
 const EXPO_PUSH_URL = 'https://exp.host/--/api/v2/push/send';
 const NOTIFY_HOUR_START = Number(process.env.DAILY_GAIN_PUSH_LOCAL_START_HOUR || '9');
 const NOTIFY_HOUR_END_EXCLUSIVE = Number(process.env.DAILY_GAIN_PUSH_LOCAL_END_HOUR || '22');
@@ -24,8 +44,23 @@ if (!SUPABASE_URL || !SERVICE_ROLE_KEY) {
   process.exit(1);
 }
 
-if (!Number.isFinite(RISE_THRESHOLD) || !Number.isFinite(FALL_THRESHOLD)) {
-  console.error('DAILY_GAIN_PUSH_THRESHOLD and DAILY_FALL_PUSH_THRESHOLD must be numbers');
+if (
+  !RISE_TIERS.length ||
+  !FALL_TIERS.length ||
+  !RISE_TIERS.every((n) => Number.isFinite(n) && n > 0) ||
+  !FALL_TIERS.every((n) => Number.isFinite(n) && n < 0)
+) {
+  console.error(
+    'DAILY_GAIN_PUSH_TIERS must be positive ascending (e.g. 4,7,10,15) and DAILY_FALL_PUSH_TIERS negative (e.g. -4,-7,-10,-15)',
+  );
+  process.exit(1);
+}
+if (RISE_TIERS.some((n, i) => i > 0 && n <= RISE_TIERS[i - 1])) {
+  console.error('DAILY_GAIN_PUSH_TIERS must be strictly ascending');
+  process.exit(1);
+}
+if (FALL_TIERS.some((n, i) => i > 0 && n >= FALL_TIERS[i - 1])) {
+  console.error('DAILY_FALL_PUSH_TIERS must be strictly descending (e.g. -4 then -7)');
   process.exit(1);
 }
 if (
@@ -63,7 +98,24 @@ function gainDedupeKey(userId, assetId, threshold) {
   return `${userId}:${assetId}:${threshold}`;
 }
 
-/** Aynı kullanıcı + varlık + eşik + İstanbul günü için en fazla bir kez uyarı (15 dk cron tekrarını keser). */
+/** Günlük % için hangi eşik kademeleri aşıldı (sıra: önce düşük mutlak, sonra yüksek). */
+function listCrossedAlertTiers(changePct, riseTiers, fallTiers) {
+  const ch = Number(changePct);
+  if (!Number.isFinite(ch)) return [];
+  const out = [];
+  if (ch >= riseTiers[0]) {
+    for (const tier of riseTiers) {
+      if (ch >= tier) out.push({ isRise: true, tier });
+    }
+  } else if (ch <= fallTiers[0]) {
+    for (const tier of fallTiers) {
+      if (ch <= tier) out.push({ isRise: false, tier });
+    }
+  }
+  return out;
+}
+
+/** Aynı kullanıcı + varlık + eşik kademesi + İstanbul günü için en fazla bir kez uyarı (15 dk cron tekrarını keser). */
 async function fetchDailyGainSentKeySet(eventDate, userIds) {
   if (!userIds.length) return new Set();
   const keys = new Set();
@@ -123,7 +175,7 @@ async function fetchCandidates() {
   const { data: assets, error: assetsError } = await supabase
     .from('assets')
     .select('id, category_id, symbol, name, currency, current_price, change_24h_pct, price_updated_at')
-    .or(`change_24h_pct.gte.${RISE_THRESHOLD},change_24h_pct.lte.${FALL_THRESHOLD}`)
+    .or(`change_24h_pct.gte.${MIN_RISE_FOR_QUERY},change_24h_pct.lte.${MAX_FALL_FOR_QUERY}`)
     .limit(10000);
   if (assetsError) throw new Error(`assets query failed: ${assetsError.message}`);
   if (!assets?.length) return [];
@@ -135,7 +187,7 @@ async function fetchCandidates() {
     const currentPrice = a.current_price != null ? Number(a.current_price) : NaN;
     if (!id || !Number.isFinite(change)) continue;
     if (!Number.isFinite(currentPrice) || currentPrice <= 0) continue;
-    if (change < RISE_THRESHOLD && change > FALL_THRESHOLD) continue;
+    if (change < MIN_RISE_FOR_QUERY && change > MAX_FALL_FOR_QUERY) continue;
     assetMap.set(id, {
       asset_id: id,
       category_id: String(a.category_id || '').toLowerCase(),
@@ -164,6 +216,7 @@ async function fetchCandidates() {
       .from('holdings')
       .select('asset_id, portfolio_id')
       .in('asset_id', assetIdChunk)
+      .gt('quantity', 0)
       .limit(100000);
     if (holdingsError) throw new Error(`holdings query failed: ${holdingsError.message}`);
     rows.push(...(holdings || []));
@@ -648,48 +701,52 @@ async function main() {
     const devices = tokensByUser.get(t.user_id) || [];
     if (!devices.length) continue;
 
-    const pctText = formatPct(t.change_24h_pct);
-    const isRise = t.change_24h_pct >= RISE_THRESHOLD;
-    const isFall = t.change_24h_pct <= FALL_THRESHOLD;
-    if (!isRise && !isFall) continue;
-    const threshold = isRise ? RISE_THRESHOLD : FALL_THRESHOLD;
-    const dedupeKey = gainDedupeKey(String(t.user_id), String(t.asset_id), threshold);
-    if (dailyGainSentKeys.has(dedupeKey)) continue;
+    const tierSteps = listCrossedAlertTiers(t.change_24h_pct, RISE_TIERS, FALL_TIERS);
+    if (!tierSteps.length) continue;
 
-    const rocket = isRise && t.change_24h_pct >= 5 ? ' 🚀' : '';
+    const pctText = formatPct(t.change_24h_pct);
     const priceText = formatNumberTr(t.current_price);
     const ccy = currencyLabel(t.currency);
-    const accent = isRise ? '🟢' : '🔴';
-    const body = isRise
-      ? `${accent} ${t.symbol}, ${pctText} artisla ${priceText} ${ccy} oldu.${rocket}`
-      : `${accent} ${t.symbol}, ${pctText} dususle ${priceText} ${ccy} oldu.`;
-    let queuedForThisAsset = false;
-    for (const device of devices) {
-      if (!isWithinCategoryNotificationWindow(t, device.timezone)) continue;
-      pushMessages.push({
-        to: device.token,
-        sound: 'default',
-        title: 'Önemli Fiyat Değişikliği',
-        body,
-        data: {
-          type: isRise ? 'daily_gain_alert' : 'daily_fall_alert',
-          assetId: t.asset_id,
-          symbol: t.symbol,
-          changePct: t.change_24h_pct,
-          riseThreshold: RISE_THRESHOLD,
-          fallThreshold: FALL_THRESHOLD,
-        },
-      });
-      queuedForThisAsset = true;
-    }
-    if (queuedForThisAsset) {
-      dailyGainLogRows.push({
-        user_id: t.user_id,
-        asset_id: t.asset_id,
-        alert_date: eventDate,
-        threshold,
-        change_24h_pct: t.change_24h_pct,
-      });
+
+    for (const { isRise, tier } of tierSteps) {
+      const dedupeKey = gainDedupeKey(String(t.user_id), String(t.asset_id), tier);
+      if (dailyGainSentKeys.has(dedupeKey)) continue;
+
+      const rocket = isRise && t.change_24h_pct >= 5 ? ' 🚀' : '';
+      const accent = isRise ? '🟢' : '🔴';
+      const tierLabel = formatPct(tier);
+      const body = isRise
+        ? `${accent} ${t.symbol}, ${pctText} artisla ${priceText} ${ccy} oldu (${tierLabel} esigi).${rocket}`
+        : `${accent} ${t.symbol}, ${pctText} dususle ${priceText} ${ccy} oldu (${tierLabel} esigi).`;
+
+      let queuedForThisTier = false;
+      for (const device of devices) {
+        if (!isWithinCategoryNotificationWindow(t, device.timezone)) continue;
+        pushMessages.push({
+          to: device.token,
+          sound: 'default',
+          title: 'Önemli Fiyat Değişikliği',
+          body,
+          data: {
+            type: isRise ? 'daily_gain_alert' : 'daily_fall_alert',
+            assetId: t.asset_id,
+            symbol: t.symbol,
+            changePct: t.change_24h_pct,
+            tierThreshold: tier,
+          },
+        });
+        queuedForThisTier = true;
+      }
+      if (queuedForThisTier) {
+        dailyGainSentKeys.add(dedupeKey);
+        dailyGainLogRows.push({
+          user_id: t.user_id,
+          asset_id: t.asset_id,
+          alert_date: eventDate,
+          threshold: tier,
+          change_24h_pct: t.change_24h_pct,
+        });
+      }
     }
   }
 

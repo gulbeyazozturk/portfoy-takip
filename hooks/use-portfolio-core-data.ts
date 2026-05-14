@@ -10,6 +10,7 @@ import { kriptoStoredUnitToUsd, legacyCryptoStoredUnitToUsd } from '@/lib/crypto
 import { effectiveChange24hPctForDisplay } from '@/lib/effective-change-24h';
 import { dailyPrevValueFromChangePct, fonUnitNativeTry } from '@/lib/fon-price-guards';
 import { isUsdNativeCategory } from '@/lib/portfolio-currency';
+import { MIN_VALID_USD_TRY_RATE, persistUsdTryRate, readCachedUsdTryRate } from '@/lib/usdtry-cache';
 import { supabase } from '@/lib/supabase';
 
 import type { DonutSlice } from '@/components/ultra-dark-donut-chart';
@@ -75,7 +76,8 @@ export function usePortfolioCoreData() {
   const { portfolioId, portfolios, selectPortfolio, portfoliosLoading } = usePortfolio();
   const [categories, setCategories] = useState<CategoryRow[]>([]);
   const [holdings, setHoldings] = useState<HoldingRow[]>([]);
-  const [usdTry, setUsdTry] = useState<number>(1);
+  /** 0 = henüz bilinmiyor; `MIN_VALID_USD_TRY_RATE` üstü değerler kur için kullanılır. */
+  const [usdTry, setUsdTry] = useState<number>(0);
   const [usdTryDailyPct, setUsdTryDailyPct] = useState<number>(0);
   /** Sembol → pozitif TRY/1 birim; aynı sembolün birden fazla asset satırında en yüksek fiyat (genelde dolu master satır). */
   const [dovizSpotBySymbol, setDovizSpotBySymbol] = useState<Record<string, number>>({});
@@ -106,7 +108,10 @@ export function usePortfolioCoreData() {
       }
       setDovizSpotBySymbol(map);
       const usd = map.USD;
-      if (usd != null && usd > 0) setUsdTry(usd);
+      if (usd != null && usd > MIN_VALID_USD_TRY_RATE) {
+        setUsdTry(usd);
+        void persistUsdTryRate(usd);
+      }
       setUsdTryDailyPct(usdDailyPct);
     } catch {
       /* keep previous */
@@ -140,28 +145,28 @@ export function usePortfolioCoreData() {
       .eq('portfolio_id', portfolioId);
     if (e) {
       setError(e.message);
-      setHoldings([]);
     } else {
       const rawHoldings = ((data as unknown as HoldingRow[]) ?? []).slice();
 
-      // FON'larda (TEFAS o gün datası gelmediyse) assets.current_price null kalabiliyor.
-      // Bu durumda price_history'den en son kaydı (bir önceki gün) çekip current_price'a seed ediyoruz.
-      const fonMissingAssetIds = new Set<string>();
+      // Bazı kategorilerde assets.current_price geçici olarak boş/eksik kalabiliyor
+      // (özellikle FON ve bazen yurtdışı hisseler). Bu durumda price_history'den
+      // son birim fiyatı seed ederek listeyi avg_price'a düşürmeyelim.
+      const seedFromHistoryAssetIds = new Set<string>();
       for (const h of rawHoldings) {
         const a = Array.isArray(h.asset) ? h.asset[0] : h.asset;
         if (!a) continue;
-        if (a.category_id !== 'fon') continue;
+        if (a.category_id !== 'fon' && a.category_id !== 'yurtdisi') continue;
         const p = Number(a.current_price ?? 0);
         const ch = a.change_24h_pct;
         const needsChange = ch == null || !Number.isFinite(Number(ch));
         if (!Number.isFinite(p) || p <= 0 || needsChange) {
-          fonMissingAssetIds.add(String(a.id));
+          seedFromHistoryAssetIds.add(String(a.id));
         }
       }
 
       let updatedHoldings = rawHoldings;
-      if (fonMissingAssetIds.size > 0) {
-        const ids = Array.from(fonMissingAssetIds);
+      if (seedFromHistoryAssetIds.size > 0) {
+        const ids = Array.from(seedFromHistoryAssetIds);
         const { data: phRows, error: phErr } = await supabase
           .from('price_history')
           .select('asset_id, price, recorded_at')
@@ -187,7 +192,7 @@ export function usePortfolioCoreData() {
           updatedHoldings = rawHoldings.map((h) => {
             const a = Array.isArray(h.asset) ? h.asset[0] : h.asset;
             if (!a) return h;
-            if (a.category_id !== 'fon') return h;
+            if (a.category_id !== 'fon' && a.category_id !== 'yurtdisi') return h;
             const cur = Number(a.current_price ?? 0);
             const needsCurrentSeed = !Number.isFinite(cur) || cur <= 0;
             const needsChangeSeed = a.change_24h_pct == null || !Number.isFinite(Number(a.change_24h_pct));
@@ -218,6 +223,18 @@ export function usePortfolioCoreData() {
     }
     setLoading(false);
   }, [portfolioId]);
+
+  useEffect(() => {
+    let alive = true;
+    void (async () => {
+      const cached = await readCachedUsdTryRate();
+      if (!alive || cached == null) return;
+      setUsdTry((prev) => (prev > MIN_VALID_USD_TRY_RATE ? prev : cached));
+    })();
+    return () => {
+      alive = false;
+    };
+  }, []);
 
   useEffect(() => {
     fetchCategories();
@@ -252,6 +269,14 @@ export function usePortfolioCoreData() {
     return portfoliosLoading ? t('portfolio.loading') : t('portfolio.headerTitle');
   }, [portfolios, portfolioId, portfoliosLoading, t]);
 
+  const fxRateReady = useMemo(() => {
+    const needs = holdings.some((h) => {
+      const a = normalizeAsset(h.asset);
+      return a != null && isUsdNativeCategory(a.category_id);
+    });
+    return !needs || usdTry > MIN_VALID_USD_TRY_RATE;
+  }, [holdings, usdTry]);
+
   const { allocationData, allocationBreakdown, portfolioMetrics, categoryPerformanceById } = useMemo(() => {
     const emptyMetrics = {
       totalValueTL: 0,
@@ -278,6 +303,13 @@ export function usePortfolioCoreData() {
     const withAsset = holdings.map((h) => ({ ...h, asset: normalizeAsset(h.asset) })).filter((h) => h.asset);
     if (withAsset.length === 0) return empty;
 
+    const portfolioNeedsUsdTry = withAsset.some((h) =>
+      isUsdNativeCategory((h.asset as AssetRow).category_id),
+    );
+    if (portfolioNeedsUsdTry && !(usdTry > MIN_VALID_USD_TRY_RATE)) {
+      return empty;
+    }
+
     const now = new Date();
 
     const byCategoryTL: Record<string, number> = {};
@@ -289,7 +321,7 @@ export function usePortfolioCoreData() {
     let dailyChangeUSD = 0;
     let costBasisTL = 0;
     let costBasisUSD = 0;
-    const safeRate = usdTry > 0 ? usdTry : 1;
+    const safeRate = usdTry > MIN_VALID_USD_TRY_RATE ? usdTry : 1;
     const usdDailyFactor = 1 + (Number.isFinite(usdTryDailyPct) ? usdTryDailyPct : 0) / 100;
     const safeRatePrev = usdDailyFactor > 0 ? safeRate / usdDailyFactor : safeRate;
 
@@ -467,5 +499,6 @@ export function usePortfolioCoreData() {
     categoryPerformanceById,
     fetchHoldings,
     fetchUsdRate,
+    fxRateReady,
   };
 }

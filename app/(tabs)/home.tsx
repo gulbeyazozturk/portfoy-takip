@@ -37,7 +37,7 @@ const ON_PRIMARY = Brand.onPrimary;
 
 const SECONDARY_MINT = Brand.chartPositive;
 /** Portföy sekmesi `ERROR` ile aynı — düşüş / negatif %. */
-const PCT_NEGATIVE = '#ff716c';
+const PCT_NEGATIVE = Brand.chartNegative;
 
 const CATEGORY_ICONS: Record<string, keyof typeof Ionicons.glyphMap> = {
   bist: 'stats-chart',
@@ -91,6 +91,7 @@ export default function HomeScreen() {
     portfolios,
     selectPortfolio,
     currentPortfolioName,
+    fxRateReady,
   } = usePortfolioCoreData();
 
   const lastGridTapRef = useRef<{ at: number; categoryId: string } | null>(null);
@@ -142,6 +143,8 @@ export default function HomeScreen() {
         ? portfolioMetrics.totalChangeAmtTL
         : portfolioMetrics.totalChangeAmtUSD;
   const pctPositive = heroPct >= 0;
+
+  const showFxLoading = holdings.length > 0 && !fxRateReady;
 
   const fmtMoney = (n: number) =>
     valueCurrency === 'USD'
@@ -216,16 +219,24 @@ export default function HomeScreen() {
                 accessibilityLabel={t('home.clearCategoryHighlightA11y')}
                 style={styles.heroTopRowPressable}>
                 <View style={styles.heroTopRow}>
-                  <Text style={styles.heroValue} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.55}>
-                    {maskIfHidden(
-                      mainTotal > 0
-                        ? fmtMoney(mainTotal)
-                        : valueCurrency === 'USD'
-                          ? '$0'
-                          : `0 ${t('home.currencyTL')}`,
+                  <View style={styles.heroValueSlot}>
+                    {showFxLoading ? (
+                      <View style={styles.heroFxSkeleton}>
+                        <ActivityIndicator size="large" color={PRIMARY} />
+                      </View>
+                    ) : (
+                      <Text style={styles.heroValue} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.55}>
+                        {maskIfHidden(
+                          mainTotal > 0
+                            ? fmtMoney(mainTotal)
+                            : valueCurrency === 'USD'
+                              ? '$0'
+                              : `0 ${t('home.currencyTL')}`,
+                        )}
+                      </Text>
                     )}
-                  </Text>
-                  {mainTotal > 0 ? (
+                  </View>
+                  {!showFxLoading && mainTotal > 0 ? (
                     <View style={styles.heroDeltaWrap}>
                       <View style={styles.heroPctRow}>
                         <Text style={[styles.heroPct, pctPositive ? styles.heroPctUp : styles.heroPctDown]}>
@@ -340,12 +351,22 @@ export default function HomeScreen() {
                     </Pressable>
                   }
                 />
+                {showFxLoading ? (
+                  <View style={styles.bentoFxOverlay}>
+                    <ActivityIndicator size="large" color={PRIMARY} />
+                  </View>
+                ) : null}
               </View>
             </View>
 
             {/* İki sütun kategori kartları */}
             <View style={styles.grid}>
-              {allocationBreakdown.length === 0 ? (
+              {showFxLoading ? (
+                <View style={styles.gridFxLoading}>
+                  <ActivityIndicator size="large" color={PRIMARY} />
+                  <Text style={styles.loadingText}>{t('portfolio.loading')}</Text>
+                </View>
+              ) : allocationBreakdown.length === 0 ? (
                 <Text style={styles.noBreakdown}>{t('home.noBreakdown')}</Text>
               ) : (
                 allocationBreakdown.map((row) => {
@@ -512,6 +533,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 4,
   },
   heroPill: { marginTop: 0, alignSelf: 'center' },
+  heroValueSlot: { flexShrink: 1, minHeight: 52, justifyContent: 'center' },
   heroValue: {
     fontSize: 42,
     fontWeight: '800',
@@ -573,9 +595,26 @@ const styles = StyleSheet.create({
     height: 24,
   },
   donutInner: {
+    position: 'relative',
     alignItems: 'center',
     justifyContent: 'center',
     overflow: 'visible',
+  },
+  bentoFxOverlay: {
+    ...StyleSheet.absoluteFillObject,
+    justifyContent: 'center',
+    alignItems: 'center',
+    backgroundColor: 'rgba(0,0,0,0.35)',
+    borderRadius: 12,
+    zIndex: 4,
+  },
+  heroFxSkeleton: {
+    minHeight: 52,
+    minWidth: 120,
+    justifyContent: 'center',
+    alignItems: 'center',
+    alignSelf: 'center',
+    paddingVertical: 6,
   },
 
   centerPicker: {
@@ -683,6 +722,13 @@ const styles = StyleSheet.create({
   gridPct: {
     fontSize: 11,
     fontWeight: '700',
+  },
+  gridFxLoading: {
+    width: '100%',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 32,
+    gap: 12,
   },
   noBreakdown: {
     width: '100%',

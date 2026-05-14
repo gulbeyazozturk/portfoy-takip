@@ -34,6 +34,7 @@ import { extractCostDateFromNotes, upsertCostDateInNotes } from '@/lib/holding-n
 import { fetchInstantUnitPrice } from '@/lib/instant-price';
 import { getUsdTryRateForDate } from '@/lib/usdtry-rate-for-date';
 import { supabase } from '@/lib/supabase';
+import { Brand } from '@/constants/brand';
 import { useTranslation } from 'react-i18next';
 
 /** Portföy sekmesi (`portfolio.tsx`). */
@@ -94,8 +95,8 @@ const CHART_W = 300;
 const CHART_H = 165;
 /** Obsidian-style palette (HTML referans) */
 const PRIMARY = '#89acff';
-const CHART_GREEN = '#3fff8b';
-const CHART_RED = '#ff716b';
+const CHART_GREEN = Brand.chartPositive;
+const CHART_RED = Brand.chartNegative;
 const SURFACE = '#0e0e0e';
 const SURFACE_LOW = '#131313';
 const SURFACE_HIGH = '#1f1f1f';
@@ -1926,7 +1927,7 @@ export default function AssetEntryScreen() {
         <View style={styles.modalOverlay}>
           <View style={styles.modalCard}>
             <View style={styles.modalIconWrap}>
-              <Ionicons name="warning" size={32} color="#ef4444" />
+              <Ionicons name="warning" size={32} color={Brand.chartNegative} />
             </View>
             <ThemedText style={styles.modalTitle}>{t('assetEntry.modalTitle')}</ThemedText>
             <ThemedText style={styles.modalMessage}>
@@ -2476,8 +2477,8 @@ const styles = StyleSheet.create({
     color: '#f9fafb',
     fontSize: 14,
   },
-  statPositive: { color: '#22c55e' },
-  statNegative: { color: '#ef4444' },
+  statPositive: { color: Brand.chartPositive },
+  statNegative: { color: Brand.chartNegative },
   costBlock: {
     paddingHorizontal: 20,
     paddingVertical: 10,
@@ -2525,12 +2526,12 @@ const styles = StyleSheet.create({
     gap: 8,
   },
   changeTextPositive: {
-    color: '#22c55e',
+    color: Brand.chartPositive,
     fontSize: 14,
     fontWeight: '600',
   },
   changeTextNegative: {
-    color: '#ef4444',
+    color: Brand.chartNegative,
     fontSize: 14,
     fontWeight: '600',
   },
@@ -2540,20 +2541,20 @@ const styles = StyleSheet.create({
     borderRadius: 6,
   },
   changeBadgePos: {
-    backgroundColor: 'rgba(34,197,94,0.15)',
+    backgroundColor: Brand.chartPositiveMuted,
   },
   changeBadgeNeg: {
-    backgroundColor: 'rgba(239,68,68,0.15)',
+    backgroundColor: Brand.chartNegativeMuted,
   },
   changeBadgeTextPos: {
     fontSize: 13,
     fontWeight: '600',
-    color: '#22c55e',
+    color: Brand.chartPositive,
   },
   changeBadgeTextNeg: {
     fontSize: 13,
     fontWeight: '600',
-    color: '#ef4444',
+    color: Brand.chartNegative,
   },
   categoryBadge: {
     fontSize: 13,
@@ -2615,16 +2616,16 @@ const styles = StyleSheet.create({
     borderColor: '#2c2c2e',
   },
   modeBtnAdd: {
-    backgroundColor: 'rgba(34,197,94,0.15)',
-    borderColor: '#22c55e',
+    backgroundColor: Brand.chartPositiveMuted,
+    borderColor: Brand.chartPositive,
   },
   modeBtnReduce: {
     backgroundColor: 'rgba(245,158,11,0.15)',
     borderColor: '#f59e0b',
   },
   modeBtnDelete: {
-    backgroundColor: 'rgba(239,68,68,0.15)',
-    borderColor: '#ef4444',
+    backgroundColor: Brand.chartNegativeMuted,
+    borderColor: Brand.chartNegative,
   },
   modeBtnText: {
     fontSize: 13,
@@ -2700,7 +2701,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   actionBtnAdd: {
-    backgroundColor: '#22c55e',
+    backgroundColor: Brand.chartPositive,
     width: '16%',
     alignSelf: 'center',
   },
@@ -2710,7 +2711,7 @@ const styles = StyleSheet.create({
     alignSelf: 'center',
   },
   actionBtnDeleteFull: {
-    backgroundColor: '#ef4444',
+    backgroundColor: Brand.chartNegative,
     width: '16%',
     alignSelf: 'center',
   },
@@ -2785,7 +2786,7 @@ const styles = StyleSheet.create({
     width: 56,
     height: 56,
     borderRadius: 28,
-    backgroundColor: 'rgba(239,68,68,0.15)',
+    backgroundColor: Brand.chartNegativeMuted,
     alignItems: 'center',
     justifyContent: 'center',
     marginBottom: 16,
@@ -2828,7 +2829,7 @@ const styles = StyleSheet.create({
     flex: 1,
     paddingVertical: 12,
     borderRadius: 12,
-    backgroundColor: '#ef4444',
+    backgroundColor: Brand.chartNegative,
     alignItems: 'center',
   },
   modalBtnConfirmText: {

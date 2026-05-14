@@ -22,6 +22,12 @@ export const Brand = {
   infoBoxText: '#d4e2ff',
   /** Wordmark: iki ton aynı hue */
   wordmarkLight: '#b8cffc',
-  /** Koyu arka planda pozitif % (yeşil yerine soğuk ton) */
-  chartPositive: '#8ec5ff',
+  /** Koyu arka planda yükseliş / pozitif % ve grafik çizgisi */
+  chartPositive: '#0ECB81',
+  /** Düşüş / negatif % ve grafik çizgisi */
+  chartNegative: '#F6465D',
+  /** Chip ve ince vurgular için pozitif ton */
+  chartPositiveMuted: 'rgba(14, 203, 129, 0.18)',
+  /** Chip ve ince vurgular için negatif ton */
+  chartNegativeMuted: 'rgba(246, 70, 93, 0.18)',
 } as const;

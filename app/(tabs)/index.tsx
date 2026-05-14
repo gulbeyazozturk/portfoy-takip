@@ -37,6 +37,7 @@ import { categoryDisplayLabel } from '@/lib/category-display';
 import { effectiveChange24hPctForDisplay } from '@/lib/effective-change-24h';
 import { dailyPrevValueFromChangePct, fonUnitNativeTry } from '@/lib/fon-price-guards';
 import { isUsdNativeCategory } from '@/lib/portfolio-currency';
+import { MIN_VALID_USD_TRY_RATE } from '@/lib/usdtry-cache';
 import { useTranslation } from 'react-i18next';
 
 const BG = '#000000';
@@ -47,7 +48,7 @@ const SURFACE_CONTAINER_HIGH = '#1f1f1f';
 const ON_SURFACE = '#ffffff';
 const ON_SURFACE_VARIANT = '#ababab';
 const SECONDARY = Brand.chartPositive;
-const ERROR = '#ff716c';
+const ERROR = Brand.chartNegative;
 const OUTLINE_VARIANT = '#484848';
 const MUTED_PCT = 'rgba(255,255,255,0.45)';
 
@@ -79,7 +80,7 @@ const ASSET_ICONS: Record<string, { icon: string; bg: string; color: string }> =
   ETH: { icon: 'analytics', bg: 'rgba(59,130,246,0.2)', color: '#3b82f6' },
   SOL: { icon: 'flash', bg: 'rgba(168,85,247,0.2)', color: '#a855f7' },
   ADA: { icon: 'diamond-outline', bg: 'rgba(99,102,241,0.2)', color: '#6366f1' },
-  XRP: { icon: 'flash-outline', bg: 'rgba(34,197,94,0.2)', color: '#22c55e' },
+  XRP: { icon: 'flash-outline', bg: Brand.chartPositiveMuted, color: Brand.chartPositive },
   DOT: { icon: 'ellipse-outline', bg: 'rgba(234,88,12,0.2)', color: '#ea580c' },
   XAU: { icon: 'cube', bg: 'rgba(250,204,21,0.4)', color: '#facc15' },
   XAG: { icon: 'cube', bg: 'rgba(148,163,184,0.4)', color: '#e5e7eb' },
@@ -218,7 +219,7 @@ export function PortfolioScreen() {
             : rawB;
       const nativeA = a.quantity * unitA;
       const nativeB = b.quantity * unitB;
-      const rate = usdTry > 0 ? usdTry : 1;
+      const rate = usdTry > MIN_VALID_USD_TRY_RATE ? usdTry : 1;
       const valueA = isUsdNativeCategory(assetA?.category_id) ? nativeA * rate : nativeA;
       const valueB = isUsdNativeCategory(assetB?.category_id) ? nativeB * rate : nativeB;
 
@@ -250,6 +251,14 @@ export function PortfolioScreen() {
   }, [holdings, filter, sortMode, sortCollator, usdTry, minuteTick]);
 
   const summaryData = useMemo(() => {
+    const filteredNeedsFx = filteredHoldings.some((h) => {
+      const asset = normalizeAsset(h.asset);
+      return asset != null && isUsdNativeCategory(asset.category_id);
+    });
+    if (filteredNeedsFx && !(usdTry > MIN_VALID_USD_TRY_RATE)) {
+      return null;
+    }
+
     const now = new Date();
     let totalUSD = 0;
     let totalTL = 0;
@@ -307,7 +316,7 @@ export function PortfolioScreen() {
     const totalPctUSD = costUSD > 0 ? (totalAmtUSD / costUSD) * 100 : 0;
     const totalPctTL = costTL > 0 ? (totalAmtTL / costTL) * 100 : 0;
 
-    const rate = usdTry > 0 ? usdTry : 1;
+    const rate = usdTry > MIN_VALID_USD_TRY_RATE ? usdTry : 1;
     const mergedTotalTL = totalTL + totalUSD * rate;
     const mergedTotalUSD = totalUSD + totalTL / rate;
     const mergedDailyAmtTL = dailyAmtTL + dailyAmtUSD * rate;
@@ -401,7 +410,15 @@ export function PortfolioScreen() {
             </View>
           ) : null}
 
-          {(summaryData.hasUSD || summaryData.hasTL) && (() => {
+          {summaryData === null ? (
+            <View style={styles.hero}>
+              <Text style={[styles.heroKicker, { fontFamily: fontBodySemi }]}>{t('portfolio.totalBalance')}</Text>
+              <View style={[styles.heroAmountRow, styles.heroFxSkeletonRow]}>
+                <ActivityIndicator size="large" color={PRIMARY} />
+              </View>
+            </View>
+          ) : (summaryData.hasUSD || summaryData.hasTL) ? (
+            (() => {
             const isDaily = summaryMode === 'daily';
             const mainTotal =
               summaryDisplayCurrency === 'TL' ? summaryData.mergedTotalTL : summaryData.mergedTotalUSD;
@@ -508,7 +525,8 @@ export function PortfolioScreen() {
                 </View>
               </View>
             );
-          })()}
+          })()
+          ) : null}
 
           <ScrollView
             horizontal
@@ -606,7 +624,7 @@ export function PortfolioScreen() {
                 const asset = normalizeAsset(h.asset);
                 if (!asset) return null;
                 const rawSpot = Number(asset.current_price ?? h.avg_price ?? 0);
-                const rate = usdTry > 0 ? usdTry : 1;
+                const rate = usdTry > MIN_VALID_USD_TRY_RATE ? usdTry : 1;
                 const currentPrice =
                   asset.category_id === 'kripto'
                     ? kriptoStoredUnitToUsd(rawSpot, usdTry, asset.currency)
@@ -637,6 +655,28 @@ export function PortfolioScreen() {
                     : nativeCurrency === 'USD'
                       ? value * rate
                       : value / rate;
+                const costRaw = h.avg_price != null ? Number(h.avg_price) : null;
+                const costPrice =
+                  costRaw != null && asset.category_id === 'kripto'
+                    ? legacyCryptoStoredUnitToUsd(costRaw, usdTry, currentPrice)
+                    : costRaw;
+                const dailyPct = changePct ?? 0;
+                const totalPct =
+                  costPrice != null && costPrice > 0
+                    ? ((currentPrice - costPrice) / costPrice) * 100
+                    : dailyPct;
+                const displayPct = summaryMode === 'daily' ? dailyPct : totalPct;
+                const isNeutral = Math.abs(displayPct) < 0.005;
+                const up = displayPct > 0;
+                const pctText = isNeutral
+                  ? `${displayPct.toLocaleString(numberLocale, {
+                      minimumFractionDigits: 2,
+                      maximumFractionDigits: 2,
+                    })}%`
+                  : `${up ? '+' : ''}${displayPct.toLocaleString(numberLocale, {
+                      minimumFractionDigits: 2,
+                      maximumFractionDigits: 2,
+                    })}%`;
                 const iconStyle =
                   ASSET_ICONS[asset.symbol] ??
                   ASSET_ICONS[asset.category_id] ??
@@ -699,60 +739,40 @@ export function PortfolioScreen() {
                       </View>
                     </View>
                     <View style={styles.assetRight}>
-                      <Text style={[styles.assetValue, { fontFamily: fontHead700 }]}>
-                        {hasLivePrice
-                          ? `${formatPortfolioMoneyCeil(
-                              displayedValue,
-                              displayLocale,
-                            )} ${displayCurrency}`
-                          : 'Fiyat güncelleniyor...'}
-                      </Text>
-                      {(() => {
-                        const costRaw = h.avg_price != null ? Number(h.avg_price) : null;
-                        const costPrice =
-                          costRaw != null && asset.category_id === 'kripto'
-                            ? legacyCryptoStoredUnitToUsd(costRaw, usdTry, currentPrice)
-                            : costRaw;
-                        const totalPctFromCost =
-                          costPrice != null && costPrice > 0
-                            ? ((currentPrice - costPrice) / costPrice) * 100
-                            : null;
-                        const dailyPct = changePct ?? 0;
-                        const totalPct =
-                          costPrice != null && costPrice > 0
-                            ? ((currentPrice - costPrice) / costPrice) * 100
-                            : dailyPct;
-                        const displayPct = summaryMode === 'daily' ? dailyPct : totalPct;
-                        const isNeutral = Math.abs(displayPct) < 0.005;
-                        const up = displayPct > 0;
-                        return (
-                          <View style={styles.assetPctRow}>
-                            {!isNeutral ? (
-                              <Ionicons
-                                name={up ? 'caret-up' : 'caret-down'}
-                                size={14}
-                                color={up ? SECONDARY : ERROR}
-                              />
-                            ) : null}
+                      <Text style={[styles.assetValue, { fontFamily: fontHead700 }]} numberOfLines={2}>
+                        {hasLivePrice ? (
+                          <>
+                            {formatPortfolioMoneyCeil(displayedValue, displayLocale)} {displayCurrency}
                             <Text
                               style={[
-                                styles.assetPct,
+                                styles.assetValuePct,
                                 { fontFamily: fontBodySemi },
                                 isNeutral ? styles.assetPctNeutral : up ? styles.assetPctUp : styles.assetPctDown,
                               ]}>
-                              {isNeutral
-                                ? `${displayPct.toLocaleString(numberLocale, {
-                                    minimumFractionDigits: 2,
-                                    maximumFractionDigits: 2,
-                                  })}%`
-                                : `${up ? '+' : ''}${displayPct.toLocaleString(numberLocale, {
-                                    minimumFractionDigits: 2,
-                                    maximumFractionDigits: 2,
-                                  })}%`}
+                              {` (${pctText})`}
                             </Text>
-                          </View>
-                        );
-                      })()}
+                          </>
+                        ) : (
+                          'Fiyat güncelleniyor...'
+                        )}
+                      </Text>
+                      <View style={styles.assetPctRow}>
+                        {!isNeutral ? (
+                          <Ionicons
+                            name={up ? 'caret-up' : 'caret-down'}
+                            size={14}
+                            color={up ? SECONDARY : ERROR}
+                          />
+                        ) : null}
+                        <Text
+                          style={[
+                            styles.assetPct,
+                            { fontFamily: fontBodySemi },
+                            isNeutral ? styles.assetPctNeutral : up ? styles.assetPctUp : styles.assetPctDown,
+                          ]}>
+                          {pctText}
+                        </Text>
+                      </View>
                     </View>
                   </Pressable>
                 );
@@ -827,6 +847,12 @@ const styles = StyleSheet.create({
     alignItems: 'baseline',
     justifyContent: 'center',
     gap: 6,
+  },
+  heroFxSkeletonRow: {
+    minHeight: 52,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 8,
   },
   heroAmount: {
     fontSize: 36,
@@ -969,6 +995,7 @@ const styles = StyleSheet.create({
     fontVariant: ['tabular-nums'] as any,
     textAlign: 'right',
   },
+  assetValuePct: { fontSize: 14, fontWeight: '700', fontVariant: ['tabular-nums'] as any },
   assetPctRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'flex-end', gap: 2, marginTop: 4 },
   assetPct: { fontSize: 12, fontWeight: '700', fontVariant: ['tabular-nums'] as any },
   assetPctUp: { color: SECONDARY },

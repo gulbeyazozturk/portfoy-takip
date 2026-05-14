@@ -15,6 +15,7 @@ import Svg, { Defs, LinearGradient, Path, Stop } from 'react-native-svg';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useTranslation } from 'react-i18next';
 
+import { Brand } from '@/constants/brand';
 import { PortfolioPickerModal } from '@/components/portfolio-picker-modal';
 import type { HoldingRow } from '@/hooks/use-portfolio-core-data';
 import { normalizeAsset, usePortfolioCoreData } from '@/hooks/use-portfolio-core-data';
@@ -22,6 +23,7 @@ import { useMinuteTick } from '@/hooks/use-minute-tick';
 import { usePortfolioHistorySeries } from '@/hooks/use-portfolio-history-series';
 import { categoryDisplayLabel } from '@/lib/category-display';
 import type { PortfolioHistoryTf } from '@/lib/portfolio-history-math';
+import { MIN_VALID_USD_TRY_RATE } from '@/lib/usdtry-cache';
 import { computePortfolioPerformanceValues } from '@/lib/portfolio-performance';
 
 const BG_DARK = '#000000';
@@ -91,7 +93,7 @@ function TrendInteractiveChart({
   const vMax = maxVal + padding;
   const vRange = vMax - vMin || 1;
   const toY = (v: number) => CHART_H - ((v - vMin) / vRange) * CHART_H;
-  const lineColor = isPositive ? '#22c55e' : '#EF4444';
+  const lineColor = isPositive ? Brand.chartPositive : Brand.chartNegative;
 
   let dLine = '';
   vals.forEach((v, idx) => {
@@ -204,7 +206,10 @@ export default function TrendScreen() {
     portfolios,
     selectPortfolio,
     currentPortfolioName,
+    fxRateReady,
   } = usePortfolioCoreData();
+
+  const showFxLoading = holdings.length > 0 && !fxRateReady;
 
   const trendCategories = useMemo(() => {
     const list: { id: string; name: string }[] = [];
@@ -225,12 +230,17 @@ export default function TrendScreen() {
   }, [holdings, chartCategoryId]);
 
   const performanceValues = useMemo(
-    () => computePortfolioPerformanceValues(filteredHoldings, usdTry, { now: new Date() }),
-    [filteredHoldings, usdTry, minuteTick],
+    () =>
+      computePortfolioPerformanceValues(
+        fxRateReady ? filteredHoldings : [],
+        usdTry > MIN_VALID_USD_TRY_RATE ? usdTry : 1,
+        { now: new Date() },
+      ),
+    [filteredHoldings, usdTry, minuteTick, fxRateReady],
   );
 
   const historySeries = usePortfolioHistorySeries(
-    filteredHoldings,
+    fxRateReady ? filteredHoldings : [],
     usdTry,
     activeTimeframe as PortfolioHistoryTf,
     perfCurrency,
@@ -372,15 +382,21 @@ export default function TrendScreen() {
               <View style={styles.performanceTop}>
                 <View>
                   <Text style={styles.totalLabel}>{t('portfolio.totalValueLabel')}</Text>
-                  <Text style={styles.totalValue}>
-                    {(perfCurrency === 'TL' ? performanceValues.totalValueTL : performanceValues.totalValueUSD).toLocaleString(
-                      perfCurrency === 'USD' ? 'en-US' : numberLocale,
-                      {
-                        minimumFractionDigits: 0,
-                        maximumFractionDigits: perfCurrency === 'USD' ? 2 : 0,
-                      },
-                    )}
-                  </Text>
+                  {showFxLoading ? (
+                    <View style={styles.totalValueFxSkeleton}>
+                      <ActivityIndicator size="large" color={PRIMARY} />
+                    </View>
+                  ) : (
+                    <Text style={styles.totalValue}>
+                      {(perfCurrency === 'TL' ? performanceValues.totalValueTL : performanceValues.totalValueUSD).toLocaleString(
+                        perfCurrency === 'USD' ? 'en-US' : numberLocale,
+                        {
+                          minimumFractionDigits: 0,
+                          maximumFractionDigits: perfCurrency === 'USD' ? 2 : 0,
+                        },
+                      )}
+                    </Text>
+                  )}
                   <View style={styles.currencyPill}>
                     <Pressable
                       onPress={() => setPerfCurrency('TL')}
@@ -407,6 +423,7 @@ export default function TrendScreen() {
                   </View>
                   {(() => {
                     const isDaily = activeTimeframe === '1D';
+                    if (showFxLoading) return null;
                     const amt = isDaily
                       ? perfCurrency === 'TL'
                         ? performanceValues.dailyChangeTL
@@ -449,6 +466,11 @@ export default function TrendScreen() {
                 <Text style={styles.historyErrorText}>{historySeries.error}</Text>
               ) : null}
               <View style={styles.chartBlock}>
+                {showFxLoading && filteredHoldings.length > 0 ? (
+                  <View style={styles.chartLoadingOverlay}>
+                    <ActivityIndicator color={PRIMARY} />
+                  </View>
+                ) : null}
                 {historySeries.loading && filteredHoldings.length > 0 ? (
                   <View style={styles.chartLoadingOverlay}>
                     <ActivityIndicator color={PRIMARY} />
@@ -563,6 +585,11 @@ const styles = StyleSheet.create({
   },
   totalLabel: { fontSize: 12, color: '#94A3B8', marginBottom: 4, fontWeight: '500' },
   totalValue: { fontSize: 28, fontWeight: '700', color: WHITE, fontVariant: ['tabular-nums'] },
+  totalValueFxSkeleton: {
+    minHeight: 40,
+    justifyContent: 'center',
+    marginTop: 4,
+  },
   currencyPill: {
     flexDirection: 'row',
     marginTop: 22,
@@ -580,8 +607,8 @@ const styles = StyleSheet.create({
   currencyPillText: { fontSize: 12, fontWeight: '700', color: ON_SURFACE_VARIANT },
   currencyPillTextOn: { color: ON_PRIMARY },
   trendRow: { flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: 8 },
-  trendPositive: { fontSize: 15, fontWeight: '600', color: '#22c55e' },
-  trendNegative: { fontSize: 15, fontWeight: '600', color: '#EF4444' },
+  trendPositive: { fontSize: 15, fontWeight: '600', color: Brand.chartPositive },
+  trendNegative: { fontSize: 15, fontWeight: '600', color: Brand.chartNegative },
   trendBadge: {
     paddingHorizontal: 8,
     paddingVertical: 4,
@@ -589,8 +616,8 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(239,68,68,0.15)',
   },
   trendBadgePositive: { backgroundColor: 'rgba(34,197,94,0.15)' },
-  trendBadgeText: { fontSize: 13, fontWeight: '600', color: '#EF4444' },
-  trendBadgeTextPositive: { color: '#22c55e' },
+  trendBadgeText: { fontSize: 13, fontWeight: '600', color: Brand.chartNegative },
+  trendBadgeTextPositive: { color: Brand.chartPositive },
   chartHintBox: {
     marginBottom: 10,
     paddingVertical: 8,

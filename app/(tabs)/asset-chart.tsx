@@ -6,14 +6,15 @@ import Svg, { Defs, LinearGradient, Path, Stop } from 'react-native-svg';
 
 import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
+import { Brand } from '@/constants/brand';
 import { kriptoStoredUnitToUsd } from '@/lib/crypto-price-usd';
 import { supabase } from '@/lib/supabase';
 
 const CHART_W = 300;
 const CHART_H = 165;
 const PRIMARY = '#89acff';
-const CHART_GREEN = '#3fff8b';
-const CHART_RED = '#ff716b';
+const CHART_GREEN = Brand.chartPositive;
+const CHART_RED = Brand.chartNegative;
 const ON_SURFACE_MUTED = '#ababab';
 const TIMEFRAMES = ['1D', '1W', '1M', '1Y', '5Y'] as const;
 type Timeframe = (typeof TIMEFRAMES)[number];
