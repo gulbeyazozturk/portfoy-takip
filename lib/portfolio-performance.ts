@@ -1,8 +1,12 @@
-import type { AssetRow, HoldingRow } from '@/hooks/use-portfolio-core-data';
-import { normalizeAsset } from '@/hooks/use-portfolio-core-data';
-import { kriptoStoredUnitToUsd, legacyCryptoStoredUnitToUsd } from '@/lib/crypto-price-usd';
+import { legacyCryptoStoredUnitToUsd } from '@/lib/crypto-price-usd';
 import { effectiveChange24hPctForDisplay } from '@/lib/effective-change-24h';
-import { dailyPrevValueFromChangePct, fonUnitNativeTry } from '@/lib/fon-price-guards';
+import { dailyPrevValueFromChangePct } from '@/lib/fon-price-guards';
+import {
+  holdingMarketUnitNative,
+  normalizeAsset,
+  type AssetRow,
+  type HoldingRow,
+} from '@/lib/portfolio-holdings';
 import { isUsdNativeCategory } from '@/lib/portfolio-currency';
 
 export type PortfolioPerformanceValues = {
@@ -58,20 +62,9 @@ export function computePortfolioPerformanceValues(
   const safeRate = usdTry > 0 ? usdTry : 1;
 
   for (const h of withAsset) {
-    const asset = h.asset;
-    let unitNative = 0;
-    if (asset.category_id === 'kripto') {
-      const r = asset.current_price != null ? Number(asset.current_price) : NaN;
-      if (Number.isFinite(r) && r > 0) {
-        unitNative = kriptoStoredUnitToUsd(r, safeRate, asset.currency);
-      } else if (h.avg_price != null) {
-        unitNative = legacyCryptoStoredUnitToUsd(Number(h.avg_price), safeRate);
-      }
-    } else if (asset.category_id === 'fon') {
-      unitNative = fonUnitNativeTry(asset.current_price, h.avg_price);
-    } else {
-      unitNative = Number(asset.current_price ?? h.avg_price ?? 0) || 0;
-    }
+    const { unitNative, asset: valuedAsset } = holdingMarketUnitNative(h, safeRate);
+    const asset = valuedAsset as AssetRow;
+    if (!asset) continue;
     const costUnit =
       h.avg_price != null && h.avg_price > 0
         ? asset.category_id === 'kripto'

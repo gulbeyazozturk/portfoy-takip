@@ -5,6 +5,7 @@ import { Session, User } from '@supabase/supabase-js';
 import React, { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react';
 import { Platform } from 'react-native';
 
+import { createAppleSignInNonce } from '@/lib/apple-sign-in-nonce';
 import { parseAuthCallbackParams } from '@/lib/auth-callback-params';
 import { mapAuthErrorMessage } from '@/lib/auth-error-map';
 import i18n from '@/lib/i18n';
@@ -52,6 +53,8 @@ function isPasswordRecoveryPath(url: string | null): boolean {
   return /(reset-password|update-password|password-reset|resetPassword)/i.test(url);
 }
 
+type SocialSignInResult = { error: string | null; hasSession: boolean };
+
 type AuthContextValue = {
   loading: boolean;
   session: Session | null;
@@ -60,8 +63,8 @@ type AuthContextValue = {
   signUpWithEmail: (email: string, password: string) => Promise<{ error: string | null }>;
   signInWithEmail: (email: string, password: string) => Promise<{ error: string | null; hasSession: boolean }>;
   requestPasswordReset: (email: string) => Promise<{ error: string | null }>;
-  signInWithGoogle: () => Promise<{ error: string | null }>;
-  signInWithApple: () => Promise<{ error: string | null }>;
+  signInWithGoogle: () => Promise<SocialSignInResult>;
+  signInWithApple: () => Promise<SocialSignInResult>;
   completePasswordRecoveryFlow: () => void;
   signOut: () => Promise<void>;
 };
@@ -169,7 +172,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     return { error: error ? mapAuthErrorMessage(error.message) : null };
   }, []);
 
-  const signInWithOAuth = useCallback(async (provider: 'google' | 'apple') => {
+  const signInWithOAuth = useCallback(async (provider: 'google' | 'apple'): Promise<SocialSignInResult> => {
     const redirectTo = getOAuthRedirectUrl();
 
     if (Platform.OS === 'web') {
@@ -177,88 +180,92 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         provider,
         options: { redirectTo, skipBrowserRedirect: true },
       });
-      if (error) return { error: mapAuthErrorMessage(error.message) };
+      if (error) return { error: mapAuthErrorMessage(error.message), hasSession: false };
       if (data?.url && typeof window !== 'undefined') {
         window.location.assign(data.url);
-        return { error: null };
+        return { error: null, hasSession: false };
       }
-      return { error: i18n.t('errors.oauthStart') };
+      return { error: i18n.t('errors.oauthStart'), hasSession: false };
     }
 
     const { data, error } = await supabase.auth.signInWithOAuth({
       provider,
       options: { redirectTo, skipBrowserRedirect: true },
     });
-    if (error || !data?.url) return { error: error ? mapAuthErrorMessage(error.message) : i18n.t('errors.oauthStart') };
+    if (error || !data?.url) {
+      return {
+        error: error ? mapAuthErrorMessage(error.message) : i18n.t('errors.oauthStart'),
+        hasSession: false,
+      };
+    }
 
     let result: WebBrowser.WebBrowserAuthSessionResult;
     try {
       result = await WebBrowser.openAuthSessionAsync(data.url, redirectTo);
     } catch {
-      return { error: i18n.t('errors.oauthIncomplete') };
+      return { error: i18n.t('errors.oauthIncomplete'), hasSession: false };
     }
 
+    const sessionFromStorage = async (): Promise<boolean> => {
+      const { data } = await supabase.auth.getSession();
+      return !!data.session;
+    };
+
     if (result.type === 'cancel' || result.type === 'dismiss') {
-      let { data: afterDismiss } = await supabase.auth.getSession();
-      if (!afterDismiss.session) {
+      let hasSession = await sessionFromStorage();
+      if (!hasSession) {
         const waited = await waitForSupabaseSessionAfterBrowser();
-        if (waited) {
-          afterDismiss = (await supabase.auth.getSession()).data;
-        }
+        if (waited) hasSession = await sessionFromStorage();
       }
-      if (afterDismiss.session) return { error: null };
-      return { error: i18n.t('errors.oauthCancelled') };
+      if (hasSession) return { error: null, hasSession: true };
+      return { error: i18n.t('errors.oauthCancelled'), hasSession: false };
     }
     if (result.type !== 'success' || !result.url) {
-      let { data: afterBad } = await supabase.auth.getSession();
-      if (!afterBad.session) {
+      let hasSession = await sessionFromStorage();
+      if (!hasSession) {
         const waited = await waitForSupabaseSessionAfterBrowser();
-        if (waited) afterBad = (await supabase.auth.getSession()).data;
+        if (waited) hasSession = await sessionFromStorage();
       }
-      if (afterBad.session) return { error: null };
-      return { error: i18n.t('errors.oauthIncomplete') };
+      if (hasSession) return { error: null, hasSession: true };
+      return { error: i18n.t('errors.oauthIncomplete'), hasSession: false };
     }
 
     let params: Record<string, string>;
     try {
       params = parseAuthCallbackParams(result.url);
     } catch {
-      return { error: i18n.t('errors.oauthIncomplete') };
+      return { error: i18n.t('errors.oauthIncomplete'), hasSession: false };
     }
 
     if (params.error) {
       const raw = params.error_description ?? params.error;
-      return { error: mapAuthErrorMessage(raw.replace(/\+/g, ' ')) };
+      return { error: mapAuthErrorMessage(raw.replace(/\+/g, ' ')), hasSession: false };
     }
 
     try {
       if (params.code) {
         const { error: exchangeError } = await supabase.auth.exchangeCodeForSession(params.code);
         if (!exchangeError) {
-          return { error: null };
+          return { error: null, hasSession: await sessionFromStorage() };
         }
         if (exchangeError.message?.toLowerCase().includes('code verifier')) {
           return {
             error: i18n.t('errors.pkceMismatch'),
+            hasSession: false,
           };
         }
-        const { data: postEx } = await supabase.auth.getSession();
-        if (postEx.session) return { error: null };
+        if (await sessionFromStorage()) return { error: null, hasSession: true };
         const waited = await waitForSupabaseSessionAfterBrowser(45);
-        if (waited) {
-          const { data: late } = await supabase.auth.getSession();
-          if (late.session) return { error: null };
+        if (waited && (await sessionFromStorage())) {
+          return { error: null, hasSession: true };
         }
-        return { error: mapAuthErrorMessage(exchangeError.message) };
+        return { error: mapAuthErrorMessage(exchangeError.message), hasSession: false };
       }
 
-      {
-        const { data: sid } = await supabase.auth.getSession();
-        if (sid.session) return { error: null };
-        const ok = await waitForSupabaseSessionAfterBrowser();
-        if (ok && (await supabase.auth.getSession()).data.session) {
-          return { error: null };
-        }
+      if (await sessionFromStorage()) return { error: null, hasSession: true };
+      const ok = await waitForSupabaseSessionAfterBrowser();
+      if (ok && (await sessionFromStorage())) {
+        return { error: null, hasSession: true };
       }
 
       const access_token = params.access_token;
@@ -266,48 +273,80 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       if (!access_token || !refresh_token) {
         return {
           error: i18n.t('errors.sessionParams', { url: redirectTo }),
+          hasSession: false,
         };
       }
 
       const { error: setSessionError } = await supabase.auth.setSession({ access_token, refresh_token });
-      return { error: setSessionError ? mapAuthErrorMessage(setSessionError.message) : null };
+      if (setSessionError) {
+        return { error: mapAuthErrorMessage(setSessionError.message), hasSession: false };
+      }
+      return { error: null, hasSession: await sessionFromStorage() };
     } catch (e: unknown) {
       const msg = e instanceof Error ? e.message : String(e);
-      return { error: mapAuthErrorMessage(msg || i18n.t('errors.oauthIncomplete')) };
+      return { error: mapAuthErrorMessage(msg || i18n.t('errors.oauthIncomplete')), hasSession: false };
     }
   }, []);
 
   const signInWithGoogle = useCallback(() => signInWithOAuth('google'), [signInWithOAuth]);
 
-  const signInWithApple = useCallback(async () => {
+  const signInWithApple = useCallback(async (): Promise<SocialSignInResult> => {
     if (Platform.OS === 'ios') {
       const available = await AppleAuthentication.isAvailableAsync();
       if (available) {
         try {
+          const { rawNonce, hashedNonce } = await createAppleSignInNonce();
           const credential = await AppleAuthentication.signInAsync({
             requestedScopes: [
               AppleAuthentication.AppleAuthenticationScope.FULL_NAME,
               AppleAuthentication.AppleAuthenticationScope.EMAIL,
             ],
+            nonce: hashedNonce,
           });
 
           if (!credential.identityToken) {
-            return { error: i18n.t('errors.appleToken') };
+            return { error: i18n.t('errors.appleToken'), hasSession: false };
           }
 
-          const { error } = await supabase.auth.signInWithIdToken({
+          const { data, error } = await supabase.auth.signInWithIdToken({
             provider: 'apple',
             token: credential.identityToken,
+            nonce: rawNonce,
           });
 
-          return { error: error ? mapAuthErrorMessage(error.message) : null };
+          if (error) {
+            return { error: mapAuthErrorMessage(error.message), hasSession: false };
+          }
+
+          if (credential.fullName) {
+            const parts: string[] = [];
+            if (credential.fullName.givenName) parts.push(credential.fullName.givenName);
+            if (credential.fullName.middleName) parts.push(credential.fullName.middleName);
+            if (credential.fullName.familyName) parts.push(credential.fullName.familyName);
+            const fullName = parts.join(' ').trim();
+            if (fullName) {
+              void supabase.auth.updateUser({
+                data: {
+                  full_name: fullName,
+                  given_name: credential.fullName.givenName ?? undefined,
+                  family_name: credential.fullName.familyName ?? undefined,
+                },
+              });
+            }
+          }
+
+          const hasSession = !!data.session;
+          if (hasSession) return { error: null, hasSession: true };
+
+          const waited = await waitForSupabaseSessionAfterBrowser(90);
+          return { error: null, hasSession: waited };
         } catch (e: unknown) {
           const code = e && typeof e === 'object' && 'code' in e ? String((e as { code?: string }).code) : '';
           if (code === 'ERR_REQUEST_CANCELED' || code === 'ERR_CANCELED') {
-            return { error: i18n.t('errors.oauthCancelled') };
+            return { error: i18n.t('errors.oauthCancelled'), hasSession: false };
           }
           const msg = e instanceof Error ? e.message : i18n.t('errors.appleNativeFailed');
-          return { error: mapAuthErrorMessage(msg) };
+          return { error: mapAuthErrorMessage(msg), hasSession: false };
         }
       }
     }

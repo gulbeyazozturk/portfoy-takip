@@ -138,6 +138,7 @@ export function PortfolioScreen() {
     portfolios,
     selectPortfolio,
     currentPortfolioName,
+    metricsReady,
   } = usePortfolioCoreData();
   const minuteTick = useMinuteTick();
   const [portfolioPickerOpen, setPortfolioPickerOpen] = useState(false);
@@ -258,6 +259,9 @@ export function PortfolioScreen() {
     if (filteredNeedsFx && !(usdTry > MIN_VALID_USD_TRY_RATE)) {
       return null;
     }
+    if (!metricsReady) {
+      return null;
+    }
 
     const now = new Date();
     let totalUSD = 0;
@@ -358,7 +362,7 @@ export function PortfolioScreen() {
       mergedTotalPctTL,
       mergedTotalPctUSD,
     };
-  }, [filteredHoldings, usdTry, minuteTick]);
+  }, [filteredHoldings, usdTry, minuteTick, metricsReady]);
 
   const openPortfolioPicker = () => {
     if (portfolios.length > 0) setPortfolioPickerOpen(true);
@@ -677,6 +681,25 @@ export function PortfolioScreen() {
                       minimumFractionDigits: 2,
                       maximumFractionDigits: 2,
                     })}%`;
+                const changeAmtNative =
+                  summaryMode === 'daily'
+                    ? dailyPrevValueFromChangePct(value, changePct).dailyDelta
+                    : costPrice != null
+                      ? value - h.quantity * costPrice
+                      : 0;
+                const displayedChangeAmt =
+                  nativeCurrency === displayCurrency
+                    ? changeAmtNative
+                    : nativeCurrency === 'USD'
+                      ? changeAmtNative * rate
+                      : changeAmtNative / rate;
+                const amtNeutral = Math.abs(displayedChangeAmt) < 0.5;
+                const amtUp = displayedChangeAmt > 0;
+                const amtText = amtNeutral
+                  ? `0 ${displayCurrency}`
+                  : displayCurrency === 'USD'
+                    ? `${amtUp ? '+' : '-'}$${formatAmountCeiling(Math.abs(displayedChangeAmt), 'en-US')}`
+                    : `${amtUp ? '+' : '-'}${formatAmountCeiling(Math.abs(displayedChangeAmt), displayLocale)} ${displayCurrency}`;
                 const iconStyle =
                   ASSET_ICONS[asset.symbol] ??
                   ASSET_ICONS[asset.category_id] ??
@@ -757,20 +780,20 @@ export function PortfolioScreen() {
                         )}
                       </Text>
                       <View style={styles.assetPctRow}>
-                        {!isNeutral ? (
+                        {!amtNeutral ? (
                           <Ionicons
-                            name={up ? 'caret-up' : 'caret-down'}
+                            name={amtUp ? 'caret-up' : 'caret-down'}
                             size={14}
-                            color={up ? SECONDARY : ERROR}
+                            color={amtUp ? SECONDARY : ERROR}
                           />
                         ) : null}
                         <Text
                           style={[
                             styles.assetPct,
                             { fontFamily: fontBodySemi },
-                            isNeutral ? styles.assetPctNeutral : up ? styles.assetPctUp : styles.assetPctDown,
+                            amtNeutral ? styles.assetPctNeutral : amtUp ? styles.assetPctUp : styles.assetPctDown,
                           ]}>
-                          {pctText}
+                          {amtText}
                         </Text>
                       </View>
                     </View>

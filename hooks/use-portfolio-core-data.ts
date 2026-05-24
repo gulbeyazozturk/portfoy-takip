@@ -1,19 +1,30 @@
 import { useFocusEffect } from '@react-navigation/native';
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 
 import { usePortfolio } from '@/context/portfolio';
 import { useMinuteTick } from '@/hooks/use-minute-tick';
 import { CATEGORY_CHART_COLORS } from '@/lib/category-chart-colors';
 import { categoryDisplayLabel } from '@/lib/category-display';
-import { kriptoStoredUnitToUsd, legacyCryptoStoredUnitToUsd } from '@/lib/crypto-price-usd';
+import { legacyCryptoStoredUnitToUsd } from '@/lib/crypto-price-usd';
 import { effectiveChange24hPctForDisplay } from '@/lib/effective-change-24h';
-import { dailyPrevValueFromChangePct, fonUnitNativeTry } from '@/lib/fon-price-guards';
+import { dailyPrevValueFromChangePct } from '@/lib/fon-price-guards';
 import { isUsdNativeCategory } from '@/lib/portfolio-currency';
+import {
+  holdingMarketUnitNative,
+  isHoldingMarketPriceReady,
+  mergeHoldingsPreservePrices,
+  normalizeAsset,
+  type AssetRow,
+  type HoldingRow,
+} from '@/lib/portfolio-holdings';
 import { MIN_VALID_USD_TRY_RATE, persistUsdTryRate, readCachedUsdTryRate } from '@/lib/usdtry-cache';
 import { supabase } from '@/lib/supabase';
 
 import type { DonutSlice } from '@/components/ultra-dark-donut-chart';
+
+export type { AssetRow, HoldingRow } from '@/lib/portfolio-holdings';
+export { normalizeAsset } from '@/lib/portfolio-holdings';
 
 export type AllocationBreakdownRow = {
   categoryId: string;
@@ -27,24 +38,6 @@ export type AllocationBreakdownRow = {
 export const CATEGORY_COLORS = CATEGORY_CHART_COLORS;
 
 export type CategoryRow = { id: string; name: string; sort_order: number };
-export type AssetRow = {
-  id: string;
-  name: string;
-  symbol: string;
-  category_id: string;
-  current_price: number | null;
-  currency?: string | null;
-  icon_url?: string | null;
-  change_24h_pct?: number | null;
-  price_updated_at?: string | null;
-};
-export type HoldingRow = {
-  id: string;
-  quantity: number;
-  avg_price: number | null;
-  created_at: string;
-  asset: AssetRow | AssetRow[] | null;
-};
 
 /** Kategori kartları / özet: günlük (24s) ve tümü (maliyete göre) */
 export type CategoryPerformanceMetrics = {
@@ -57,13 +50,6 @@ export type CategoryPerformanceMetrics = {
   totalChangeUSD: number;
   totalPctUSD: number;
 };
-
-export function normalizeAsset(asset: HoldingRow['asset']): AssetRow | null {
-  if (!asset) return null;
-  const a = Array.isArray(asset) ? asset[0] ?? null : asset;
-  if (a) a.symbol = a.symbol.replace(/^M\d+_/, '');
-  return a;
-}
 
 /** Döviz sembol eşlemesi (M*_ öneki kalkmış büyük harf); spot haritası anahtarları için. */
 function dovizSymbolKey(symbol: string | null | undefined): string {
@@ -84,6 +70,8 @@ export function usePortfolioCoreData() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const minuteTick = useMinuteTick();
+  const holdingsFetchGenRef = useRef(0);
+  const holdingsPortfolioRef = useRef<string | null>(null);
 
   const fetchUsdRate = useCallback(async () => {
     try {
@@ -135,8 +123,11 @@ export function usePortfolioCoreData() {
       setLoading(false);
       return;
     }
-    setLoading(true);
+    const fetchGen = ++holdingsFetchGenRef.current;
+    const portfolioSwitched = holdingsPortfolioRef.current !== portfolioId;
+    holdingsPortfolioRef.current = portfolioId;
     setError(null);
+    setLoading((prevLoading) => portfolioSwitched || prevLoading);
     const { data, error: e } = await supabase
       .from('holdings')
       .select(
@@ -219,9 +210,16 @@ export function usePortfolioCoreData() {
         }
       }
 
-      setHoldings(updatedHoldings);
+      if (fetchGen !== holdingsFetchGenRef.current) return;
+      setHoldings((prev) =>
+        portfolioSwitched || !prev.length
+          ? updatedHoldings
+          : mergeHoldingsPreservePrices(prev, updatedHoldings),
+      );
     }
-    setLoading(false);
+    if (fetchGen === holdingsFetchGenRef.current) {
+      setLoading(false);
+    }
   }, [portfolioId]);
 
   useEffect(() => {
@@ -242,6 +240,9 @@ export function usePortfolioCoreData() {
   }, [fetchCategories, fetchUsdRate]);
 
   useEffect(() => {
+    holdingsPortfolioRef.current = null;
+    setHoldings([]);
+    setLoading(true);
     fetchHoldings();
   }, [fetchHoldings]);
 
@@ -277,6 +278,14 @@ export function usePortfolioCoreData() {
     return !needs || usdTry > MIN_VALID_USD_TRY_RATE;
   }, [holdings, usdTry]);
 
+  const valuationReady = useMemo(() => {
+    if (holdings.length === 0) return true;
+    const rate = usdTry > MIN_VALID_USD_TRY_RATE ? usdTry : 1;
+    return holdings.every((h) => isHoldingMarketPriceReady(h, rate));
+  }, [holdings, usdTry]);
+
+  const metricsReady = fxRateReady && valuationReady;
+
   const { allocationData, allocationBreakdown, portfolioMetrics, categoryPerformanceById } = useMemo(() => {
     const emptyMetrics = {
       totalValueTL: 0,
@@ -310,6 +319,11 @@ export function usePortfolioCoreData() {
       return empty;
     }
 
+    const rateForReady = usdTry > MIN_VALID_USD_TRY_RATE ? usdTry : 1;
+    if (!withAsset.every((h) => isHoldingMarketPriceReady(h, rateForReady))) {
+      return empty;
+    }
+
     const now = new Date();
 
     const byCategoryTL: Record<string, number> = {};
@@ -326,20 +340,9 @@ export function usePortfolioCoreData() {
     const safeRatePrev = usdDailyFactor > 0 ? safeRate / usdDailyFactor : safeRate;
 
     for (const h of withAsset) {
-      const asset = h.asset as AssetRow;
-      let unitNative = 0;
-      if (asset.category_id === 'kripto') {
-        const r = asset.current_price != null ? Number(asset.current_price) : NaN;
-        if (Number.isFinite(r) && r > 0) {
-          unitNative = kriptoStoredUnitToUsd(r, safeRate, asset.currency);
-        } else if (h.avg_price != null) {
-          unitNative = legacyCryptoStoredUnitToUsd(Number(h.avg_price), safeRate);
-        }
-      } else if (asset.category_id === 'fon') {
-        unitNative = fonUnitNativeTry(asset.current_price, h.avg_price);
-      } else {
-        unitNative = Number(asset.current_price ?? h.avg_price ?? 0) || 0;
-      }
+      const { unitNative, asset: valuedAsset } = holdingMarketUnitNative(h, safeRate);
+      const asset = valuedAsset as AssetRow;
+      if (!asset) continue;
       const isUSD = isUsdNativeCategory(asset.category_id);
       const rateTL = isUSD ? safeRate : 1;
       const rateUSD = isUSD ? 1 : 1 / safeRate;
@@ -500,5 +503,7 @@ export function usePortfolioCoreData() {
     fetchHoldings,
     fetchUsdRate,
     fxRateReady,
+    valuationReady,
+    metricsReady,
   };
 }

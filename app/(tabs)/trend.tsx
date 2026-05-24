@@ -206,10 +206,10 @@ export default function TrendScreen() {
     portfolios,
     selectPortfolio,
     currentPortfolioName,
-    fxRateReady,
+    metricsReady,
   } = usePortfolioCoreData();
 
-  const showFxLoading = holdings.length > 0 && !fxRateReady;
+  const showFxLoading = holdings.length > 0 && !metricsReady;
 
   const trendCategories = useMemo(() => {
     const list: { id: string; name: string }[] = [];
@@ -232,15 +232,15 @@ export default function TrendScreen() {
   const performanceValues = useMemo(
     () =>
       computePortfolioPerformanceValues(
-        fxRateReady ? filteredHoldings : [],
+        metricsReady ? filteredHoldings : [],
         usdTry > MIN_VALID_USD_TRY_RATE ? usdTry : 1,
         { now: new Date() },
       ),
-    [filteredHoldings, usdTry, minuteTick, fxRateReady],
+    [filteredHoldings, usdTry, minuteTick, metricsReady],
   );
 
   const historySeries = usePortfolioHistorySeries(
-    fxRateReady ? filteredHoldings : [],
+    metricsReady ? filteredHoldings : [],
     usdTry,
     activeTimeframe as PortfolioHistoryTf,
     perfCurrency,

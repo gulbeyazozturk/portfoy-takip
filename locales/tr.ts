@@ -363,6 +363,8 @@ export default {
     oauthStart: 'OAuth başlatılamadı.',
     appleToken: 'Apple oturum bilgisi alınamadı. Lütfen tekrar dene.',
     appleNativeFailed: 'Apple ile giriş bu cihazda tamamlanamadı. Tekrar dene veya e-posta ile giriş yap.',
+    appleClientIdMismatch:
+      'Apple girişi yapılandırması eksik. Supabase → Authentication → Apple → Client IDs listesine uygulama bundle ID’sini ekle (ör. com.gulbeyazozturk.omnifolio; Expo Go için host.exp.Exponent).',
     signInIncomplete: 'Giriş tamamlanamadı. Lütfen tekrar dene.',
     missingSupabaseBuildConfigTitle: 'Yapılandırma eksik',
     missingSupabaseBuildConfigBody:

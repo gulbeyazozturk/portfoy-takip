@@ -91,7 +91,7 @@ export default function HomeScreen() {
     portfolios,
     selectPortfolio,
     currentPortfolioName,
-    fxRateReady,
+    metricsReady,
   } = usePortfolioCoreData();
 
   const lastGridTapRef = useRef<{ at: number; categoryId: string } | null>(null);
@@ -144,7 +144,7 @@ export default function HomeScreen() {
         : portfolioMetrics.totalChangeAmtUSD;
   const pctPositive = heroPct >= 0;
 
-  const showFxLoading = holdings.length > 0 && !fxRateReady;
+  const showFxLoading = holdings.length > 0 && !metricsReady;
 
   const fmtMoney = (n: number) =>
     valueCurrency === 'USD'

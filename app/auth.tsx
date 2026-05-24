@@ -121,11 +121,13 @@ export default function AuthScreen() {
     setInfo(null);
     try {
       const fn = provider === 'google' ? signInWithGoogle : signInWithApple;
-      const { error: authError } = await withTimeout(fn(), 60000);
+      const { error: authError, hasSession } = await withTimeout(fn(), 60000);
       if (authError) {
         setError(authError);
         return;
       }
+      if (hasSession) return;
+
       let { data, error: sessionError } = await supabase.auth.getSession();
       if (sessionError) {
         setError(sessionError.message);

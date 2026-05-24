@@ -15,6 +15,17 @@ export function mapAuthErrorMessage(message: string | null | undefined): string 
     return i18n.t('auth.providerNotEnabled');
   }
 
+  if (
+    normalized.includes('bad id token') ||
+    normalized.includes('unacceptable audience') ||
+    normalized.includes('invalid audience')
+  ) {
+    return i18n.t('errors.appleClientIdMismatch');
+  }
+  if (normalized.includes('nonce')) {
+    return i18n.t('errors.appleNativeFailed');
+  }
+
   if (normalized.includes('invalid login credentials')) return i18n.t('auth.invalidCredentials');
   if (normalized.includes('email not confirmed')) return i18n.t('auth.emailNotConfirmed');
   if (normalized.includes('new password should be different')) return i18n.t('auth.newPasswordMustDiffer');

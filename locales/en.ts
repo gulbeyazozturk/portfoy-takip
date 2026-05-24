@@ -356,6 +356,8 @@ export default {
     oauthStart: 'Could not start OAuth.',
     appleToken: 'Could not get Apple credentials. Please try again.',
     appleNativeFailed: 'Apple Sign In failed on this device. Try again or use email.',
+    appleClientIdMismatch:
+      'Apple sign-in is misconfigured. In Supabase → Authentication → Apple → Client IDs, add your app bundle ID (e.g. com.gulbeyazozturk.omnifolio; for Expo Go use host.exp.Exponent).',
     signInIncomplete: 'Sign-in could not be completed. Please try again.',
     missingSupabaseBuildConfigTitle: 'Configuration missing',
     missingSupabaseBuildConfigBody:
