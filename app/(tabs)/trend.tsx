@@ -133,7 +133,11 @@ function TrendInteractiveChart({
         onResponderGrant={handleTouch}
         onResponderMove={handleTouch}
         onResponderRelease={() => onSelect(null)}>
-        <Svg width="100%" height={CHART_H} viewBox={`0 0 ${CHART_W} ${CHART_H}`} preserveAspectRatio="none">
+        <Svg
+          width="100%"
+          height={chartHeight}
+          viewBox={`0 0 ${CHART_W} ${chartHeight}`}
+          preserveAspectRatio="none">
           <Defs>
             <LinearGradient id="trendChartGradFill" x1="0%" x2="0%" y1="0%" y2="100%">
               <Stop offset="0%" stopColor={lineColor} stopOpacity="0.2" />
@@ -162,7 +166,7 @@ function TrendInteractiveChart({
             strokeLinejoin="round"
           />
           {selectedIdx != null && (
-            <Path d={`M ${selX} 0 L ${selX} ${CHART_H}`} stroke="rgba(255,255,255,0.4)" strokeWidth={1} />
+            <Path d={`M ${selX} 0 L ${selX} ${chartHeight}`} stroke="rgba(255,255,255,0.4)" strokeWidth={1} />
           )}
         </Svg>
         {selectedIdx != null && chartWidth > 0 && (
