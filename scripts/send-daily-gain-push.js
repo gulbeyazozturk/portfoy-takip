@@ -31,6 +31,8 @@ const MIN_RISE_FOR_QUERY = Math.min(...RISE_TIERS);
 const MAX_FALL_FOR_QUERY = Math.max(...FALL_TIERS);
 
 const EXPO_PUSH_URL = 'https://exp.host/--/api/v2/push/send';
+/** Toz miktar / yuvarlama: pratikte sıfır sayılan holding adedi. */
+const MIN_HOLDING_QTY = 1e-8;
 const NOTIFY_HOUR_START = Number(process.env.DAILY_GAIN_PUSH_LOCAL_START_HOUR || '9');
 const NOTIFY_HOUR_END_EXCLUSIVE = Number(process.env.DAILY_GAIN_PUSH_LOCAL_END_HOUR || '22');
 const SUMMARY_HOUR = Number(process.env.DAILY_SUMMARY_LOCAL_HOUR || '23');
@@ -171,37 +173,11 @@ function chunk(arr, size) {
   return out;
 }
 
+/**
+ * Yalnızca quantity > 0 olan holding'ler — satılan (silinen / sıfırlanan) pozisyonlara push gitmez.
+ * Varlık listesinden değil holding'den başlarız; "piyasada yükselen ama portföyde olmayan" eşleşme riski kalmaz.
+ */
 async function fetchCandidates() {
-  const { data: assets, error: assetsError } = await supabase
-    .from('assets')
-    .select('id, category_id, symbol, name, currency, current_price, change_24h_pct, price_updated_at')
-    .or(`change_24h_pct.gte.${MIN_RISE_FOR_QUERY},change_24h_pct.lte.${MAX_FALL_FOR_QUERY}`)
-    .limit(10000);
-  if (assetsError) throw new Error(`assets query failed: ${assetsError.message}`);
-  if (!assets?.length) return [];
-
-  const assetMap = new Map();
-  for (const a of assets) {
-    const id = a.id;
-    const change = Number(a.change_24h_pct);
-    const currentPrice = a.current_price != null ? Number(a.current_price) : NaN;
-    if (!id || !Number.isFinite(change)) continue;
-    if (!Number.isFinite(currentPrice) || currentPrice <= 0) continue;
-    if (change < MIN_RISE_FOR_QUERY && change > MAX_FALL_FOR_QUERY) continue;
-    assetMap.set(id, {
-      asset_id: id,
-      category_id: String(a.category_id || '').toLowerCase(),
-      symbol: a.symbol || 'Varlik',
-      name: a.name || a.symbol || 'Varlik',
-      currency: String(a.currency || 'TRY').toUpperCase(),
-      current_price: currentPrice,
-      change_24h_pct: change,
-      price_updated_at: a.price_updated_at || null,
-    });
-  }
-  const assetIds = [...assetMap.keys()];
-  if (!assetIds.length) return [];
-
   const { data: portfolios, error: portfoliosError } = await supabase
     .from('portfolios')
     .select('id, user_id')
@@ -210,26 +186,49 @@ async function fetchCandidates() {
   if (portfoliosError) throw new Error(`portfolios query failed: ${portfoliosError.message}`);
 
   const portfolioUserMap = new Map((portfolios || []).map((p) => [p.id, p.user_id]));
-  const rows = [];
-  for (const assetIdChunk of chunk(assetIds, 200)) {
+  const portfolioIds = [...portfolioUserMap.keys()];
+  if (!portfolioIds.length) return [];
+
+  const out = new Map();
+  for (const pidChunk of chunk(portfolioIds, 200)) {
     const { data: holdings, error: holdingsError } = await supabase
       .from('holdings')
-      .select('asset_id, portfolio_id')
-      .in('asset_id', assetIdChunk)
+      .select(
+        'portfolio_id, quantity, asset:assets!inner(id, category_id, symbol, name, currency, current_price, change_24h_pct, price_updated_at)',
+      )
+      .in('portfolio_id', pidChunk)
       .gt('quantity', 0)
       .limit(100000);
     if (holdingsError) throw new Error(`holdings query failed: ${holdingsError.message}`);
-    rows.push(...(holdings || []));
-  }
 
-  const out = new Map();
-  for (const h of rows) {
-    const userId = portfolioUserMap.get(h.portfolio_id);
-    const asset = assetMap.get(h.asset_id);
-    if (!userId || !asset) continue;
-    const key = `${userId}:${asset.asset_id}`;
-    if (out.has(key)) continue;
-    out.set(key, { user_id: userId, ...asset });
+    for (const h of holdings || []) {
+      const userId = portfolioUserMap.get(h.portfolio_id);
+      const a = h.asset;
+      if (!userId || !a?.id) continue;
+
+      const qty = Number(h.quantity);
+      if (!Number.isFinite(qty) || qty <= MIN_HOLDING_QTY) continue;
+
+      const change = Number(a.change_24h_pct);
+      const currentPrice = a.current_price != null ? Number(a.current_price) : NaN;
+      if (!Number.isFinite(change)) continue;
+      if (!Number.isFinite(currentPrice) || currentPrice <= 0) continue;
+      if (change < MIN_RISE_FOR_QUERY && change > MAX_FALL_FOR_QUERY) continue;
+
+      const key = `${userId}:${a.id}`;
+      if (out.has(key)) continue;
+      out.set(key, {
+        user_id: userId,
+        asset_id: a.id,
+        category_id: String(a.category_id || '').toLowerCase(),
+        symbol: a.symbol || 'Varlik',
+        name: a.name || a.symbol || 'Varlik',
+        currency: String(a.currency || 'TRY').toUpperCase(),
+        current_price: currentPrice,
+        change_24h_pct: change,
+        price_updated_at: a.price_updated_at || null,
+      });
+    }
   }
   return [...out.values()];
 }
@@ -580,7 +579,7 @@ async function fetchUserHoldingsWithPrices() {
     ]),
   );
   const portfolioIds = [...portfolioMetaById.keys()];
-  if (!portfolioIds.length) return { rows: [] };
+  if (!portfolioIds.length) return { rows: [], portfolios: portfolios || [] };
 
   const rows = [];
   for (const pidChunk of chunk(portfolioIds, 200)) {
@@ -590,17 +589,19 @@ async function fetchUserHoldingsWithPrices() {
         'portfolio_id, quantity, avg_price, asset:assets(category_id, symbol, currency, current_price, change_24h_pct, price_updated_at)',
       )
       .in('portfolio_id', pidChunk)
+      .gt('quantity', 0)
       .limit(100000);
     if (error) throw new Error(`holdings summary query failed: ${error.message}`);
     for (const h of holdings || []) {
       const portfolioMeta = portfolioMetaById.get(h.portfolio_id);
       if (!portfolioMeta?.user_id) continue;
       const qty = Number(h.quantity);
-      if (!Number.isFinite(qty) || qty <= 0 || !h?.asset) continue;
+      if (!Number.isFinite(qty) || qty <= MIN_HOLDING_QTY || !h?.asset) continue;
       rows.push({
         user_id: portfolioMeta.user_id,
         portfolio_id: h.portfolio_id,
         portfolio_name: portfolioMeta.name,
+        portfolio_created_at: portfolioMeta.created_at,
         quantity: qty,
         avg_price: h.avg_price != null ? Number(h.avg_price) : null,
         category_id: String(h?.asset?.category_id || '').toLowerCase(),
@@ -615,10 +616,29 @@ async function fetchUserHoldingsWithPrices() {
       });
     }
   }
-  return { rows };
+  return { rows, portfolios: portfolios || [] };
 }
 
-function computePortfolioDailySummaryByUser(rows, usdTry) {
+function portfolioCreatedAtMs(iso) {
+  const t = Date.parse(iso || '');
+  return Number.isFinite(t) ? t : 0;
+}
+
+/** Kullanıcı başına en son oluşturulan portföy (created_at). */
+function latestPortfolioIdByUser(portfolios) {
+  const out = new Map();
+  for (const p of portfolios || []) {
+    if (!p.user_id || !p.id) continue;
+    const ms = portfolioCreatedAtMs(p.created_at);
+    const cur = out.get(p.user_id);
+    if (!cur || ms > cur.ms) {
+      out.set(p.user_id, { portfolio_id: p.id, ms });
+    }
+  }
+  return out;
+}
+
+function computePortfolioDailySummaryByUser(rows, usdTry, portfolios) {
   const agg = new Map();
   const now = new Date();
   for (const r of rows) {
@@ -636,6 +656,7 @@ function computePortfolioDailySummaryByUser(rows, usdTry) {
         user_id: r.user_id,
         portfolio_id: r.portfolio_id,
         portfolio_name: r.portfolio_name || 'Portfoy',
+        portfolio_created_at: r.portfolio_created_at || '',
         total_tl: 0,
         daily_change_tl: 0,
         topRisers: new Map(),
@@ -652,9 +673,13 @@ function computePortfolioDailySummaryByUser(rows, usdTry) {
     agg.set(key, entry);
   }
 
+  const latestByUser = latestPortfolioIdByUser(portfolios);
   const out = new Map();
   for (const v of agg.values()) {
     if (!Number.isFinite(v.total_tl) || v.total_tl <= 0) continue;
+    const latest = latestByUser.get(v.user_id);
+    if (!latest || latest.portfolio_id !== v.portfolio_id) continue;
+
     const prevTL = v.total_tl - v.daily_change_tl;
     const pct =
       prevTL > 0 ? Math.round((v.daily_change_tl / prevTL) * 10000) / 100 : 0;
@@ -663,17 +688,14 @@ function computePortfolioDailySummaryByUser(rows, usdTry) {
       .sort((a, b) => b.change_24h_pct - a.change_24h_pct)
       .slice(0, 3)
       .map((x) => x.symbol);
-    const existing = out.get(v.user_id);
-    if (!existing || v.total_tl > existing.total_tl) {
-      out.set(v.user_id, {
-        portfolio_id: v.portfolio_id,
-        portfolio_name: v.portfolio_name,
-        total_tl: v.total_tl,
-        daily_change_tl: v.daily_change_tl,
-        daily_pct_tl: pct,
-        topRisers,
-      });
-    }
+    out.set(v.user_id, {
+      portfolio_id: v.portfolio_id,
+      portfolio_name: v.portfolio_name,
+      total_tl: v.total_tl,
+      daily_change_tl: v.daily_change_tl,
+      daily_pct_tl: pct,
+      topRisers,
+    });
   }
   return out;
 }
@@ -685,7 +707,11 @@ async function main() {
   const usdTry = await fetchUsdTryRate();
   const summaryPayload = await fetchUserHoldingsWithPrices();
   const summaryRows = summaryPayload.rows;
-  const summaryByUser = computePortfolioDailySummaryByUser(summaryRows, usdTry);
+  const summaryByUser = computePortfolioDailySummaryByUser(
+    summaryRows,
+    usdTry,
+    summaryPayload.portfolios,
+  );
   const uniqueUserIds = [...new Set([...targets.map((t) => t.user_id), ...summaryByUser.keys()])];
   const tokensByUser = await fetchTokensByUser(uniqueUserIds);
 
@@ -750,7 +776,7 @@ async function main() {
     }
   }
 
-  // 23:00 yerel saat Günsonu Özeti (kullanıcı başına günde 1 kez)
+  // 23:00 yerel saat Günsonu Özeti (kullanıcı başına günde 1 kez; en son eklenen portföy)
   const summarySentSet = await fetchSummarySentSet(eventDate);
   for (const [userId, summary] of summaryByUser.entries()) {
     if (summarySentSet.has(userId)) continue;
