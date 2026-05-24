@@ -39,6 +39,8 @@ Bu dosya Cursor ve benzeri araçlar için **proje özgü** kısa kurallar içeri
 ## UI: alt butonlar (dokunma)
 - Birincil CTA’lar (`Devam`, giriş, sosyal giriş, form onayı vb.) **`ScrollView` / `FlatList` içine konmaz**; `components/screen-with-footer.tsx` içindeki **`ScreenWithFooter`** bileşeninin `footer` slot’una verilir.
 - `ScreenWithFooter` düzeni: **flex sütun** (`header` → `body` `flex:1` + `minHeight:0` → `footer` `flexShrink:0`). Footer için `absolute` / `zIndex` kullanma; `FlatList`/`ScrollView` gövdede `style={{ flex: 1 }}` olmalı.
+- `keyboardAvoid` yalnızca **gövdeyi** sarar; footer dışarıda kalır (klavye + ScrollView alt CTA dokunuş çakışması).
+- Sosyal giriş gibi kritik alt CTA’larda `react-native-gesture-handler` `Pressable` tercih et; kökte `GestureHandlerRootView` gerekir.
 - Alt safe area yalnızca footer’da `ScreenWithFooter` tarafından uygulanır.
 
 ## Bitirmeden önce

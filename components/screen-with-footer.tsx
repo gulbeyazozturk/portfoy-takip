@@ -68,18 +68,21 @@ export function ScreenWithFooter({
   const footerBg = footerBackgroundColor ?? backgroundColor;
   const bottomPad = Math.max(insets.bottom, MIN_FOOTER_BOTTOM_PAD);
 
-  const body = scroll ? (
+  const scrollContentStyles = [
+    footer != null ? styles.scrollContentWithFooter : styles.scrollContent,
+    { paddingBottom: SCROLL_BOTTOM_GAP },
+    contentContainerStyle,
+  ];
+
+  const scrollBody = scroll ? (
     <ScrollView
       ref={scrollRef}
       style={[styles.flex, bodyStyle]}
-      contentContainerStyle={[
-        styles.scrollContent,
-        { paddingBottom: SCROLL_BOTTOM_GAP },
-        contentContainerStyle,
-      ]}
+      contentContainerStyle={scrollContentStyles}
       showsVerticalScrollIndicator={false}
       keyboardShouldPersistTaps="always"
       keyboardDismissMode="on-drag"
+      removeClippedSubviews={false}
       {...scrollProps}>
       {children}
     </ScrollView>
@@ -87,15 +90,32 @@ export function ScreenWithFooter({
     <View style={[styles.flex, bodyStyle]}>{children}</View>
   );
 
+  /** Klavye kaçınma yalnızca gövdede — footer dışarıda kalır (iOS’ta alt CTA dokunuş çakışması önlenir). */
+  const body = keyboardAvoid ? (
+    <KeyboardAvoidingView
+      style={styles.flex}
+      behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+      keyboardVerticalOffset={keyboardVerticalOffset ?? insets.top}>
+      {scrollBody}
+    </KeyboardAvoidingView>
+  ) : (
+    scrollBody
+  );
+
   const layout = (
     <View style={[styles.flex, styles.column]} testID={testID}>
       {header}
-      <View style={styles.bodySlot}>{body}</View>
+      <View style={styles.bodySlot} pointerEvents="box-none">
+        {body}
+      </View>
       {footer != null ? (
         <View
+          pointerEvents="box-none"
           style={[styles.footer, { paddingBottom: bottomPad, backgroundColor: footerBg }, footerStyle]}
           collapsable={false}>
-          {footer}
+          <View pointerEvents="auto" style={styles.footerTouchLayer}>
+            {footer}
+          </View>
         </View>
       ) : null}
     </View>
@@ -108,16 +128,7 @@ export function ScreenWithFooter({
           {headerOverlay}
         </View>
       ) : null}
-      {keyboardAvoid ? (
-        <KeyboardAvoidingView
-          style={styles.flex}
-          behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-          keyboardVerticalOffset={keyboardVerticalOffset ?? insets.top}>
-          {layout}
-        </KeyboardAvoidingView>
-      ) : (
-        layout
-      )}
+      {layout}
     </SafeAreaView>
   );
 }
@@ -130,13 +141,24 @@ const styles = StyleSheet.create({
   bodySlot: {
     flex: 1,
     minHeight: 0,
+    overflow: 'hidden',
   },
   scrollContent: {
     flexGrow: 1,
   },
+  /** Footer varken flexGrow kapalı — iOS’ta ScrollView’un alt CTA ile çakışmasını azaltır. */
+  scrollContentWithFooter: {},
   footer: {
     paddingTop: 8,
     flexShrink: 0,
+    borderTopWidth: StyleSheet.hairlineWidth,
+    borderTopColor: 'rgba(255,255,255,0.08)',
+    zIndex: 10,
+    elevation: 10,
+  },
+  footerTouchLayer: {
+    zIndex: 11,
+    elevation: 11,
   },
   headerOverlay: {
     position: 'absolute',

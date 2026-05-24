@@ -5,10 +5,11 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { DarkTheme, DefaultTheme, ThemeProvider } from '@react-navigation/native';
 import { Stack } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
-import React, { useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useState } from 'react';
 import 'react-native-reanimated';
 import { ActivityIndicator, View } from 'react-native';
 import { useTranslation } from 'react-i18next';
+import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 
 import { AppLockGate } from '@/components/app-lock-gate';
@@ -19,6 +20,7 @@ import { useColorScheme } from '@/hooks/use-color-scheme';
 import { PortfolioProvider } from '@/context/portfolio';
 import { SelectedCategoriesProvider } from '@/context/selected-categories';
 import { isSupabaseConfigured } from '@/lib/supabase';
+import { WelcomeGateProvider } from '@/context/welcome-gate';
 import { isWelcomeDismissedForUser, welcomeStorageKey } from '@/lib/welcome-dismissed';
 
 export const unstable_settings = {
@@ -43,20 +45,22 @@ export default function RootLayout() {
   }
 
   return (
-    <SafeAreaProvider>
-      <ThemeProvider value={colorScheme === 'dark' ? DarkTheme : DefaultTheme}>
-        <AuthProvider>
-          <AppLockProvider>
-            <PortfolioProvider>
-              <SelectedCategoriesProvider>
-                <RootNavigator />
-              </SelectedCategoriesProvider>
-            </PortfolioProvider>
-          </AppLockProvider>
-        </AuthProvider>
-        <StatusBar style="auto" />
-      </ThemeProvider>
-    </SafeAreaProvider>
+    <GestureHandlerRootView style={{ flex: 1 }}>
+      <SafeAreaProvider>
+        <ThemeProvider value={colorScheme === 'dark' ? DarkTheme : DefaultTheme}>
+          <AuthProvider>
+            <AppLockProvider>
+              <PortfolioProvider>
+                <SelectedCategoriesProvider>
+                  <RootNavigator />
+                </SelectedCategoriesProvider>
+              </PortfolioProvider>
+            </AppLockProvider>
+          </AuthProvider>
+          <StatusBar style="auto" />
+        </ThemeProvider>
+      </SafeAreaProvider>
+    </GestureHandlerRootView>
   );
 }
 
@@ -107,6 +111,7 @@ function AuthenticatedAppStack() {
   const { t } = useTranslation();
   const { session } = useAuth();
   const [gate, setGate] = useState<WelcomeGate>('loading');
+  const markWelcomeComplete = useCallback(() => setGate('skip'), []);
 
   useEffect(() => {
     const uid = session?.user?.id;
@@ -148,16 +153,18 @@ function AuthenticatedAppStack() {
   }
 
   return (
-    <AppLockGate>
-      <Stack initialRouteName={gate === 'show' ? 'welcome' : '(tabs)'}>
-        <Stack.Screen name="welcome" options={{ headerShown: false }} />
-        <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
-        <Stack.Screen
-          name="bulk-upload"
-          options={{ headerShown: false, title: t('layout.bulkUploadTitle') }}
-        />
-        <Stack.Screen name="modal" options={{ presentation: 'modal', title: t('layout.modalTitle') }} />
-      </Stack>
-    </AppLockGate>
+    <WelcomeGateProvider markWelcomeComplete={markWelcomeComplete}>
+      <AppLockGate>
+        <Stack initialRouteName={gate === 'show' ? 'welcome' : '(tabs)'}>
+          <Stack.Screen name="welcome" options={{ headerShown: false }} />
+          <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
+          <Stack.Screen
+            name="bulk-upload"
+            options={{ headerShown: false, title: t('layout.bulkUploadTitle') }}
+          />
+          <Stack.Screen name="modal" options={{ presentation: 'modal', title: t('layout.modalTitle') }} />
+        </Stack>
+      </AppLockGate>
+    </WelcomeGateProvider>
   );
 }

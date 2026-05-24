@@ -1,8 +1,10 @@
 import { Ionicons } from '@expo/vector-icons';
-import React, { useMemo, useRef, useState } from 'react';
+import * as WebBrowser from 'expo-web-browser';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   Keyboard,
+  KeyboardAvoidingView,
   Platform,
   ScrollView,
   StyleSheet,
@@ -10,13 +12,14 @@ import {
   TouchableOpacity,
   View,
 } from 'react-native';
+import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { LanguageToggle } from '@/components/language-toggle';
 import { OmnifolioBrand } from '@/components/omnifolio-brand';
-import { ScreenWithFooter } from '@/components/screen-with-footer';
 import { ThemedText } from '@/components/themed-text';
 import { Brand } from '@/constants/brand';
 import { useAuth } from '@/context/auth';
+import type { OAuthPrepared } from '@/lib/oauth-native-sign-in';
 import { waitForSignedInAfterOAuth } from '@/lib/oauth-session-wait';
 import { supabase } from '@/lib/supabase';
 import { useTranslation } from 'react-i18next';
@@ -29,13 +32,23 @@ const AUTH_THREE_LINES = AUTH_LINE_HEIGHT * 3;
 
 export default function AuthScreen() {
   const { t } = useTranslation();
+  const insets = useSafeAreaInsets();
   const scrollRef = useRef<ScrollView>(null);
-  const { signInWithEmail, signUpWithEmail, signInWithGoogle, signInWithApple, requestPasswordReset } = useAuth();
+  const {
+    signInWithEmail,
+    signUpWithEmail,
+    signInWithApple,
+    signInWithGooglePrepared,
+    prepareGoogleOAuth,
+    requestPasswordReset,
+  } = useAuth();
   const [mode, setMode] = useState<Mode>('signin');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [submitBusy, setSubmitBusy] = useState(false);
   const [socialBusy, setSocialBusy] = useState<'google' | 'apple' | null>(null);
+  const socialInFlightRef = useRef<'google' | 'apple' | null>(null);
+  const googlePreparedRef = useRef<OAuthPrepared | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [info, setInfo] = useState<string | null>(null);
   const showAppleButton = Platform.OS === 'ios';
@@ -46,9 +59,25 @@ export default function AuthScreen() {
   const isPasswordValid = useMemo(() => password.trim().length >= 6, [password]);
   const canSubmit = useMemo(
     () => isEmailValid && isPasswordValid && !anyBusy,
-    [isEmailValid, isPasswordValid, anyBusy]
+    [isEmailValid, isPasswordValid, anyBusy],
   );
   const canSendReset = useMemo(() => isEmailValid && !anyBusy, [isEmailValid, anyBusy]);
+
+  const prefetchGoogleOAuth = useCallback(async () => {
+    if (Platform.OS === 'web') return;
+    const { prepared, error: prepError } = await prepareGoogleOAuth();
+    if (prepared) {
+      googlePreparedRef.current = prepared;
+    } else if (prepError) {
+      googlePreparedRef.current = null;
+    }
+  }, [prepareGoogleOAuth]);
+
+  useEffect(() => {
+    if (Platform.OS === 'web') return;
+    void WebBrowser.warmUpAsync();
+    void prefetchGoogleOAuth();
+  }, [prefetchGoogleOAuth]);
 
   const withTimeout = async <T,>(promise: Promise<T>, ms = 15000): Promise<T> => {
     return await Promise.race([
@@ -91,7 +120,6 @@ export default function AuthScreen() {
         return;
       }
 
-      // Confirm-email kapalı akışta kullanıcıyı direkt girişe al.
       const { error: signInError, hasSession } = await withTimeout(signInWithEmail(email.trim(), password.trim()), 10000);
       if (signInError) {
         setInfo(t('auth.signupThenSignIn'));
@@ -100,8 +128,8 @@ export default function AuthScreen() {
       }
       setInfo(t('auth.signupSuccess'));
       if (hasSession) return;
-    } catch (e: any) {
-      setError(e?.message ?? t('auth.genericError'));
+    } catch (e: unknown) {
+      setError(e instanceof Error ? e.message : t('auth.genericError'));
     } finally {
       setSubmitBusy(false);
     }
@@ -130,211 +158,295 @@ export default function AuthScreen() {
     }
   };
 
-  const social = async (provider: 'google' | 'apple') => {
-    if (socialBusy || submitBusy) return;
+  const ensureSessionAfterSocial = useCallback(async (): Promise<void> => {
+    let { data, error: sessionError } = await supabase.auth.getSession();
+    if (sessionError) {
+      setError(sessionError.message);
+      return;
+    }
+    if (!data.session) {
+      await waitForSignedInAfterOAuth();
+      const again = await supabase.auth.getSession();
+      data = again.data;
+      sessionError = again.error;
+    }
+    if (sessionError) {
+      setError(sessionError.message);
+      return;
+    }
+    if (data.session) return;
+    setError(t('auth.sessionFailed'));
+  }, [t]);
 
+  const runAppleSignIn = useCallback(() => {
+    if (socialInFlightRef.current || submitBusy) return;
     Keyboard.dismiss();
-    setSocialBusy(provider);
+    socialInFlightRef.current = 'apple';
+    setSocialBusy('apple');
+    setError(null);
+    setInfo(null);
+    void (async () => {
+      try {
+        await withTimeout(
+          (async () => {
+            const { error: authError, hasSession } = await signInWithApple();
+            if (authError) {
+              setError(authError);
+              return;
+            }
+            if (hasSession) return;
+            await ensureSessionAfterSocial();
+          })(),
+          65000,
+        );
+      } catch (e: unknown) {
+        setError(e instanceof Error ? e.message : t('auth.socialError'));
+      } finally {
+        socialInFlightRef.current = null;
+        setSocialBusy(null);
+      }
+    })();
+  }, [ensureSessionAfterSocial, signInWithApple, submitBusy, t]);
+
+  const finishGoogleSession = useCallback(
+    async (signInPromise: Promise<{ error: string | null; hasSession: boolean }>) => {
+      try {
+        const { error: authError, hasSession } = await withTimeout(signInPromise, 65000);
+        if (authError) {
+          setError(authError);
+          return;
+        }
+        if (hasSession) return;
+        await ensureSessionAfterSocial();
+      } catch (e: unknown) {
+        setError(e instanceof Error ? e.message : t('auth.socialError'));
+      } finally {
+        socialInFlightRef.current = null;
+        setSocialBusy(null);
+        void prefetchGoogleOAuth();
+      }
+    },
+    [ensureSessionAfterSocial, prefetchGoogleOAuth, t],
+  );
+
+  /** Google: URL önceden hazır → tarayıcıyı setState’ten önce aç (iOS kullanıcı jesti). */
+  const runGoogleSignIn = useCallback(() => {
+    if (socialInFlightRef.current || submitBusy) return;
+    Keyboard.dismiss();
+    socialInFlightRef.current = 'google';
     setError(null);
     setInfo(null);
 
-    const finishSocial = async (): Promise<void> => {
-      const fn = provider === 'google' ? signInWithGoogle : signInWithApple;
-      const { error: authError, hasSession } = await fn();
-      if (authError) {
-        setError(authError);
-        return;
-      }
-      if (hasSession) return;
-
-      let { data, error: sessionError } = await supabase.auth.getSession();
-      if (sessionError) {
-        setError(sessionError.message);
-        return;
-      }
-      if (!data.session) {
-        await waitForSignedInAfterOAuth();
-        const again = await supabase.auth.getSession();
-        data = again.data;
-        sessionError = again.error;
-      }
-      if (sessionError) {
-        setError(sessionError.message);
-        return;
-      }
-      if (data.session) return;
-      setError(t('auth.sessionFailed'));
-    };
-
-    try {
-      await withTimeout(finishSocial(), 65000);
-    } catch (e: unknown) {
-      setError(e instanceof Error ? e.message : t('auth.socialError'));
-    } finally {
-      setSocialBusy(null);
+    const cached = googlePreparedRef.current;
+    if (cached) {
+      googlePreparedRef.current = null;
+      const signInPromise = signInWithGooglePrepared(cached);
+      setSocialBusy('google');
+      void finishGoogleSession(signInPromise);
+      return;
     }
-  };
 
-  const footer = (
-    <View style={styles.footerInner}>
-      <TouchableOpacity
-        activeOpacity={0.85}
-        accessibilityRole="button"
-        disabled={anyBusy}
-        style={[
-          styles.primaryBtn,
-          (mode === 'forgot' ? !canSendReset : !canSubmit) || anyBusy ? styles.disabledBtn : null,
-        ]}
-        onPress={mode === 'forgot' ? sendReset : submit}>
-        {submitBusy ? (
-          <ActivityIndicator color="#fff" />
-        ) : (
-          <ThemedText style={styles.primaryBtnText}>
-            {mode === 'forgot' ? t('auth.sendResetLink') : mode === 'signin' ? t('auth.signIn') : t('auth.signUp')}
-          </ThemedText>
-        )}
-      </TouchableOpacity>
+    void (async () => {
+      const { prepared, error: prepError } = await prepareGoogleOAuth();
+      if (prepError || !prepared) {
+        setError(prepError ?? t('auth.socialError'));
+        socialInFlightRef.current = null;
+        return;
+      }
+      const signInPromise = signInWithGooglePrepared(prepared);
+      setSocialBusy('google');
+      await finishGoogleSession(signInPromise);
+    })();
+  }, [
+    finishGoogleSession,
+    prepareGoogleOAuth,
+    signInWithGooglePrepared,
+    submitBusy,
+    t,
+  ]);
 
-      {mode === 'forgot' && info ? (
-        <View style={styles.infoBox}>
-          <ThemedText style={styles.infoBoxText}>{info}</ThemedText>
-        </View>
-      ) : null}
-
-      {mode === 'forgot' ? (
-        <TouchableOpacity
-          style={styles.backForgot}
-          onPress={() => {
-            setMode('signin');
-            setError(null);
-            setInfo(null);
-          }}
-          disabled={anyBusy}>
-          <ThemedText style={styles.forgotLink}>{t('auth.backToSignIn')}</ThemedText>
-        </TouchableOpacity>
-      ) : null}
-
-      {mode !== 'forgot' ? (
-        <>
-          <ThemedText style={styles.orText}>{t('auth.or')}</ThemedText>
-          <View style={styles.socialStack}>
-            {showAppleButton ? (
-              <TouchableOpacity
-                activeOpacity={0.85}
-                accessibilityRole="button"
-                hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-                style={[styles.socialBtn, anyBusy && socialBusy !== 'apple' ? styles.disabledBtn : null]}
-                onPress={() => void social('apple')}
-                disabled={anyBusy}>
-                {socialBusy === 'apple' ? (
-                  <ActivityIndicator color="#e5e7eb" size="small" />
-                ) : (
-                  <Ionicons name="logo-apple" size={18} color="#e5e7eb" />
-                )}
-                <ThemedText style={styles.socialText}>{t('auth.appleContinue')}</ThemedText>
-              </TouchableOpacity>
-            ) : null}
-
-            <TouchableOpacity
-              activeOpacity={0.85}
-              accessibilityRole="button"
-              hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-              style={[styles.socialBtn, anyBusy && socialBusy !== 'google' ? styles.disabledBtn : null]}
-              onPress={() => void social('google')}
-              disabled={anyBusy}>
-              {socialBusy === 'google' ? (
-                <ActivityIndicator color="#e5e7eb" size="small" />
-              ) : (
-                <Ionicons name="logo-google" size={18} color="#e5e7eb" />
-              )}
-              <ThemedText style={styles.socialText}>{t('auth.googleContinue')}</ThemedText>
-            </TouchableOpacity>
-          </View>
-        </>
-      ) : null}
-    </View>
-  );
+  const bottomPad = Math.max(insets.bottom, 12);
 
   return (
-    <ScreenWithFooter
-      headerOverlay={<LanguageToggle />}
-      keyboardAvoid
-      scrollRef={scrollRef}
-      contentContainerStyle={styles.container}
-      footer={footer}
-      scrollProps={{ nestedScrollEnabled: true }}>
-        <OmnifolioBrand />
-        <ThemedText style={styles.subtitle}>{t('auth.subtitle')}</ThemedText>
+    <SafeAreaView style={styles.screen} edges={['top', 'left', 'right']}>
+      <View pointerEvents="box-none" style={[styles.headerOverlay, { top: insets.top + 8 }]}>
+        <LanguageToggle />
+      </View>
 
-        {mode !== 'forgot' ? (
-          <View style={styles.modeRow}>
-            <TouchableOpacity
-              activeOpacity={0.85}
-              style={[styles.modeBtn, mode === 'signin' && styles.modeBtnActive]}
-              onPress={() => setMode('signin')}
-            >
-              <ThemedText style={[styles.modeText, mode === 'signin' && styles.modeTextActive]}>{t('auth.signIn')}</ThemedText>
-            </TouchableOpacity>
-            <TouchableOpacity
-              activeOpacity={0.85}
-              style={[styles.modeBtn, mode === 'signup' && styles.modeBtnActive]}
-              onPress={() => setMode('signup')}
-            >
-              <ThemedText style={[styles.modeText, mode === 'signup' && styles.modeTextActive]}>{t('auth.signUp')}</ThemedText>
-            </TouchableOpacity>
+      <KeyboardAvoidingView
+        style={styles.flex}
+        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+        keyboardVerticalOffset={insets.top}>
+        <ScrollView
+          ref={scrollRef}
+          style={styles.flex}
+          contentContainerStyle={styles.container}
+          keyboardShouldPersistTaps="handled"
+          showsVerticalScrollIndicator={false}>
+          <OmnifolioBrand />
+          <ThemedText style={styles.subtitle}>{t('auth.subtitle')}</ThemedText>
+
+          {mode !== 'forgot' ? (
+            <View style={styles.modeRow}>
+              <TouchableOpacity
+                activeOpacity={0.85}
+                style={[styles.modeBtn, mode === 'signin' && styles.modeBtnActive]}
+                onPress={() => setMode('signin')}>
+                <ThemedText style={[styles.modeText, mode === 'signin' && styles.modeTextActive]}>
+                  {t('auth.signIn')}
+                </ThemedText>
+              </TouchableOpacity>
+              <TouchableOpacity
+                activeOpacity={0.85}
+                style={[styles.modeBtn, mode === 'signup' && styles.modeBtnActive]}
+                onPress={() => setMode('signup')}>
+                <ThemedText style={[styles.modeText, mode === 'signup' && styles.modeTextActive]}>
+                  {t('auth.signUp')}
+                </ThemedText>
+              </TouchableOpacity>
+            </View>
+          ) : null}
+
+          <View style={styles.card}>
+            <ThemedText style={styles.label}>{t('auth.email')}</ThemedText>
+            <TextInput
+              autoCapitalize="none"
+              keyboardType="email-address"
+              placeholder={t('auth.emailPlaceholder')}
+              placeholderTextColor="#6b7280"
+              value={email}
+              onChangeText={setEmail}
+              style={styles.input}
+            />
+
+            {mode !== 'forgot' ? (
+              <>
+                <ThemedText style={[styles.label, { marginTop: 10 }]}>{t('auth.password')}</ThemedText>
+                <TextInput
+                  secureTextEntry
+                  placeholder={t('auth.passwordPlaceholder')}
+                  placeholderTextColor="#6b7280"
+                  value={password}
+                  onChangeText={setPassword}
+                  style={styles.input}
+                />
+                {mode === 'signin' ? (
+                  <TouchableOpacity
+                    style={styles.forgotLinkWrap}
+                    onPress={() => {
+                      setMode('forgot');
+                      setError(null);
+                      setInfo(null);
+                    }}
+                    disabled={anyBusy}>
+                    <ThemedText style={styles.forgotLink}>{t('auth.forgotPassword')}</ThemedText>
+                  </TouchableOpacity>
+                ) : null}
+              </>
+            ) : (
+              <ThemedText style={styles.forgotHint}>{t('auth.forgotPasswordHint')}</ThemedText>
+            )}
+          </View>
+
+          {error ? <ThemedText style={styles.errorText}>{error}</ThemedText> : null}
+          {mode !== 'forgot' && info ? <ThemedText style={styles.infoText}>{info}</ThemedText> : null}
+        </ScrollView>
+      </KeyboardAvoidingView>
+
+      <View style={[styles.bottomBar, { paddingBottom: bottomPad }]}>
+        <TouchableOpacity
+          activeOpacity={0.85}
+          accessibilityRole="button"
+          disabled={anyBusy || (mode === 'forgot' ? !canSendReset : !canSubmit)}
+          style={[
+            styles.primaryBtn,
+            ((mode === 'forgot' ? !canSendReset : !canSubmit) || anyBusy) && styles.disabledBtn,
+          ]}
+          onPress={mode === 'forgot' ? () => void sendReset() : () => void submit()}>
+          {submitBusy ? (
+            <ActivityIndicator color="#fff" />
+          ) : (
+            <ThemedText style={styles.primaryBtnText}>
+              {mode === 'forgot' ? t('auth.sendResetLink') : mode === 'signin' ? t('auth.signIn') : t('auth.signUp')}
+            </ThemedText>
+          )}
+        </TouchableOpacity>
+
+        {mode === 'forgot' && info ? (
+          <View style={styles.infoBox}>
+            <ThemedText style={styles.infoBoxText}>{info}</ThemedText>
           </View>
         ) : null}
 
-        <View style={styles.card}>
-          <ThemedText style={styles.label}>{t('auth.email')}</ThemedText>
-          <TextInput
-            autoCapitalize="none"
-            keyboardType="email-address"
-            placeholder={t('auth.emailPlaceholder')}
-            placeholderTextColor="#6b7280"
-            value={email}
-            onChangeText={setEmail}
-            style={styles.input}
-          />
+        {mode === 'forgot' ? (
+          <TouchableOpacity
+            style={styles.backForgot}
+            onPress={() => {
+              setMode('signin');
+              setError(null);
+              setInfo(null);
+            }}
+            disabled={anyBusy}>
+            <ThemedText style={styles.forgotLink}>{t('auth.backToSignIn')}</ThemedText>
+          </TouchableOpacity>
+        ) : null}
 
-          {mode !== 'forgot' ? (
-            <>
-              <ThemedText style={[styles.label, { marginTop: 10 }]}>{t('auth.password')}</ThemedText>
-              <TextInput
-                secureTextEntry
-                placeholder={t('auth.passwordPlaceholder')}
-                placeholderTextColor="#6b7280"
-                value={password}
-                onChangeText={setPassword}
-                style={styles.input}
-              />
-              {mode === 'signin' ? (
+        {mode !== 'forgot' ? (
+          <>
+            <ThemedText style={styles.orText}>{t('auth.or')}</ThemedText>
+            <View style={styles.socialStack}>
+              {showAppleButton ? (
                 <TouchableOpacity
-                  style={styles.forgotLinkWrap}
-                  onPress={() => {
-                    setMode('forgot');
-                    setError(null);
-                    setInfo(null);
-                  }}
-                  disabled={anyBusy}
-                >
-                  <ThemedText style={styles.forgotLink}>{t('auth.forgotPassword')}</ThemedText>
+                  activeOpacity={0.85}
+                  accessibilityRole="button"
+                  style={[
+                    styles.socialBtn,
+                    (submitBusy || (socialBusy !== null && socialBusy !== 'apple')) && styles.disabledBtn,
+                  ]}
+                  onPress={runAppleSignIn}
+                  disabled={submitBusy || (socialBusy !== null && socialBusy !== 'apple')}>
+                  {socialBusy === 'apple' ? (
+                    <ActivityIndicator color="#e5e7eb" size="small" />
+                  ) : (
+                    <Ionicons name="logo-apple" size={18} color="#e5e7eb" />
+                  )}
+                  <ThemedText style={styles.socialText}>{t('auth.appleContinue')}</ThemedText>
                 </TouchableOpacity>
               ) : null}
-            </>
-          ) : (
-            <ThemedText style={styles.forgotHint}>{t('auth.forgotPasswordHint')}</ThemedText>
-          )}
-        </View>
 
-        {error ? <ThemedText style={styles.errorText}>{error}</ThemedText> : null}
-        {mode !== 'forgot' && info ? <ThemedText style={styles.infoText}>{info}</ThemedText> : null}
-    </ScreenWithFooter>
+              <TouchableOpacity
+                activeOpacity={0.85}
+                accessibilityRole="button"
+                style={[
+                  styles.socialBtn,
+                  (submitBusy || (socialBusy !== null && socialBusy !== 'google')) && styles.disabledBtn,
+                ]}
+                onPress={runGoogleSignIn}
+                disabled={submitBusy || (socialBusy !== null && socialBusy !== 'google')}>
+                {socialBusy === 'google' ? (
+                  <ActivityIndicator color="#e5e7eb" size="small" />
+                ) : (
+                  <Ionicons name="logo-google" size={18} color="#e5e7eb" />
+                )}
+                <ThemedText style={styles.socialText}>{t('auth.googleContinue')}</ThemedText>
+              </TouchableOpacity>
+            </View>
+          </>
+        ) : null}
+      </View>
+    </SafeAreaView>
   );
 }
 
 const styles = StyleSheet.create({
-  container: { paddingHorizontal: 20, paddingTop: 24 + AUTH_THREE_LINES },
+  screen: { flex: 1, backgroundColor: '#000' },
+  flex: { flex: 1 },
+  headerOverlay: {
+    position: 'absolute',
+    right: 16,
+    zIndex: 20,
+  },
+  container: { paddingHorizontal: 20, paddingTop: 24 + AUTH_THREE_LINES, paddingBottom: 16 },
   subtitle: {
     marginTop: 4 + AUTH_THREE_LINES,
     textAlign: 'center',
@@ -373,14 +485,23 @@ const styles = StyleSheet.create({
     paddingHorizontal: 12,
     paddingVertical: 10,
   },
-  footerInner: {
+  bottomBar: {
+    flexShrink: 0,
+    paddingTop: 8,
     paddingHorizontal: 20,
     gap: 12,
+    borderTopWidth: StyleSheet.hairlineWidth,
+    borderTopColor: 'rgba(255,255,255,0.08)',
+    backgroundColor: '#000',
+    zIndex: 20,
+    elevation: 20,
   },
   primaryBtn: {
     backgroundColor: Brand.primarySolid,
     borderRadius: 10,
     alignItems: 'center',
+    justifyContent: 'center',
+    minHeight: 48,
     paddingVertical: 12,
     borderWidth: 1,
     borderColor: Brand.primaryBorder,
@@ -399,8 +520,9 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: '#2c2c2e',
     borderRadius: 10,
-    height: 48,
-    paddingVertical: 12,
+    minHeight: 52,
+    paddingVertical: 14,
+    paddingHorizontal: 12,
     backgroundColor: '#111827',
   },
   socialText: { color: '#e5e7eb', fontWeight: '600' },

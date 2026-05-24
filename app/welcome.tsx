@@ -1,6 +1,6 @@
 import { useRouter } from 'expo-router';
 import React, { useCallback, useEffect, useState } from 'react';
-import { ActivityIndicator, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { ActivityIndicator, Pressable, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { LanguageToggle } from '@/components/language-toggle';
@@ -8,6 +8,7 @@ import { OmnifolioBrand } from '@/components/omnifolio-brand';
 import { ScreenWithFooter } from '@/components/screen-with-footer';
 import { Brand } from '@/constants/brand';
 import { useAuth } from '@/context/auth';
+import { useWelcomeGate } from '@/context/welcome-gate';
 import { setWelcomeDismissedForUser } from '@/lib/welcome-dismissed';
 import { useTranslation } from 'react-i18next';
 
@@ -15,6 +16,7 @@ export default function WelcomeScreen() {
   const { t } = useTranslation();
   const router = useRouter();
   const { session } = useAuth();
+  const welcomeGate = useWelcomeGate();
   const [busy, setBusy] = useState(false);
 
   useEffect(() => {
@@ -22,6 +24,7 @@ export default function WelcomeScreen() {
   }, [router, session]);
 
   const onContinue = useCallback(async () => {
+    if (busy) return;
     const uid = session?.user?.id;
     if (!uid) {
       router.replace('/auth');
@@ -30,13 +33,16 @@ export default function WelcomeScreen() {
     setBusy(true);
     try {
       await setWelcomeDismissedForUser(uid);
+      welcomeGate?.markWelcomeComplete();
+      router.replace('/(tabs)/home');
     } catch {
       // Kaydetme hatası kullanıcıyı engellemesin; yine de devam ettir.
+      welcomeGate?.markWelcomeComplete();
+      router.replace('/(tabs)/home');
     } finally {
       setBusy(false);
-      router.replace('/home');
     }
-  }, [router, session?.user?.id]);
+  }, [busy, router, session?.user?.id, welcomeGate]);
 
   if (!session) {
     return (
@@ -54,20 +60,23 @@ export default function WelcomeScreen() {
       contentContainerStyle={styles.scrollContent}
       footer={
         <View style={styles.footerInner}>
-          <TouchableOpacity
-            activeOpacity={0.85}
-            hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-            style={[styles.primaryBtn, busy && styles.primaryBtnDisabled]}
-            onPress={onContinue}
-            disabled={busy}
+          <Pressable
             accessibilityRole="button"
-            accessibilityLabel={t('welcome.continue')}>
+            accessibilityLabel={t('welcome.continue')}
+            accessibilityState={{ busy, disabled: busy }}
+            hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
+            disabled={busy}
+            style={({ pressed }) => [
+              styles.primaryBtn,
+              (pressed || busy) && styles.primaryBtnDisabled,
+            ]}
+            onPress={() => void onContinue()}>
             {busy ? (
               <ActivityIndicator color={Brand.onPrimarySolid} />
             ) : (
               <Text style={styles.primaryBtnText}>{t('welcome.continue')}</Text>
             )}
-          </TouchableOpacity>
+          </Pressable>
         </View>
       }>
       <OmnifolioBrand />

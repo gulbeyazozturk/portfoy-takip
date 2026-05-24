@@ -9,31 +9,16 @@ import { createAppleSignInNonce } from '@/lib/apple-sign-in-nonce';
 import { parseAuthCallbackParams } from '@/lib/auth-callback-params';
 import { mapAuthErrorMessage } from '@/lib/auth-error-map';
 import i18n from '@/lib/i18n';
+import {
+  getOAuthRedirectUrl,
+  openPreparedOAuthSession,
+  prepareOAuthSignInUrl,
+} from '@/lib/oauth-native-sign-in';
 import { waitForSupabaseSessionAfterBrowser } from '@/lib/oauth-session-wait';
 import { syncPushTokenForUser } from '@/lib/push-token-sync';
 import { isSupabaseConfigured, supabase } from '@/lib/supabase';
 
 WebBrowser.maybeCompleteAuthSession();
-
-/**
- * OAuth redirect — asla modül yüklemede sabitleme: Expo Go’da Metro IP/port sonradan gelir;
- * eski URL Supabase’e giderse geri dönüş kırılır.
- * app/oauth-callback.tsx ile aynı path; Supabase Redirect URLs’e bu tam string(ler)i ekleyin.
- *
- * __DEV__ + native: `EXPO_PUBLIC_OAUTH_REDIRECT_URL` tanımlıysa (tünel / manuel) onu kullan —
- * Supabase LAN IP’li exp:// adreslerini reddedebilir (github.com/supabase/auth/issues/2039).
- */
-function getOAuthRedirectUrl(): string {
-  if (Platform.OS === 'web' && typeof window !== 'undefined') {
-    return `${window.location.origin}/oauth-callback`;
-  }
-  const devOverride = __DEV__ ? (process.env.EXPO_PUBLIC_OAUTH_REDIRECT_URL ?? '').trim() : '';
-  if (devOverride && Platform.OS !== 'web') {
-    return devOverride;
-  }
-
-  return Linking.createURL('oauth-callback');
-}
 
 /** Şifre sıfırlama e-postasındaki link; Supabase Redirect URLs’e de ekleyin (örn. omnifolio://reset-password). */
 function getPasswordRecoveryRedirectUrl(): string {
@@ -64,6 +49,9 @@ type AuthContextValue = {
   signInWithEmail: (email: string, password: string) => Promise<{ error: string | null; hasSession: boolean }>;
   requestPasswordReset: (email: string) => Promise<{ error: string | null }>;
   signInWithGoogle: () => Promise<SocialSignInResult>;
+  /** iOS: önceden hazırlanmış URL ile tarayıcıyı hemen aç (kullanıcı jesti). */
+  signInWithGooglePrepared: (prepared: { url: string; redirectTo: string }) => Promise<SocialSignInResult>;
+  prepareGoogleOAuth: () => Promise<{ prepared: { url: string; redirectTo: string } | null; error: string | null }>;
   signInWithApple: () => Promise<SocialSignInResult>;
   completePasswordRecoveryFlow: () => void;
   signOut: () => Promise<void>;
@@ -173,9 +161,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   const signInWithOAuth = useCallback(async (provider: 'google' | 'apple'): Promise<SocialSignInResult> => {
-    const redirectTo = getOAuthRedirectUrl();
-
     if (Platform.OS === 'web') {
+      const redirectTo = getOAuthRedirectUrl();
       const { data, error } = await supabase.auth.signInWithOAuth({
         provider,
         options: { redirectTo, skipBrowserRedirect: true },
@@ -188,171 +175,82 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       return { error: i18n.t('errors.oauthStart'), hasSession: false };
     }
 
-    const { data, error } = await supabase.auth.signInWithOAuth({
-      provider,
-      options: { redirectTo, skipBrowserRedirect: true },
-    });
-    if (error || !data?.url) {
-      return {
-        error: error ? mapAuthErrorMessage(error.message) : i18n.t('errors.oauthStart'),
-        hasSession: false,
-      };
+    const { prepared, error } = await prepareOAuthSignInUrl(provider);
+    if (error || !prepared) {
+      return { error: error ?? i18n.t('errors.oauthStart'), hasSession: false };
     }
-
-    let result: WebBrowser.WebBrowserAuthSessionResult;
-    try {
-      result = await WebBrowser.openAuthSessionAsync(data.url, redirectTo);
-    } catch {
-      return { error: i18n.t('errors.oauthIncomplete'), hasSession: false };
-    }
-
-    const sessionFromStorage = async (): Promise<boolean> => {
-      const { data } = await supabase.auth.getSession();
-      return !!data.session;
-    };
-
-    if (result.type === 'cancel' || result.type === 'dismiss') {
-      let hasSession = await sessionFromStorage();
-      if (!hasSession) {
-        const waited = await waitForSupabaseSessionAfterBrowser();
-        if (waited) hasSession = await sessionFromStorage();
-      }
-      if (hasSession) return { error: null, hasSession: true };
-      return { error: i18n.t('errors.oauthCancelled'), hasSession: false };
-    }
-    if (result.type !== 'success' || !result.url) {
-      let hasSession = await sessionFromStorage();
-      if (!hasSession) {
-        const waited = await waitForSupabaseSessionAfterBrowser();
-        if (waited) hasSession = await sessionFromStorage();
-      }
-      if (hasSession) return { error: null, hasSession: true };
-      return { error: i18n.t('errors.oauthIncomplete'), hasSession: false };
-    }
-
-    let params: Record<string, string>;
-    try {
-      params = parseAuthCallbackParams(result.url);
-    } catch {
-      return { error: i18n.t('errors.oauthIncomplete'), hasSession: false };
-    }
-
-    if (params.error) {
-      const raw = params.error_description ?? params.error;
-      return { error: mapAuthErrorMessage(raw.replace(/\+/g, ' ')), hasSession: false };
-    }
-
-    try {
-      if (params.code) {
-        const { error: exchangeError } = await supabase.auth.exchangeCodeForSession(params.code);
-        if (!exchangeError) {
-          return { error: null, hasSession: await sessionFromStorage() };
-        }
-        if (exchangeError.message?.toLowerCase().includes('code verifier')) {
-          return {
-            error: i18n.t('errors.pkceMismatch'),
-            hasSession: false,
-          };
-        }
-        if (await sessionFromStorage()) return { error: null, hasSession: true };
-        const waited = await waitForSupabaseSessionAfterBrowser(45);
-        if (waited && (await sessionFromStorage())) {
-          return { error: null, hasSession: true };
-        }
-        return { error: mapAuthErrorMessage(exchangeError.message), hasSession: false };
-      }
-
-      if (await sessionFromStorage()) return { error: null, hasSession: true };
-      const ok = await waitForSupabaseSessionAfterBrowser();
-      if (ok && (await sessionFromStorage())) {
-        return { error: null, hasSession: true };
-      }
-
-      const access_token = params.access_token;
-      const refresh_token = params.refresh_token;
-      if (!access_token || !refresh_token) {
-        return {
-          error: i18n.t('errors.sessionParams', { url: redirectTo }),
-          hasSession: false,
-        };
-      }
-
-      const { error: setSessionError } = await supabase.auth.setSession({ access_token, refresh_token });
-      if (setSessionError) {
-        return { error: mapAuthErrorMessage(setSessionError.message), hasSession: false };
-      }
-      return { error: null, hasSession: await sessionFromStorage() };
-    } catch (e: unknown) {
-      const msg = e instanceof Error ? e.message : String(e);
-      return { error: mapAuthErrorMessage(msg || i18n.t('errors.oauthIncomplete')), hasSession: false };
-    }
+    return openPreparedOAuthSession(prepared);
   }, []);
 
   const signInWithGoogle = useCallback(() => signInWithOAuth('google'), [signInWithOAuth]);
 
+  const signInWithGooglePrepared = useCallback(
+    (prepared: { url: string; redirectTo: string }) => openPreparedOAuthSession(prepared),
+    [],
+  );
+
+  const prepareGoogleOAuth = useCallback(() => prepareOAuthSignInUrl('google'), []);
+
   const signInWithApple = useCallback(async (): Promise<SocialSignInResult> => {
-    if (Platform.OS === 'ios') {
-      const available = await AppleAuthentication.isAvailableAsync();
-      if (available) {
-        try {
-          const { rawNonce, hashedNonce } = await createAppleSignInNonce();
-          const credential = await AppleAuthentication.signInAsync({
-            requestedScopes: [
-              AppleAuthentication.AppleAuthenticationScope.FULL_NAME,
-              AppleAuthentication.AppleAuthenticationScope.EMAIL,
-            ],
-            nonce: hashedNonce,
-          });
-
-          if (!credential.identityToken) {
-            return { error: i18n.t('errors.appleToken'), hasSession: false };
-          }
-
-          const { data, error } = await supabase.auth.signInWithIdToken({
-            provider: 'apple',
-            token: credential.identityToken,
-            nonce: rawNonce,
-          });
-
-          if (error) {
-            return { error: mapAuthErrorMessage(error.message), hasSession: false };
-          }
-
-          if (credential.fullName) {
-            const parts: string[] = [];
-            if (credential.fullName.givenName) parts.push(credential.fullName.givenName);
-            if (credential.fullName.middleName) parts.push(credential.fullName.middleName);
-            if (credential.fullName.familyName) parts.push(credential.fullName.familyName);
-            const fullName = parts.join(' ').trim();
-            if (fullName) {
-              void supabase.auth.updateUser({
-                data: {
-                  full_name: fullName,
-                  given_name: credential.fullName.givenName ?? undefined,
-                  family_name: credential.fullName.familyName ?? undefined,
-                },
-              });
-            }
-          }
-
-          const hasSession = !!data.session;
-          if (hasSession) return { error: null, hasSession: true };
-
-          const waited = await waitForSupabaseSessionAfterBrowser(90);
-          return { error: null, hasSession: waited };
-        } catch (e: unknown) {
-          const code = e && typeof e === 'object' && 'code' in e ? String((e as { code?: string }).code) : '';
-          if (code === 'ERR_REQUEST_CANCELED' || code === 'ERR_CANCELED') {
-            return { error: i18n.t('errors.oauthCancelled'), hasSession: false };
-          }
-          const msg = e instanceof Error ? e.message : i18n.t('errors.appleNativeFailed');
-          return { error: mapAuthErrorMessage(msg), hasSession: false };
-        }
-      }
+    if (Platform.OS !== 'ios') {
+      return signInWithOAuth('apple');
     }
 
-    return signInWithOAuth('apple');
-  }, [signInWithOAuth]);
+    try {
+      const { rawNonce, hashedNonce } = await createAppleSignInNonce();
+      const credential = await AppleAuthentication.signInAsync({
+        requestedScopes: [
+          AppleAuthentication.AppleAuthenticationScope.FULL_NAME,
+          AppleAuthentication.AppleAuthenticationScope.EMAIL,
+        ],
+        nonce: hashedNonce,
+      });
+
+      if (!credential.identityToken) {
+        return { error: i18n.t('errors.appleToken'), hasSession: false };
+      }
+
+      const { data, error } = await supabase.auth.signInWithIdToken({
+        provider: 'apple',
+        token: credential.identityToken,
+        nonce: rawNonce,
+      });
+
+      if (error) {
+        return { error: mapAuthErrorMessage(error.message), hasSession: false };
+      }
+
+      if (credential.fullName) {
+        const parts: string[] = [];
+        if (credential.fullName.givenName) parts.push(credential.fullName.givenName);
+        if (credential.fullName.middleName) parts.push(credential.fullName.middleName);
+        if (credential.fullName.familyName) parts.push(credential.fullName.familyName);
+        const fullName = parts.join(' ').trim();
+        if (fullName) {
+          void supabase.auth.updateUser({
+            data: {
+              full_name: fullName,
+              given_name: credential.fullName.givenName ?? undefined,
+              family_name: credential.fullName.familyName ?? undefined,
+            },
+          });
+        }
+      }
+
+      const hasSession = !!data.session;
+      if (hasSession) return { error: null, hasSession: true };
+
+      const waited = await waitForSupabaseSessionAfterBrowser(90);
+      return { error: null, hasSession: waited };
+    } catch (e: unknown) {
+      const code = e && typeof e === 'object' && 'code' in e ? String((e as { code?: string }).code) : '';
+      if (code === 'ERR_REQUEST_CANCELED' || code === 'ERR_CANCELED') {
+        return { error: i18n.t('errors.oauthCancelled'), hasSession: false };
+      }
+      const msg = e instanceof Error ? e.message : i18n.t('errors.appleNativeFailed');
+      return { error: mapAuthErrorMessage(msg), hasSession: false };
+    }
+  }, []);
 
   const signOut = useCallback(async () => {
     setPasswordRecoveryPending(false);
@@ -374,6 +272,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       signInWithEmail,
       requestPasswordReset,
       signInWithGoogle,
+      signInWithGooglePrepared,
+      prepareGoogleOAuth,
       signInWithApple,
       completePasswordRecoveryFlow,
       signOut,
@@ -386,6 +286,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       signInWithEmail,
       requestPasswordReset,
       signInWithGoogle,
+      signInWithGooglePrepared,
+      prepareGoogleOAuth,
       signInWithApple,
       completePasswordRecoveryFlow,
       signOut,
