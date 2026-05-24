@@ -1,9 +1,4 @@
 import { Ionicons } from '@expo/vector-icons';
-import {
-  AppleAuthenticationButton,
-  AppleAuthenticationButtonStyle,
-  AppleAuthenticationButtonType,
-} from 'expo-apple-authentication';
 import React, { useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator,
@@ -318,20 +313,25 @@ export default function AuthScreen() {
           <View style={styles.socialStack} collapsable={false}>
             {showAppleButton ? (
               <View
-                style={[styles.socialSlot, anyBusy && socialBusy !== 'apple' ? styles.disabledBtn : null]}
+                style={anyBusy && socialBusy !== 'apple' ? styles.disabledBtn : null}
                 pointerEvents={anyBusy && socialBusy !== 'apple' ? 'none' : 'box-none'}>
-                <AppleAuthenticationButton
-                  buttonType={AppleAuthenticationButtonType.CONTINUE}
-                  buttonStyle={AppleAuthenticationButtonStyle.BLACK}
-                  cornerRadius={10}
-                  style={styles.appleNativeBtn}
+                <Pressable
+                  accessibilityRole="button"
+                  style={({ pressed }) => [
+                    styles.socialBtn,
+                    pressed && !anyBusy ? styles.socialBtnPressed : null,
+                  ]}
                   onPress={() => void social('apple')}
-                />
-                {socialBusy === 'apple' ? (
-                  <View style={styles.socialBusyOverlay} pointerEvents="none">
-                    <ActivityIndicator color="#fff" />
-                  </View>
-                ) : null}
+                  disabled={anyBusy}>
+                  {socialBusy === 'apple' ? (
+                    <ActivityIndicator color="#e5e7eb" size="small" />
+                  ) : (
+                    <Ionicons name="logo-apple" size={18} color="#e5e7eb" pointerEvents="none" />
+                  )}
+                  <ThemedText style={styles.socialText} pointerEvents="none">
+                    {t('auth.appleContinue')}
+                  </ThemedText>
+                </Pressable>
               </View>
             ) : null}
 
@@ -429,25 +429,6 @@ const styles = StyleSheet.create({
     zIndex: 2,
     elevation: 2,
     gap: 14,
-  },
-  /** Sabit yükseklik + overflow: üstteki Apple dokunması alttaki Google’a taşmasın. */
-  socialSlot: {
-    width: '100%',
-    height: 48,
-    overflow: 'hidden',
-    borderRadius: 10,
-    position: 'relative',
-  },
-  appleNativeBtn: {
-    width: '100%',
-    height: 48,
-  },
-  socialBusyOverlay: {
-    ...StyleSheet.absoluteFillObject,
-    alignItems: 'center',
-    justifyContent: 'center',
-    borderRadius: 10,
-    backgroundColor: 'rgba(0,0,0,0.35)',
   },
   socialBtn: {
     flexDirection: 'row',
