@@ -323,6 +323,7 @@ export default function AssetListScreen() {
             </View>
           ) : (
             <FlatList
+              style={styles.list}
               data={assets}
               keyExtractor={(item) => item.id}
               contentContainerStyle={styles.listContent}
@@ -436,6 +437,7 @@ const styles = StyleSheet.create({
   centered: { flex: 1, justifyContent: 'center', alignItems: 'center', padding: 24 },
   errorText: { color: '#ef4444', fontSize: 14 },
   emptyText: { color: SLATE, fontSize: 15 },
+  list: { flex: 1 },
   listContent: {
     paddingHorizontal: 16,
     paddingBottom: 24,

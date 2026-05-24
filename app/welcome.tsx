@@ -56,6 +56,7 @@ export default function WelcomeScreen() {
         <View style={styles.footerInner}>
           <TouchableOpacity
             activeOpacity={0.85}
+            hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
             style={[styles.primaryBtn, busy && styles.primaryBtnDisabled]}
             onPress={onContinue}
             disabled={busy}

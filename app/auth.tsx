@@ -175,43 +175,85 @@ export default function AuthScreen() {
     }
   };
 
-  const socialFooter =
-    mode !== 'forgot' ? (
-      <View style={styles.socialFooterInner}>
-        <ThemedText style={styles.orText}>{t('auth.or')}</ThemedText>
-        <View style={styles.socialStack}>
-          {showAppleButton ? (
+  const footer = (
+    <View style={styles.footerInner}>
+      <TouchableOpacity
+        activeOpacity={0.85}
+        accessibilityRole="button"
+        disabled={anyBusy}
+        style={[
+          styles.primaryBtn,
+          (mode === 'forgot' ? !canSendReset : !canSubmit) || anyBusy ? styles.disabledBtn : null,
+        ]}
+        onPress={mode === 'forgot' ? sendReset : submit}>
+        {submitBusy ? (
+          <ActivityIndicator color="#fff" />
+        ) : (
+          <ThemedText style={styles.primaryBtnText}>
+            {mode === 'forgot' ? t('auth.sendResetLink') : mode === 'signin' ? t('auth.signIn') : t('auth.signUp')}
+          </ThemedText>
+        )}
+      </TouchableOpacity>
+
+      {mode === 'forgot' && info ? (
+        <View style={styles.infoBox}>
+          <ThemedText style={styles.infoBoxText}>{info}</ThemedText>
+        </View>
+      ) : null}
+
+      {mode === 'forgot' ? (
+        <TouchableOpacity
+          style={styles.backForgot}
+          onPress={() => {
+            setMode('signin');
+            setError(null);
+            setInfo(null);
+          }}
+          disabled={anyBusy}>
+          <ThemedText style={styles.forgotLink}>{t('auth.backToSignIn')}</ThemedText>
+        </TouchableOpacity>
+      ) : null}
+
+      {mode !== 'forgot' ? (
+        <>
+          <ThemedText style={styles.orText}>{t('auth.or')}</ThemedText>
+          <View style={styles.socialStack}>
+            {showAppleButton ? (
+              <TouchableOpacity
+                activeOpacity={0.85}
+                accessibilityRole="button"
+                hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                style={[styles.socialBtn, anyBusy && socialBusy !== 'apple' ? styles.disabledBtn : null]}
+                onPress={() => void social('apple')}
+                disabled={anyBusy}>
+                {socialBusy === 'apple' ? (
+                  <ActivityIndicator color="#e5e7eb" size="small" />
+                ) : (
+                  <Ionicons name="logo-apple" size={18} color="#e5e7eb" />
+                )}
+                <ThemedText style={styles.socialText}>{t('auth.appleContinue')}</ThemedText>
+              </TouchableOpacity>
+            ) : null}
+
             <TouchableOpacity
               activeOpacity={0.85}
               accessibilityRole="button"
-              style={[styles.socialBtn, anyBusy && socialBusy !== 'apple' ? styles.disabledBtn : null]}
-              onPress={() => void social('apple')}
+              hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+              style={[styles.socialBtn, anyBusy && socialBusy !== 'google' ? styles.disabledBtn : null]}
+              onPress={() => void social('google')}
               disabled={anyBusy}>
-              {socialBusy === 'apple' ? (
+              {socialBusy === 'google' ? (
                 <ActivityIndicator color="#e5e7eb" size="small" />
               ) : (
-                <Ionicons name="logo-apple" size={18} color="#e5e7eb" />
+                <Ionicons name="logo-google" size={18} color="#e5e7eb" />
               )}
-              <ThemedText style={styles.socialText}>{t('auth.appleContinue')}</ThemedText>
+              <ThemedText style={styles.socialText}>{t('auth.googleContinue')}</ThemedText>
             </TouchableOpacity>
-          ) : null}
-
-          <TouchableOpacity
-            activeOpacity={0.85}
-            accessibilityRole="button"
-            style={[styles.socialBtn, anyBusy && socialBusy !== 'google' ? styles.disabledBtn : null]}
-            onPress={() => void social('google')}
-            disabled={anyBusy}>
-            {socialBusy === 'google' ? (
-              <ActivityIndicator color="#e5e7eb" size="small" />
-            ) : (
-              <Ionicons name="logo-google" size={18} color="#e5e7eb" />
-            )}
-            <ThemedText style={styles.socialText}>{t('auth.googleContinue')}</ThemedText>
-          </TouchableOpacity>
-        </View>
-      </View>
-    ) : null;
+          </View>
+        </>
+      ) : null}
+    </View>
+  );
 
   return (
     <ScreenWithFooter
@@ -219,7 +261,7 @@ export default function AuthScreen() {
       keyboardAvoid
       scrollRef={scrollRef}
       contentContainerStyle={styles.container}
-      footer={socialFooter}
+      footer={footer}
       scrollProps={{ nestedScrollEnabled: true }}>
         <OmnifolioBrand />
         <ThemedText style={styles.subtitle}>{t('auth.subtitle')}</ThemedText>
@@ -283,44 +325,6 @@ export default function AuthScreen() {
           ) : (
             <ThemedText style={styles.forgotHint}>{t('auth.forgotPasswordHint')}</ThemedText>
           )}
-
-          <TouchableOpacity
-            activeOpacity={0.85}
-            disabled={anyBusy}
-            style={[
-              styles.primaryBtn,
-              (mode === 'forgot' ? !canSendReset : !canSubmit) || anyBusy ? styles.disabledBtn : null,
-            ]}
-            onPress={mode === 'forgot' ? sendReset : submit}
-          >
-            {submitBusy ? (
-              <ActivityIndicator color="#fff" />
-            ) : (
-              <ThemedText style={styles.primaryBtnText}>
-                {mode === 'forgot' ? t('auth.sendResetLink') : mode === 'signin' ? t('auth.signIn') : t('auth.signUp')}
-              </ThemedText>
-            )}
-          </TouchableOpacity>
-
-          {mode === 'forgot' && info ? (
-            <View style={styles.infoBox}>
-              <ThemedText style={styles.infoBoxText}>{info}</ThemedText>
-            </View>
-          ) : null}
-
-          {mode === 'forgot' ? (
-            <TouchableOpacity
-              style={styles.backForgot}
-              onPress={() => {
-                setMode('signin');
-                setError(null);
-                setInfo(null);
-              }}
-              disabled={anyBusy}
-            >
-              <ThemedText style={styles.forgotLink}>{t('auth.backToSignIn')}</ThemedText>
-            </TouchableOpacity>
-          ) : null}
         </View>
 
         {error ? <ThemedText style={styles.errorText}>{error}</ThemedText> : null}
@@ -369,8 +373,11 @@ const styles = StyleSheet.create({
     paddingHorizontal: 12,
     paddingVertical: 10,
   },
+  footerInner: {
+    paddingHorizontal: 20,
+    gap: 12,
+  },
   primaryBtn: {
-    marginTop: 14,
     backgroundColor: Brand.primarySolid,
     borderRadius: 10,
     alignItems: 'center',
@@ -380,10 +387,7 @@ const styles = StyleSheet.create({
   },
   disabledBtn: { opacity: 0.5 },
   primaryBtnText: { color: '#fff', fontWeight: '700' },
-  socialFooterInner: {
-    paddingHorizontal: 20,
-  },
-  orText: { textAlign: 'center', color: '#6b7280', marginBottom: 14 },
+  orText: { textAlign: 'center', color: '#6b7280', marginTop: 4 },
   socialStack: {
     gap: 14,
   },

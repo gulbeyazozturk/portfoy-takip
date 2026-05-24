@@ -2,6 +2,13 @@
 
 Bu dosya Cursor ve benzeri araçlar için **proje özgü** kısa kurallar içerir. Genel kodlama tercihleri kullanıcı ayarlarında kalır.
 
+## Kalite ve çözüm yaklaşımı (zorunlu)
+
+- **Quick & dirty yok:** Geçici, acele veya “şimdilik çalışsın” diye bırakılan çözümler yazma. Kök nedeni anla; mevcut mimari, `lib/` ve hook’larla **tutarlı**, sürdürülebilir çözüm üret.
+- **Yama (patch) yok:** Belirtiyi gizleyen, tekrarlayan mantık, kopyala-yapıştır workaround, gereksiz `if`/`try-catch` fallback’leri veya “bir yere daha ekle” tarzı düzeltmeler yapma. Sorun ortak katmanda çözülmeli.
+- **Yama şartsa onay al:** Gerçekten geçici bir yama veya teknik borç kaçınılmazsa **uygulamadan önce** kullanıcıya açıkça yaz: ne yapılacak, neden kalıcı çözüm şimdi mümkün değil, sonraki adım ne. **Onay olmadan yama commit etme.**
+- **Önbellek / semptom düzeltmesi:** Dosya doğru olsa bile “cache temizle”, “reload”, “flag ekle” gibi semptom müdahaleleri kalıcı çözüm yerine geçmesin; gerekirse onayla ve borcu not et.
+
 ## Stack
 - **Expo SDK 54** + **expo-router**, **Supabase** (auth + Postgres + RLS), **EAS** ile iOS/Android build.
 - Ortam: `.env` içinde `EXPO_PUBLIC_SUPABASE_*`; script’ler için ayrıca `SUPABASE_SERVICE_ROLE_KEY`.
@@ -31,7 +38,8 @@ Bu dosya Cursor ve benzeri araçlar için **proje özgü** kısa kurallar içeri
 
 ## UI: alt butonlar (dokunma)
 - Birincil CTA’lar (`Devam`, giriş, sosyal giriş, form onayı vb.) **`ScrollView` / `FlatList` içine konmaz**; `components/screen-with-footer.tsx` içindeki **`ScreenWithFooter`** bileşeninin `footer` slot’una verilir.
-- Gövde kayar (`children` / `scroll={true}`), footer sabit kalır; alt safe area yalnızca `ScreenWithFooter` tarafından uygulanır.
+- `ScreenWithFooter` düzeni: **flex sütun** (`header` → `body` `flex:1` + `minHeight:0` → `footer` `flexShrink:0`). Footer için `absolute` / `zIndex` kullanma; `FlatList`/`ScrollView` gövdede `style={{ flex: 1 }}` olmalı.
+- Alt safe area yalnızca footer’da `ScreenWithFooter` tarafından uygulanır.
 
 ## Bitirmeden önce
 - Mümkünse `npx tsc --noEmit`; davranış değiştiyse ilgili ekran veya script akışını gözden geçir.

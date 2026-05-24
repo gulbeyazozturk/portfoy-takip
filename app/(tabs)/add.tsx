@@ -156,9 +156,11 @@ export default function AddScreen() {
           </View>
         ) : (
           <FlatList
+            style={styles.list}
             data={filteredList}
             keyExtractor={(item) => item.id}
             contentContainerStyle={styles.listContent}
+            keyboardShouldPersistTaps="handled"
             renderItem={({ item }) => (
               <TouchableOpacity
                 style={styles.row}
@@ -265,6 +267,7 @@ const styles = StyleSheet.create({
   },
   rowTitle: { fontSize: 16, fontWeight: '500', color: WHITE },
   rowSubtitle: { fontSize: 12, color: '#64748B', marginTop: 3 },
+  list: { flex: 1 },
   footerWrap: { paddingHorizontal: 24, paddingTop: 8 },
   helpCard: {
     flexDirection: 'row',
