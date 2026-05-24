@@ -33,6 +33,8 @@ const MAX_FALL_FOR_QUERY = Math.max(...FALL_TIERS);
 const EXPO_PUSH_URL = 'https://exp.host/--/api/v2/push/send';
 /** Toz miktar / yuvarlama: pratikte sıfır sayılan holding adedi. */
 const MIN_HOLDING_QTY = 1e-8;
+/** Yalnızca bu hesap: push bildirimleri en son eklenen portföyden (created_at); diğer kullanıcılar etkilenmez. */
+const PUSH_LATEST_PORTFOLIO_ONLY_EMAIL = 'hasimozturk@gmail.com';
 const NOTIFY_HOUR_START = Number(process.env.DAILY_GAIN_PUSH_LOCAL_START_HOUR || '9');
 const NOTIFY_HOUR_END_EXCLUSIVE = Number(process.env.DAILY_GAIN_PUSH_LOCAL_END_HOUR || '22');
 const SUMMARY_HOUR = Number(process.env.DAILY_SUMMARY_LOCAL_HOUR || '23');
@@ -173,14 +175,85 @@ function chunk(arr, size) {
   return out;
 }
 
+async function resolveUserIdByEmail(email) {
+  const want = String(email || '')
+    .trim()
+    .toLowerCase();
+  if (!want) return null;
+  let page = 1;
+  while (true) {
+    const { data, error } = await supabase.auth.admin.listUsers({ page, perPage: 1000 });
+    if (error) throw new Error(`auth listUsers failed: ${error.message}`);
+    const users = data?.users || [];
+    const hit = users.find((u) => String(u.email || '').trim().toLowerCase() === want);
+    if (hit?.id) return hit.id;
+    if (users.length < 1000) break;
+    page += 1;
+  }
+  return null;
+}
+
+function portfolioCreatedAtMs(iso) {
+  const t = Date.parse(iso || '');
+  return Number.isFinite(t) ? t : 0;
+}
+
+/** Kullanıcı başına en son oluşturulan portföy (created_at; eşitlikte id ile tie-break). */
+function latestPortfolioIdByUser(portfolios) {
+  const out = new Map();
+  for (const p of portfolios || []) {
+    if (!p.user_id || !p.id) continue;
+    const ms = portfolioCreatedAtMs(p.created_at);
+    const cur = out.get(p.user_id);
+    if (!cur || ms > cur.ms || (ms === cur.ms && String(p.id) > String(cur.portfolio_id))) {
+      out.set(p.user_id, { portfolio_id: p.id, ms });
+    }
+  }
+  return out;
+}
+
+/** hasimozturk@gmail.com için { userId, latestPortfolioId } veya kullanıcı yoksa null. */
+async function buildLatestPortfolioOnlyPushScope() {
+  const userId = await resolveUserIdByEmail(PUSH_LATEST_PORTFOLIO_ONLY_EMAIL);
+  if (!userId) {
+    console.warn(
+      `Push scope: ${PUSH_LATEST_PORTFOLIO_ONLY_EMAIL} auth kullanıcısı bulunamadı; genel kurallar uygulanır.`,
+    );
+    return null;
+  }
+  const { data: portfolios, error } = await supabase
+    .from('portfolios')
+    .select('id, user_id, created_at')
+    .eq('user_id', userId)
+    .limit(500);
+  if (error) throw new Error(`portfolios scope query failed: ${error.message}`);
+  const latest = latestPortfolioIdByUser(portfolios || []).get(userId);
+  if (!latest?.portfolio_id) {
+    console.warn(`Push scope: ${PUSH_LATEST_PORTFOLIO_ONLY_EMAIL} için portföy yok; bu kullanıcıya push gönderilmez.`);
+    return { userId, latestPortfolioId: null };
+  }
+  console.log(
+    `Push scope: ${PUSH_LATEST_PORTFOLIO_ONLY_EMAIL} → yalnızca portföy ${latest.portfolio_id} (en son created_at).`,
+  );
+  return { userId, latestPortfolioId: latest.portfolio_id };
+}
+
+function holdingAllowedForPush(userId, portfolioId, latestPortfolioOnlyScope) {
+  if (!latestPortfolioOnlyScope?.userId || userId !== latestPortfolioOnlyScope.userId) {
+    return true;
+  }
+  if (!latestPortfolioOnlyScope.latestPortfolioId) return false;
+  return portfolioId === latestPortfolioOnlyScope.latestPortfolioId;
+}
+
 /**
  * Yalnızca quantity > 0 olan holding'ler — satılan (silinen / sıfırlanan) pozisyonlara push gitmez.
  * Varlık listesinden değil holding'den başlarız; "piyasada yükselen ama portföyde olmayan" eşleşme riski kalmaz.
  */
-async function fetchCandidates() {
+async function fetchCandidates(latestPortfolioOnlyScope) {
   const { data: portfolios, error: portfoliosError } = await supabase
     .from('portfolios')
-    .select('id, user_id')
+    .select('id, user_id, created_at')
     .not('user_id', 'is', null)
     .limit(100000);
   if (portfoliosError) throw new Error(`portfolios query failed: ${portfoliosError.message}`);
@@ -205,6 +278,7 @@ async function fetchCandidates() {
       const userId = portfolioUserMap.get(h.portfolio_id);
       const a = h.asset;
       if (!userId || !a?.id) continue;
+      if (!holdingAllowedForPush(userId, h.portfolio_id, latestPortfolioOnlyScope)) continue;
 
       const qty = Number(h.quantity);
       if (!Number.isFinite(qty) || qty <= MIN_HOLDING_QTY) continue;
@@ -619,26 +693,7 @@ async function fetchUserHoldingsWithPrices() {
   return { rows, portfolios: portfolios || [] };
 }
 
-function portfolioCreatedAtMs(iso) {
-  const t = Date.parse(iso || '');
-  return Number.isFinite(t) ? t : 0;
-}
-
-/** Kullanıcı başına en son oluşturulan portföy (created_at). */
-function latestPortfolioIdByUser(portfolios) {
-  const out = new Map();
-  for (const p of portfolios || []) {
-    if (!p.user_id || !p.id) continue;
-    const ms = portfolioCreatedAtMs(p.created_at);
-    const cur = out.get(p.user_id);
-    if (!cur || ms > cur.ms) {
-      out.set(p.user_id, { portfolio_id: p.id, ms });
-    }
-  }
-  return out;
-}
-
-function computePortfolioDailySummaryByUser(rows, usdTry, portfolios) {
+function computePortfolioDailySummaryByUser(rows, usdTry, portfolios, latestPortfolioOnlyScope) {
   const agg = new Map();
   const now = new Date();
   for (const r of rows) {
@@ -674,11 +729,10 @@ function computePortfolioDailySummaryByUser(rows, usdTry, portfolios) {
   }
 
   const latestByUser = latestPortfolioIdByUser(portfolios);
+  const scopedUserId = latestPortfolioOnlyScope?.userId ?? null;
   const out = new Map();
   for (const v of agg.values()) {
     if (!Number.isFinite(v.total_tl) || v.total_tl <= 0) continue;
-    const latest = latestByUser.get(v.user_id);
-    if (!latest || latest.portfolio_id !== v.portfolio_id) continue;
 
     const prevTL = v.total_tl - v.daily_change_tl;
     const pct =
@@ -688,21 +742,34 @@ function computePortfolioDailySummaryByUser(rows, usdTry, portfolios) {
       .sort((a, b) => b.change_24h_pct - a.change_24h_pct)
       .slice(0, 3)
       .map((x) => x.symbol);
-    out.set(v.user_id, {
+    const summary = {
       portfolio_id: v.portfolio_id,
       portfolio_name: v.portfolio_name,
       total_tl: v.total_tl,
       daily_change_tl: v.daily_change_tl,
       daily_pct_tl: pct,
       topRisers,
-    });
+    };
+
+    if (scopedUserId && v.user_id === scopedUserId) {
+      const latest = latestByUser.get(v.user_id);
+      if (!latest || latest.portfolio_id !== v.portfolio_id) continue;
+      out.set(v.user_id, summary);
+      continue;
+    }
+
+    const existing = out.get(v.user_id);
+    if (!existing || v.total_tl > existing.total_tl) {
+      out.set(v.user_id, summary);
+    }
   }
   return out;
 }
 
 async function main() {
   const eventDate = todayInIstanbul();
-  const candidates = await fetchCandidates();
+  const latestPortfolioOnlyScope = await buildLatestPortfolioOnlyPushScope();
+  const candidates = await fetchCandidates(latestPortfolioOnlyScope);
   const targets = candidates;
   const usdTry = await fetchUsdTryRate();
   const summaryPayload = await fetchUserHoldingsWithPrices();
@@ -711,6 +778,7 @@ async function main() {
     summaryRows,
     usdTry,
     summaryPayload.portfolios,
+    latestPortfolioOnlyScope,
   );
   const uniqueUserIds = [...new Set([...targets.map((t) => t.user_id), ...summaryByUser.keys()])];
   const tokensByUser = await fetchTokensByUser(uniqueUserIds);
@@ -776,7 +844,7 @@ async function main() {
     }
   }
 
-  // 23:00 yerel saat Günsonu Özeti (kullanıcı başına günde 1 kez; en son eklenen portföy)
+  // 23:00 yerel saat Günsonu Özeti (kullanıcı başına günde 1 kez; hasim → en son portföy, diğerleri → en büyük portföy)
   const summarySentSet = await fetchSummarySentSet(eventDate);
   for (const [userId, summary] of summaryByUser.entries()) {
     if (summarySentSet.has(userId)) continue;
