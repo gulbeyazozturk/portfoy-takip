@@ -76,33 +76,69 @@ async function instantKripto(symbol: string): Promise<number | null> {
   return toNum(p?.[id]?.try);
 }
 
+const TEFAS_FON_KINDS = ['YAT', 'EMK', 'BYF', 'GYF', 'GSYF'] as const;
+
+function formatTefasYmd(d: Date): string {
+  const dd = String(d.getDate()).padStart(2, '0');
+  const mm = String(d.getMonth() + 1).padStart(2, '0');
+  const yyyy = d.getFullYear();
+  return `${yyyy}${mm}${dd}`;
+}
+
 async function instantFon(symbol: string): Promise<number | null> {
-  const now = new Date();
-  const d1 = new Date(now);
-  d1.setDate(now.getDate() - 7);
-  const fmt = (d: Date) =>
-    `${String(d.getDate()).padStart(2, '0')}.${String(d.getMonth() + 1).padStart(2, '0')}.${d.getFullYear()}`;
-  const body = `fontip=YAT&fonkod=${encodeURIComponent(symbol)}&bastarih=${fmt(d1)}&bittarih=${fmt(now)}`;
-  try {
-    const res = await fetch('https://www.tefas.gov.tr/api/DB/BindHistoryInfo', {
-      method: 'POST',
-      headers: {
-        'X-Requested-With': 'XMLHttpRequest',
-        'Origin': 'https://www.tefas.gov.tr',
-        'Referer': 'https://www.tefas.gov.tr/TarihselVeriler.aspx',
-        'Content-Type': 'application/x-www-form-urlencoded',
-      },
-      body,
-    });
-    if (!res.ok) return null;
-    const json: any = await res.json();
-    const arr = Array.isArray(json?.data) ? json.data : [];
-    if (!arr.length) return null;
-    const last = arr[0];
-    return toNum(last?.FIYAT);
-  } catch {
-    return null;
+  const code = symbol.trim().toUpperCase();
+  if (!code) return null;
+
+  const today = new Date();
+  const start = new Date(today);
+  start.setDate(start.getDate() - 7);
+  const basTarih = formatTefasYmd(start);
+  const bitTarih = formatTefasYmd(today);
+
+  for (const fonTipi of TEFAS_FON_KINDS) {
+    try {
+      const res = await fetch('https://www.tefas.gov.tr/api/funds/fonGnlBlgSiraliGetir', {
+        method: 'POST',
+        headers: {
+          Accept: '*/*',
+          'Content-Type': 'application/json',
+          Origin: 'https://www.tefas.gov.tr',
+          Referer: 'https://www.tefas.gov.tr/tr/fon-verileri',
+        },
+        body: JSON.stringify({
+          fonTipi,
+          fonKodu: code,
+          aramaMetni: null,
+          fonTurKod: null,
+          fonGrubu: null,
+          sfonTurKod: null,
+          fonTurAciklama: null,
+          kurucuKod: null,
+          basTarih,
+          bitTarih,
+          basSira: 1,
+          bitSira: 100000,
+          dil: 'TR',
+          sFonTurKod: '',
+          fonKod: code,
+          fonGrup: '',
+          fonUnvanTip: '',
+        }),
+      });
+      if (!res.ok) continue;
+      const json: any = await res.json();
+      const rows = Array.isArray(json?.resultList) ? json.resultList : [];
+      if (!rows.length) continue;
+      const latest = [...rows].sort((a, b) =>
+        String(b?.tarih ?? '').localeCompare(String(a?.tarih ?? '')),
+      )[0];
+      const price = toNum(latest?.fiyat);
+      if (price != null) return price;
+    } catch {
+      // sonraki fon tipini dene (ör. TN1 → GYF)
+    }
   }
+  return null;
 }
 
 async function instantEmtia(symbol: string): Promise<number | null> {

@@ -12,7 +12,7 @@ import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.49.1';
 
 const TEFAS_BASE = 'https://www.tefas.gov.tr';
 const TEFAS_INFO_URL = `${TEFAS_BASE}/api/funds/fonGnlBlgSiraliGetir`;
-const FUND_TYPES = ['YAT', 'EMK', 'BYF'] as const;
+const FUND_TYPES = ['YAT', 'EMK', 'BYF', 'GYF', 'GSYF'] as const;
 
 const HEADERS: Record<string, string> = {
   Accept: '*/*',

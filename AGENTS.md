@@ -13,13 +13,13 @@ Bu dosya Cursor ve benzeri araçlar için **proje özgü** kısa kurallar içeri
 - Portföy adı eşlemesi: `lib/portfolio-name-loose.ts`, TEFAS hata kodu **-100**: `lib/fon-price-guards.ts` + `scripts/sync-tefas-funds.js`.
 
 ## Günlük % ve saat dilimi
-- UI’da gösterilen günlük değişim: `lib/effective-change-24h.ts` — **BIST / fon / emtia / döviz / mevduat** → takvim **Europe/Istanbul**; **yurtdışı hisse** → **America/New_York** (NYSE kapanışı kabaca 23:00–00:00 TSİ aralığında, ABD yaz/kışına göre değişir).
+- UI’da gösterilen günlük değişim: `lib/effective-change-24h.ts` + `lib/trading-day-display.ts` — **BIST / fon**: seans sonrası ve hafta sonu boyunca son işlem günü %’i; sıfırlama yalnızca **ertesi işlem günü 00:00 (TSİ)**. **Yurtdışı**: aynı mantık, **America/New_York**. **Kripto / döviz / emtia / mevduat**: **TSİ** gece yarısı; yeni gün fiyatı gelene kadar gizle.
 - **Emtia** sunucu tarafı gece referansı: `scripts/emtia-midnight-tr.js` + `sync-emtia-scrape.js` / `sync-kapalicarsi-gold.js`.
 - Gece yarısı geçişinde ekranın yenilenmesi: `hooks/use-minute-tick.ts`.
 
 ## Sync ve script’ler
 - Node script’leri `scripts/` altında; fonksiyonel isimler (`sync-tefas-funds.js`, `reset-for-csv-import.js`, vb.).
-- TEFAS (GitHub Actions IP engeli): üretimde `supabase/functions/sync-tefas` + `docs/SUPABASE-TEFAS-EDGE.md` (pg_cron + pg_net). Yerel Windows zamanlama (ör. 07:30–12:30): `scripts/windows/register-tefas-morning-task.ps1` + `docs/LOCAL-TEFAS-WINDOWS-SCHEDULE.md`.
+- TEFAS (GitHub Actions IP engeli): üretimde `supabase/functions/sync-tefas` + `docs/SUPABASE-TEFAS-EDGE.md` (pg_cron + pg_net). Sync fon tipleri: **YAT, EMK, BYF, GYF, GSYF** (proje GYF’ler `GYF` altında, örn. TN1). Yerel Windows zamanlama (ör. 07:30–12:30): `scripts/windows/register-tefas-morning-task.ps1` + `docs/LOCAL-TEFAS-WINDOWS-SCHEDULE.md`.
 - Yerel Windows fiyat scheduler: Portfolio 30 dk + ABD 10 dk için `scripts/windows/register-local-price-sync-tasks.ps1` + `docs/LOCAL-WINDOWS-PRICE-SCHEDULE.md`.
 - ABD (yurtdışı) fiyatları: Yahoo GitHub runner’da (`us-sync.yml`); periyot **Supabase** `pg_cron` → Edge `sync-abd-prices` (`github_dispatch`). GitHub’da `schedule` yok: `docs/SUPABASE-ABD-SYNC.md`.
 - **Portfolio sync** (kripto/BIST/döviz/emtıa/holdings yurtdışı/snapshot): `portfolio-sync.yml`; periyot **Supabase** `pg_cron` → Edge `dispatch-portfolio-sync`: `docs/SUPABASE-PORTFOLIO-SYNC.md`.

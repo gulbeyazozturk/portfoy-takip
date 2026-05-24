@@ -3,7 +3,7 @@
  * - tefas.gov.tr resmi JSON API (Next.js sonrası): POST /api/funds/fonGnlBlgSiraliGetir
  * - Eski /api/DB/BindHistoryInfo (form POST) 2026’da ERR-006 ile kapatıldı.
  * - Supabase'de category_id = 'fon' olan assets kayıtlarını UPSERT eder
- * - Üç fon tipi: YAT (yatırım fonu), EMK (emeklilik), BYF (borsa yatırım fonu)
+ * - Beş fon tipi: YAT, EMK, BYF, GYF (gayrimenkul / proje GYF), GSYF (girişim sermayesi)
  *
  * Çalıştırma: node scripts/sync-tefas-funds.js
  * Gereksinim: .env (Supabase key'leri)
@@ -14,7 +14,7 @@
 const TEFAS_BASE = 'https://www.tefas.gov.tr';
 const TEFAS_INFO_URL = `${TEFAS_BASE}/api/funds/fonGnlBlgSiraliGetir`;
 
-const FUND_TYPES = ['YAT', 'EMK', 'BYF'];
+const FUND_TYPES = ['YAT', 'EMK', 'BYF', 'GYF', 'GSYF'];
 
 /** Tarayıcıya yakın UA; WAF bazen datacenter IP’lerinde HTML döndürebilir. */
 const HEADERS = {
