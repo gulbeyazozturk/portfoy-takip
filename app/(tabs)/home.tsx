@@ -23,6 +23,7 @@ import { Brand } from '@/constants/brand';
 import { getSingleChartCategoryId, useSelectedCategories } from '@/context/selected-categories';
 import type { AllocationBreakdownRow } from '@/hooks/use-portfolio-core-data';
 import { usePortfolioCoreData } from '@/hooks/use-portfolio-core-data';
+import { useScreenLayout } from '@/hooks/use-screen-layout';
 import { CATEGORY_CHART_COLORS } from '@/lib/category-chart-colors';
 
 const BG = '#000000';
@@ -56,6 +57,7 @@ export default function HomeScreen() {
   const { t, i18n } = useTranslation();
   const router = useRouter();
   const { width: windowWidth } = useWindowDimensions();
+  const layout = useScreenLayout();
   const numberLocale = i18n.language?.toLowerCase().startsWith('en') ? 'en-US' : 'tr-TR';
   const [fontsLoaded] = useFonts({ Manrope_800ExtraBold });
   const fontHead800 = fontsLoaded ? 'Manrope_800ExtraBold' : undefined;
@@ -71,11 +73,10 @@ export default function HomeScreen() {
    * Oku + yatay kol (radialStep + horizontalLen ≈ 75px) tuval kenarından içeride kalmalı.
    * Dar ekranda küçük margin (ör. 48) etiketi viewBox dışına iter (“FON” → “F”, “% BIST” vb.).
    */
-  const donutLabelMargin = windowWidth < 360 ? 84 : 78;
   const donutMaxCanvas = windowWidth - 40 - 16;
   const donutSize = Math.max(
-    148,
-    Math.min(200, donutMaxCanvas - 2 * donutLabelMargin),
+    layout.donutSizeMin,
+    Math.min(layout.donutSizeMax, donutMaxCanvas - 2 * layout.donutLabelMargin),
   );
 
   const {
@@ -83,15 +84,12 @@ export default function HomeScreen() {
     allocationBreakdown,
     portfolioMetrics,
     categoryPerformanceById,
-    holdings,
-    usdTry,
     loading,
     error,
     portfolioId,
     portfolios,
     selectPortfolio,
     currentPortfolioName,
-    metricsReady,
   } = usePortfolioCoreData();
 
   const lastGridTapRef = useRef<{ at: number; categoryId: string } | null>(null);
@@ -143,8 +141,6 @@ export default function HomeScreen() {
         ? portfolioMetrics.totalChangeAmtTL
         : portfolioMetrics.totalChangeAmtUSD;
   const pctPositive = heroPct >= 0;
-
-  const showFxLoading = holdings.length > 0 && !metricsReady;
 
   const fmtMoney = (n: number) =>
     valueCurrency === 'USD'
@@ -208,11 +204,14 @@ export default function HomeScreen() {
           <ScrollView
             ref={scrollRef}
             style={styles.scroll}
-            contentContainerStyle={styles.scrollContent}
+            contentContainerStyle={[
+              styles.scrollContent,
+              { paddingBottom: layout.scrollPaddingBottom },
+            ]}
             showsVerticalScrollIndicator={false}
             keyboardShouldPersistTaps="handled">
             {/* Üst özet: tutar + %; alt satırda günlük/tümü ve TL/USD (aynı hap stili) */}
-            <View style={styles.hero}>
+            <View style={[styles.hero, { marginBottom: layout.heroMarginBottom, paddingTop: layout.isCompact ? 8 : 14 }]}>
               <Pressable
                 onPress={clearHomeCategoryFilter}
                 accessibilityRole="button"
@@ -220,26 +219,25 @@ export default function HomeScreen() {
                 style={styles.heroTopRowPressable}>
                 <View style={styles.heroTopRow}>
                   <View style={styles.heroValueSlot}>
-                    {showFxLoading ? (
-                      <View style={styles.heroFxSkeleton}>
-                        <ActivityIndicator size="large" color={PRIMARY} />
-                      </View>
-                    ) : (
-                      <Text style={styles.heroValue} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.55}>
-                        {maskIfHidden(
-                          mainTotal > 0
-                            ? fmtMoney(mainTotal)
-                            : valueCurrency === 'USD'
-                              ? '$0'
-                              : `0 ${t('home.currencyTL')}`,
-                        )}
-                      </Text>
-                    )}
+                    <Text style={styles.heroValue} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.55}>
+                      {maskIfHidden(
+                        mainTotal > 0
+                          ? fmtMoney(mainTotal)
+                          : valueCurrency === 'USD'
+                            ? '$0'
+                            : `0 ${t('home.currencyTL')}`,
+                      )}
+                    </Text>
                   </View>
-                  {!showFxLoading && mainTotal > 0 ? (
+                  {mainTotal > 0 ? (
                     <View style={styles.heroDeltaWrap}>
                       <View style={styles.heroPctRow}>
-                        <Text style={[styles.heroPct, pctPositive ? styles.heroPctUp : styles.heroPctDown]}>
+                        <Text
+                          style={[
+                            styles.heroPct,
+                            { fontSize: layout.heroPctFontSize },
+                            pctPositive ? styles.heroPctUp : styles.heroPctDown,
+                          ]}>
                           {pctStr}
                         </Text>
                         <Pressable
@@ -263,7 +261,7 @@ export default function HomeScreen() {
                   ) : null}
                 </View>
               </Pressable>
-              <View style={styles.heroPillsRow}>
+              <View style={[styles.heroPillsRow, { marginTop: layout.heroPillsMarginTop }]}>
                 <View style={[styles.currencyPill, styles.heroPill]}>
                   <Pressable
                     onPress={() => setValueScope('daily')}
@@ -316,17 +314,28 @@ export default function HomeScreen() {
             </View>
 
             {/* Hero ile grafik arası: boş alan dokunması → vurgu kapanır (donut ile çakışmaz) */}
-            <View style={styles.heroChartGap} pointerEvents="none" />
+            <View
+              style={[styles.heroChartGap, { height: layout.heroChartGap }]}
+              pointerEvents="none"
+            />
 
             {/* Bento: donut kartı */}
-            <View style={[styles.bentoChart, Platform.OS === 'ios' && styles.bentoChartIos]}>
+            <View
+              style={[
+                styles.bentoChart,
+                Platform.OS === 'ios' && styles.bentoChartIos,
+                {
+                  paddingVertical: layout.bentoPaddingVertical,
+                  marginBottom: layout.bentoMarginBottom,
+                },
+              ]}>
               <View style={styles.donutInner}>
                 <UltraDarkDonutChart
                   data={neonSlices}
                   size={donutSize}
-                  strokeWidth={22}
+                  strokeWidth={layout.donutStrokeWidth}
                   showLabels
-                  labelMargin={donutLabelMargin}
+                  labelMargin={layout.donutLabelMargin}
                   segmentGlow
                   selectedCategoryId={chartHighlightCategoryId}
                   onSlicePress={(slice) => {
@@ -344,29 +353,22 @@ export default function HomeScreen() {
                       accessibilityRole="button"
                       accessibilityLabel={t('portfolio.pickPortfolio')}>
                       <Text
-                        style={[styles.donutPortfolioTitle, { fontFamily: fontHead800 }]}
+                        style={[
+                          styles.donutPortfolioTitle,
+                          { fontFamily: fontHead800, fontSize: layout.donutTitleFontSize, lineHeight: layout.donutTitleFontSize + 4 },
+                        ]}
                         numberOfLines={3}>
                         {currentPortfolioName || t('portfolio.headerTitle')}
                       </Text>
                     </Pressable>
                   }
                 />
-                {showFxLoading ? (
-                  <View style={styles.bentoFxOverlay}>
-                    <ActivityIndicator size="large" color={PRIMARY} />
-                  </View>
-                ) : null}
               </View>
             </View>
 
             {/* İki sütun kategori kartları */}
-            <View style={styles.grid}>
-              {showFxLoading ? (
-                <View style={styles.gridFxLoading}>
-                  <ActivityIndicator size="large" color={PRIMARY} />
-                  <Text style={styles.loadingText}>{t('portfolio.loading')}</Text>
-                </View>
-              ) : allocationBreakdown.length === 0 ? (
+            <View style={[styles.grid, { gap: layout.gridGap }]}>
+              {allocationBreakdown.length === 0 ? (
                 <Text style={styles.noBreakdown}>{t('home.noBreakdown')}</Text>
               ) : (
                 allocationBreakdown.map((row) => {
@@ -419,7 +421,7 @@ export default function HomeScreen() {
                       accessibilityHint={t('home.doubleTapOpenPortfolio')}
                       style={({ pressed }) => [
                         styles.gridCard,
-                        { borderLeftColor: neon },
+                        { borderLeftColor: neon, paddingVertical: layout.gridCardPaddingVertical },
                         selected && [styles.gridCardSelected, { borderColor: neon, shadowColor: neon }],
                         dimmed && styles.gridCardDimmed,
                         pressed && styles.gridCardPressed,
@@ -600,23 +602,6 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     overflow: 'visible',
   },
-  bentoFxOverlay: {
-    ...StyleSheet.absoluteFillObject,
-    justifyContent: 'center',
-    alignItems: 'center',
-    backgroundColor: 'rgba(0,0,0,0.35)',
-    borderRadius: 12,
-    zIndex: 4,
-  },
-  heroFxSkeleton: {
-    minHeight: 52,
-    minWidth: 120,
-    justifyContent: 'center',
-    alignItems: 'center',
-    alignSelf: 'center',
-    paddingVertical: 6,
-  },
-
   centerPicker: {
     alignItems: 'center',
     justifyContent: 'center',
@@ -722,13 +707,6 @@ const styles = StyleSheet.create({
   gridPct: {
     fontSize: 11,
     fontWeight: '700',
-  },
-  gridFxLoading: {
-    width: '100%',
-    alignItems: 'center',
-    justifyContent: 'center',
-    paddingVertical: 32,
-    gap: 12,
   },
   noBreakdown: {
     width: '100%',

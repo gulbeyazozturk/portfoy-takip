@@ -73,6 +73,32 @@ export function usePortfolioCoreData() {
   const holdingsFetchGenRef = useRef(0);
   const holdingsPortfolioRef = useRef<string | null>(null);
 
+  type MetricsBundle = {
+    allocationData: DonutSlice[];
+    allocationBreakdown: AllocationBreakdownRow[];
+    portfolioMetrics: {
+      totalValueTL: number;
+      totalValueUSD: number;
+      dailyChangeTL: number;
+      dailyChangeUSD: number;
+      dailyPctTL: number;
+      dailyPctUSD: number;
+      costBasisTL: number;
+      costBasisUSD: number;
+      totalChangeAmtTL: number;
+      totalChangeAmtUSD: number;
+      totalPctTL: number;
+      totalPctUSD: number;
+      holdingCount: number;
+    };
+    categoryPerformanceById: Record<string, CategoryPerformanceMetrics>;
+  };
+
+  const lastMetricsRef = useRef<{ portfolioId: string | null; data: MetricsBundle | null }>({
+    portfolioId: null,
+    data: null,
+  });
+
   const fetchUsdRate = useCallback(async () => {
     try {
       const { data } = await supabase
@@ -241,10 +267,11 @@ export function usePortfolioCoreData() {
 
   useEffect(() => {
     holdingsPortfolioRef.current = null;
+    lastMetricsRef.current = { portfolioId: portfolioId ?? null, data: null };
     setHoldings([]);
     setLoading(true);
     fetchHoldings();
-  }, [fetchHoldings]);
+  }, [fetchHoldings, portfolioId]);
 
   useFocusEffect(
     useCallback(() => {
@@ -286,7 +313,7 @@ export function usePortfolioCoreData() {
 
   const metricsReady = fxRateReady && valuationReady;
 
-  const { allocationData, allocationBreakdown, portfolioMetrics, categoryPerformanceById } = useMemo(() => {
+  const liveMetrics = useMemo((): MetricsBundle => {
     const emptyMetrics = {
       totalValueTL: 0,
       totalValueUSD: 0,
@@ -485,6 +512,24 @@ export function usePortfolioCoreData() {
     };
   }, [holdings, categories, usdTry, usdTryDailyPct, dovizSpotBySymbol, t, minuteTick]);
 
+  const { allocationData, allocationBreakdown, portfolioMetrics, categoryPerformanceById } = useMemo(() => {
+    const live = liveMetrics;
+    const canCommit =
+      metricsReady &&
+      (holdings.length === 0 ||
+        (live.portfolioMetrics.totalValueTL > 0 &&
+          Number.isFinite(live.portfolioMetrics.totalValueTL)));
+    if (canCommit) {
+      lastMetricsRef.current = { portfolioId: portfolioId ?? null, data: live };
+      return live;
+    }
+    const cached = lastMetricsRef.current;
+    if (cached.portfolioId === portfolioId && cached.data) {
+      return cached.data;
+    }
+    return live;
+  }, [liveMetrics, metricsReady, holdings.length, portfolioId]);
+
   return {
     categories,
     holdings,
@@ -502,8 +547,5 @@ export function usePortfolioCoreData() {
     categoryPerformanceById,
     fetchHoldings,
     fetchUsdRate,
-    fxRateReady,
-    valuationReady,
-    metricsReady,
   };
 }

@@ -1,6 +1,6 @@
 import { Manrope_800ExtraBold } from '@expo-google-fonts/manrope';
 import { useFonts } from 'expo-font';
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   Pressable,
@@ -24,7 +24,12 @@ import { usePortfolioHistorySeries } from '@/hooks/use-portfolio-history-series'
 import { categoryDisplayLabel } from '@/lib/category-display';
 import type { PortfolioHistoryTf } from '@/lib/portfolio-history-math';
 import { MIN_VALID_USD_TRY_RATE } from '@/lib/usdtry-cache';
-import { computePortfolioPerformanceValues } from '@/lib/portfolio-performance';
+import { isHoldingMarketPriceReady } from '@/lib/portfolio-holdings';
+import { isUsdNativeCategory } from '@/lib/portfolio-currency';
+import {
+  computePortfolioPerformanceValues,
+  type PortfolioPerformanceValues,
+} from '@/lib/portfolio-performance';
 
 const BG_DARK = '#000000';
 const SURFACE = '#111111';
@@ -206,10 +211,19 @@ export default function TrendScreen() {
     portfolios,
     selectPortfolio,
     currentPortfolioName,
-    metricsReady,
   } = usePortfolioCoreData();
 
-  const showFxLoading = holdings.length > 0 && !metricsReady;
+  const lastPerfRef = useRef<{
+    portfolioId: string | null;
+    cacheKey: string;
+    values: PortfolioPerformanceValues | null;
+  }>({ portfolioId: null, cacheKey: '', values: null });
+
+  const perfCacheKey = chartCategoryId ?? 'all';
+
+  useEffect(() => {
+    lastPerfRef.current = { portfolioId: portfolioId ?? null, cacheKey: '', values: null };
+  }, [portfolioId]);
 
   const trendCategories = useMemo(() => {
     const list: { id: string; name: string }[] = [];
@@ -229,18 +243,48 @@ export default function TrendScreen() {
     });
   }, [holdings, chartCategoryId]);
 
-  const performanceValues = useMemo(
-    () =>
-      computePortfolioPerformanceValues(
-        metricsReady ? filteredHoldings : [],
-        usdTry > MIN_VALID_USD_TRY_RATE ? usdTry : 1,
-        { now: new Date() },
-      ),
-    [filteredHoldings, usdTry, minuteTick, metricsReady],
-  );
+  const performanceValues = useMemo(() => {
+    const safeRate = usdTry > MIN_VALID_USD_TRY_RATE ? usdTry : 1;
+    const live = computePortfolioPerformanceValues(filteredHoldings, safeRate, { now: new Date() });
+    const needsFx = filteredHoldings.some((h) => {
+      const a = normalizeAsset(h.asset);
+      return a != null && isUsdNativeCategory(a.category_id);
+    });
+    if (needsFx && !(usdTry > MIN_VALID_USD_TRY_RATE)) {
+      const cached = lastPerfRef.current;
+      if (
+        cached.portfolioId === portfolioId &&
+        cached.cacheKey === perfCacheKey &&
+        cached.values
+      ) {
+        return cached.values;
+      }
+      return live;
+    }
+    const valuationOk = filteredHoldings.every((h) => isHoldingMarketPriceReady(h, safeRate));
+    const canCommit =
+      valuationOk && (filteredHoldings.length === 0 || live.totalValueTL > 0);
+    if (canCommit) {
+      lastPerfRef.current = {
+        portfolioId: portfolioId ?? null,
+        cacheKey: perfCacheKey,
+        values: live,
+      };
+      return live;
+    }
+    const cached = lastPerfRef.current;
+    if (
+      cached.portfolioId === portfolioId &&
+      cached.cacheKey === perfCacheKey &&
+      cached.values
+    ) {
+      return cached.values;
+    }
+    return live;
+  }, [filteredHoldings, usdTry, minuteTick, portfolioId, perfCacheKey]);
 
   const historySeries = usePortfolioHistorySeries(
-    metricsReady ? filteredHoldings : [],
+    filteredHoldings,
     usdTry,
     activeTimeframe as PortfolioHistoryTf,
     perfCurrency,
@@ -382,21 +426,15 @@ export default function TrendScreen() {
               <View style={styles.performanceTop}>
                 <View>
                   <Text style={styles.totalLabel}>{t('portfolio.totalValueLabel')}</Text>
-                  {showFxLoading ? (
-                    <View style={styles.totalValueFxSkeleton}>
-                      <ActivityIndicator size="large" color={PRIMARY} />
-                    </View>
-                  ) : (
-                    <Text style={styles.totalValue}>
-                      {(perfCurrency === 'TL' ? performanceValues.totalValueTL : performanceValues.totalValueUSD).toLocaleString(
-                        perfCurrency === 'USD' ? 'en-US' : numberLocale,
-                        {
-                          minimumFractionDigits: 0,
-                          maximumFractionDigits: perfCurrency === 'USD' ? 2 : 0,
-                        },
-                      )}
-                    </Text>
-                  )}
+                  <Text style={styles.totalValue}>
+                    {(perfCurrency === 'TL' ? performanceValues.totalValueTL : performanceValues.totalValueUSD).toLocaleString(
+                      perfCurrency === 'USD' ? 'en-US' : numberLocale,
+                      {
+                        minimumFractionDigits: 0,
+                        maximumFractionDigits: perfCurrency === 'USD' ? 2 : 0,
+                      },
+                    )}
+                  </Text>
                   <View style={styles.currencyPill}>
                     <Pressable
                       onPress={() => setPerfCurrency('TL')}
@@ -423,7 +461,6 @@ export default function TrendScreen() {
                   </View>
                   {(() => {
                     const isDaily = activeTimeframe === '1D';
-                    if (showFxLoading) return null;
                     const amt = isDaily
                       ? perfCurrency === 'TL'
                         ? performanceValues.dailyChangeTL
@@ -466,11 +503,6 @@ export default function TrendScreen() {
                 <Text style={styles.historyErrorText}>{historySeries.error}</Text>
               ) : null}
               <View style={styles.chartBlock}>
-                {showFxLoading && filteredHoldings.length > 0 ? (
-                  <View style={styles.chartLoadingOverlay}>
-                    <ActivityIndicator color={PRIMARY} />
-                  </View>
-                ) : null}
                 {historySeries.loading && filteredHoldings.length > 0 ? (
                   <View style={styles.chartLoadingOverlay}>
                     <ActivityIndicator color={PRIMARY} />
@@ -585,11 +617,6 @@ const styles = StyleSheet.create({
   },
   totalLabel: { fontSize: 12, color: '#94A3B8', marginBottom: 4, fontWeight: '500' },
   totalValue: { fontSize: 28, fontWeight: '700', color: WHITE, fontVariant: ['tabular-nums'] },
-  totalValueFxSkeleton: {
-    minHeight: 40,
-    justifyContent: 'center',
-    marginTop: 4,
-  },
   currencyPill: {
     flexDirection: 'row',
     marginTop: 22,

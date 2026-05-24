@@ -36,6 +36,7 @@ import { Brand } from '@/constants/brand';
 import { categoryDisplayLabel } from '@/lib/category-display';
 import { effectiveChange24hPctForDisplay } from '@/lib/effective-change-24h';
 import { dailyPrevValueFromChangePct, fonUnitNativeTry } from '@/lib/fon-price-guards';
+import { isHoldingMarketPriceReady } from '@/lib/portfolio-holdings';
 import { isUsdNativeCategory } from '@/lib/portfolio-currency';
 import { MIN_VALID_USD_TRY_RATE } from '@/lib/usdtry-cache';
 import { useTranslation } from 'react-i18next';
@@ -100,6 +101,29 @@ const ASSET_ICONS: Record<string, { icon: string; bg: string; color: string }> =
 
 type SortMode = 'todayTopGainers' | 'todayTopLosers' | 'highestValue' | 'lowestValue' | 'alphaAZ' | 'alphaZA';
 
+type PortfolioSummaryData = {
+  totalUSD: number;
+  totalTL: number;
+  hasUSD: boolean;
+  hasTL: boolean;
+  dailyAmtUSD: number;
+  dailyAmtTL: number;
+  dailyPctUSD: number;
+  dailyPctTL: number;
+  totalAmtUSD: number;
+  totalAmtTL: number;
+  totalPctUSD: number;
+  totalPctTL: number;
+  mergedTotalTL: number;
+  mergedTotalUSD: number;
+  mergedDailyAmtTL: number;
+  mergedDailyAmtUSD: number;
+  mergedDailyPctTL: number;
+  mergedDailyPctUSD: number;
+  mergedTotalPctTL: number;
+  mergedTotalPctUSD: number;
+};
+
 /** Portföy tutarları: kuruş yok, yukarı yuvarlanmış tam birim. */
 function formatAmountCeiling(value: number, locale: string): string {
   const n = Number.isFinite(value) ? Math.ceil(value) : 0;
@@ -138,7 +162,6 @@ export function PortfolioScreen() {
     portfolios,
     selectPortfolio,
     currentPortfolioName,
-    metricsReady,
   } = usePortfolioCoreData();
   const minuteTick = useMinuteTick();
   const [portfolioPickerOpen, setPortfolioPickerOpen] = useState(false);
@@ -156,10 +179,25 @@ export function PortfolioScreen() {
     if (filter.kind === 'all') selectAllCategories();
   }, [portfolioId, selectAllCategories, filter.kind]);
 
+  useEffect(() => {
+    lastSummaryRef.current = { portfolioId: portfolioId ?? null, cacheKey: '', data: null };
+  }, [portfolioId]);
+
   const [sortMode, setSortMode] = useState<SortMode>('todayTopGainers');
   const [isSortMenuOpen, setIsSortMenuOpen] = useState(false);
   const [summaryMode, setSummaryMode] = useState<'daily' | 'total'>('daily');
   const [summaryDisplayCurrency, setSummaryDisplayCurrency] = useState<'TL' | 'USD'>('TL');
+
+  const lastSummaryRef = useRef<{
+    portfolioId: string | null;
+    cacheKey: string;
+    data: PortfolioSummaryData | null;
+  }>({ portfolioId: null, cacheKey: '', data: null });
+
+  const summaryCacheKey = useMemo(() => {
+    if (filter.kind === 'all') return 'all';
+    return [...filter.ids].sort().join(',');
+  }, [filter]);
 
   const orderedCategories = useMemo(() => {
     const list: { id: string; name: string }[] = [];
@@ -251,17 +289,25 @@ export function PortfolioScreen() {
     return sorted;
   }, [holdings, filter, sortMode, sortCollator, usdTry, minuteTick]);
 
-  const summaryData = useMemo(() => {
+  const summaryData = useMemo((): PortfolioSummaryData | null => {
     const filteredNeedsFx = filteredHoldings.some((h) => {
       const asset = normalizeAsset(h.asset);
       return asset != null && isUsdNativeCategory(asset.category_id);
     });
-    if (filteredNeedsFx && !(usdTry > MIN_VALID_USD_TRY_RATE)) {
+    const fxOk = !filteredNeedsFx || usdTry > MIN_VALID_USD_TRY_RATE;
+    if (!fxOk) {
+      const cached = lastSummaryRef.current;
+      if (
+        cached.portfolioId === portfolioId &&
+        cached.cacheKey === summaryCacheKey &&
+        cached.data
+      ) {
+        return cached.data;
+      }
       return null;
     }
-    if (!metricsReady) {
-      return null;
-    }
+
+    const rateForReady = usdTry > MIN_VALID_USD_TRY_RATE ? usdTry : 1;
 
     const now = new Date();
     let totalUSD = 0;
@@ -340,7 +386,7 @@ export function PortfolioScreen() {
     const mergedTotalPctTL = mergedCostTL > 0 ? (mergedTotalAmtTL / mergedCostTL) * 100 : 0;
     const mergedTotalPctUSD = mergedCostUSD > 0 ? (mergedTotalAmtUSD / mergedCostUSD) * 100 : 0;
 
-    return {
+    const live: PortfolioSummaryData = {
       totalUSD,
       totalTL,
       hasUSD,
@@ -362,7 +408,29 @@ export function PortfolioScreen() {
       mergedTotalPctTL,
       mergedTotalPctUSD,
     };
-  }, [filteredHoldings, usdTry, minuteTick, metricsReady]);
+
+    const valuationOk = filteredHoldings.every((h) => isHoldingMarketPriceReady(h, rateForReady));
+    const canCommit =
+      valuationOk && (filteredHoldings.length === 0 || mergedTotalTL > 0);
+    if (canCommit) {
+      lastSummaryRef.current = {
+        portfolioId: portfolioId ?? null,
+        cacheKey: summaryCacheKey,
+        data: live,
+      };
+      return live;
+    }
+
+    const cached = lastSummaryRef.current;
+    if (
+      cached.portfolioId === portfolioId &&
+      cached.cacheKey === summaryCacheKey &&
+      cached.data
+    ) {
+      return cached.data;
+    }
+    return live;
+  }, [filteredHoldings, usdTry, minuteTick, portfolioId, summaryCacheKey]);
 
   const openPortfolioPicker = () => {
     if (portfolios.length > 0) setPortfolioPickerOpen(true);
@@ -414,14 +482,7 @@ export function PortfolioScreen() {
             </View>
           ) : null}
 
-          {summaryData === null ? (
-            <View style={styles.hero}>
-              <Text style={[styles.heroKicker, { fontFamily: fontBodySemi }]}>{t('portfolio.totalBalance')}</Text>
-              <View style={[styles.heroAmountRow, styles.heroFxSkeletonRow]}>
-                <ActivityIndicator size="large" color={PRIMARY} />
-              </View>
-            </View>
-          ) : (summaryData.hasUSD || summaryData.hasTL) ? (
+          {summaryData && (summaryData.hasUSD || summaryData.hasTL) ? (
             (() => {
             const isDaily = summaryMode === 'daily';
             const mainTotal =
@@ -870,12 +931,6 @@ const styles = StyleSheet.create({
     alignItems: 'baseline',
     justifyContent: 'center',
     gap: 6,
-  },
-  heroFxSkeletonRow: {
-    minHeight: 52,
-    alignItems: 'center',
-    justifyContent: 'center',
-    paddingVertical: 8,
   },
   heroAmount: {
     fontSize: 36,
