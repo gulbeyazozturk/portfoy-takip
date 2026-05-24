@@ -273,18 +273,22 @@ async function upsertFonAssets(
   );
   const prevPriceBySymbol = new Map<string, number>();
   if (symbols.length) {
-    const { data: existing, error: exErr } = await supabase
-      .from('assets')
-      .select('symbol, current_price')
-      .eq('category_id', 'fon')
-      .in('symbol', symbols);
-    if (exErr) throw new Error('Fon mevcut fiyatları okunamadı: ' + exErr.message);
-    for (const row of existing || []) {
-      const s = String(row.symbol || '')
-        .trim()
-        .toUpperCase();
-      const p = row.current_price != null ? Number(row.current_price) : NaN;
-      if (s && Number.isFinite(p) && p > 0) prevPriceBySymbol.set(s, p);
+    const lookupChunk = 200;
+    for (let i = 0; i < symbols.length; i += lookupChunk) {
+      const slice = symbols.slice(i, i + lookupChunk);
+      const { data: existing, error: exErr } = await supabase
+        .from('assets')
+        .select('symbol, current_price')
+        .eq('category_id', 'fon')
+        .in('symbol', slice);
+      if (exErr) throw new Error('Fon mevcut fiyatları okunamadı: ' + exErr.message);
+      for (const row of existing || []) {
+        const s = String(row.symbol || '')
+          .trim()
+          .toUpperCase();
+        const p = row.current_price != null ? Number(row.current_price) : NaN;
+        if (s && Number.isFinite(p) && p > 0) prevPriceBySymbol.set(s, p);
+      }
     }
   }
 
