@@ -218,8 +218,12 @@ export default function HomeScreen() {
                 accessibilityLabel={t('home.clearCategoryHighlightA11y')}
                 style={styles.heroTopRowPressable}>
                 <View style={styles.heroTopRow}>
-                  <View style={styles.heroValueSlot}>
-                    <Text style={styles.heroValue} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.55}>
+                  <View style={[styles.heroValueSlot, { minHeight: layout.isCompact ? 44 : 52 }]}>
+                    <Text
+                      style={[styles.heroValue, { fontSize: layout.heroValueFontSize }]}
+                      numberOfLines={1}
+                      adjustsFontSizeToFit
+                      minimumFontScale={0.55}>
                       {maskIfHidden(
                         mainTotal > 0
                           ? fmtMoney(mainTotal)

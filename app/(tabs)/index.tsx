@@ -30,6 +30,7 @@ import {
   type HoldingRow,
 } from '@/hooks/use-portfolio-core-data';
 import { useMinuteTick } from '@/hooks/use-minute-tick';
+import { useScreenLayout } from '@/hooks/use-screen-layout';
 import { kriptoStoredUnitToUsd, legacyCryptoStoredUnitToUsd } from '@/lib/crypto-price-usd';
 import { resolveBistDisplayName } from '@/lib/bist-display-name';
 import { Brand } from '@/constants/brand';
@@ -147,6 +148,7 @@ export function PortfolioScreen() {
   const fontBodySemi = fontsLoaded ? 'Inter_600SemiBold' : undefined;
 
   const { width: windowWidth } = useWindowDimensions();
+  const layout = useScreenLayout();
 
   const scrollRef = useRef<ScrollView>(null);
   useScrollToTop(scrollRef);
@@ -440,14 +442,19 @@ export function PortfolioScreen() {
     <View style={styles.root}>
       <View style={styles.glowOrb} pointerEvents="none" />
       <SafeAreaView style={styles.safe} edges={['top']}>
-        <View style={styles.header}>
+        <View style={[styles.header, { paddingVertical: layout.headerPaddingVertical }]}>
           <Pressable
             style={styles.headerTitleBtn}
             onPress={openPortfolioPicker}
             disabled={portfolios.length === 0}
             accessibilityRole="button"
             accessibilityLabel={t('portfolio.pickPortfolio')}>
-            <Text style={[styles.headerPortfolioTitle, { fontFamily: fontHead800 }]} numberOfLines={2}>
+            <Text
+              style={[
+                styles.headerPortfolioTitle,
+                { fontFamily: fontHead800, fontSize: layout.headerTitleFontSize },
+              ]}
+              numberOfLines={2}>
               {currentPortfolioName || t('portfolio.headerTitle')}
             </Text>
           </Pressable>
@@ -505,13 +512,25 @@ export function PortfolioScreen() {
                 : formatPortfolioMoneyCeil(mainTotal, numberLocale);
             const suffix = summaryDisplayCurrency === 'USD' ? ' USD' : ` ${t('home.currencyTL')}`;
             return (
-              <View style={styles.hero}>
+              <View style={[styles.hero, { marginBottom: layout.heroMarginBottomPortfolio }]}>
                 <Text style={[styles.heroKicker, { fontFamily: fontBodySemi }]}>{t('portfolio.totalBalance')}</Text>
                 <View style={styles.heroAmountRow}>
-                  <Text style={[styles.heroAmount, { fontFamily: fontHead800 }]} numberOfLines={1} adjustsFontSizeToFit>
+                  <Text
+                    style={[
+                      styles.heroAmount,
+                      { fontFamily: fontHead800, fontSize: layout.heroAmountFontSize },
+                    ]}
+                    numberOfLines={1}
+                    adjustsFontSizeToFit>
                     {amountStr}
                   </Text>
-                  <Text style={[styles.heroSuffix, { fontFamily: fontHead700 }]}>{suffix}</Text>
+                  <Text
+                    style={[
+                      styles.heroSuffix,
+                      { fontFamily: fontHead700, fontSize: layout.heroSuffixFontSize },
+                    ]}>
+                    {suffix}
+                  </Text>
                 </View>
                 <View style={styles.heroPctRow}>
                   <Ionicons
@@ -522,13 +541,17 @@ export function PortfolioScreen() {
                   <Text
                     style={[
                       styles.heroPct,
-                      { fontFamily: fontHead700 },
+                      { fontFamily: fontHead700, fontSize: layout.heroPctFontSize },
                       pctPositive ? styles.pctUp : styles.pctDown,
                     ]}>
                     {pctStr}
                   </Text>
                 </View>
-                <View style={styles.heroPillsRow}>
+                <View
+                  style={[
+                    styles.heroPillsRow,
+                    { marginTop: layout.isCompact ? 14 : 22 },
+                  ]}>
                   <View style={[styles.currencyPill, styles.heroPillNoTop]}>
                     <Pressable
                       onPress={() => setSummaryMode('daily')}
@@ -600,7 +623,10 @@ export function PortfolioScreen() {
             showsHorizontalScrollIndicator={false}
             keyboardShouldPersistTaps="handled"
             contentContainerStyle={styles.pillsScroll}
-            style={[styles.pillsScrollView, { width: windowWidth }]}>
+            style={[
+              styles.pillsScrollView,
+              { width: windowWidth, marginBottom: layout.pillsMarginBottom },
+            ]}>
             <TouchableOpacity
               onPress={selectAllCategories}
               activeOpacity={0.85}
@@ -772,7 +798,11 @@ export function PortfolioScreen() {
                 return (
                   <Pressable
                     key={h.id}
-                    style={({ pressed }) => [styles.assetRow, pressed && styles.assetRowPressed]}
+                    style={({ pressed }) => [
+                      styles.assetRow,
+                      { paddingVertical: layout.assetRowPaddingVertical },
+                      pressed && styles.assetRowPressed,
+                    ]}
                     onPress={() =>
                       router.push({
                         pathname: '/(tabs)/asset-entry',
@@ -796,8 +826,16 @@ export function PortfolioScreen() {
                         },
                       })
                     }>
-                    <View style={styles.assetLeft}>
-                      <View style={styles.assetIconCircle}>
+                    <View style={[styles.assetLeft, { gap: layout.assetGap }]}>
+                      <View
+                        style={[
+                          styles.assetIconCircle,
+                          {
+                            width: layout.assetIconSize,
+                            height: layout.assetIconSize,
+                            borderRadius: layout.assetIconSize / 2,
+                          },
+                        ]}>
                         {asset.category_id === 'doviz' && asset.icon_url ? (
                           <Image
                             source={{ uri: asset.icon_url }}
@@ -805,11 +843,20 @@ export function PortfolioScreen() {
                             resizeMode="contain"
                           />
                         ) : (
-                          <Ionicons name={iconStyle.icon as keyof typeof Ionicons.glyphMap} size={22} color={PRIMARY} />
+                          <Ionicons
+                            name={iconStyle.icon as keyof typeof Ionicons.glyphMap}
+                            size={layout.isCompact ? 20 : 22}
+                            color={PRIMARY}
+                          />
                         )}
                       </View>
                       <View style={styles.assetTextCol}>
-                        <Text style={[styles.assetSymbol, { fontFamily: fontHead700 }]} numberOfLines={1}>
+                        <Text
+                          style={[
+                            styles.assetSymbol,
+                            { fontFamily: fontHead700, fontSize: layout.assetSymbolFontSize },
+                          ]}
+                          numberOfLines={1}>
                           {asset.symbol}
                         </Text>
                         <Text style={[styles.assetSubtitle, { fontFamily: fontBody }]} numberOfLines={1}>
@@ -863,7 +910,7 @@ export function PortfolioScreen() {
               })
             )}
           </View>
-          <View style={styles.bottomSpacer} />
+          <View style={[styles.bottomSpacer, { height: layout.bottomSpacerHeight }]} />
         </ScrollView>
       </SafeAreaView>
     </View>
