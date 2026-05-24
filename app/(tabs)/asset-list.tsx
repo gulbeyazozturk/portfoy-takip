@@ -5,7 +5,6 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
   ActivityIndicator,
   FlatList,
-  KeyboardAvoidingView,
   Platform,
   Pressable,
   StyleSheet,
@@ -16,8 +15,8 @@ import {
   View,
   type TextStyle,
 } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
 
+import { ScreenWithFooter } from '@/components/screen-with-footer';
 import { Brand } from '@/constants/brand';
 import { resolveBistDisplayName } from '@/lib/bist-display-name';
 import { supabase } from '@/lib/supabase';
@@ -254,49 +253,62 @@ export default function AssetListScreen() {
 
   return (
     <View style={styles.root}>
-      <SafeAreaView style={styles.safe} edges={['top']}>
-        <KeyboardAvoidingView
-          style={styles.kav}
-          behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-          keyboardVerticalOffset={0}>
-          <View style={styles.topSection}>
-            <TouchableOpacity
-              onPress={() => router.back()}
-              hitSlop={12}
-              style={styles.backBtn}>
-              <Ionicons name="arrow-back" size={26} color={WHITE} />
-            </TouchableOpacity>
-            <Text style={styles.title}>{title}</Text>
-          </View>
-
-          <View style={styles.searchWrap}>
-            <View style={styles.searchBar}>
-              <Ionicons name="search" size={20} color={SLATE} />
-              <TextInput
-                value={query}
-                onChangeText={setQuery}
-                placeholder={searchPlaceholder}
-                placeholderTextColor={`${SLATE}80`}
-                style={styles.searchInput}
-                autoCapitalize="none"
-                autoCorrect={false}
-                returnKeyType="search"
-              />
-              {query.length > 0 && (
-                <TouchableOpacity onPress={() => setQuery('')} hitSlop={8}>
-                  <Ionicons name="close-circle" size={20} color={SLATE} />
-                </TouchableOpacity>
-              )}
+      <ScreenWithFooter
+        scroll={false}
+        keyboardAvoid
+        backgroundColor={BG}
+        header={
+          <>
+            <View style={styles.topSection}>
+              <TouchableOpacity
+                onPress={() => router.back()}
+                hitSlop={12}
+                style={styles.backBtn}>
+                <Ionicons name="arrow-back" size={26} color={WHITE} />
+              </TouchableOpacity>
+              <Text style={styles.title}>{title}</Text>
             </View>
-          </View>
 
-          <View style={styles.sectionHeader}>
-            <Text style={styles.sectionTitle}>
-              {query.trim() ? t('assetList.sectionSearch') : t('assetList.sectionAll')}
-            </Text>
-            {countLabel ? <Text style={styles.countLabel}>{countLabel}</Text> : null}
-          </View>
+            <View style={styles.searchWrap}>
+              <View style={styles.searchBar}>
+                <Ionicons name="search" size={20} color={SLATE} />
+                <TextInput
+                  value={query}
+                  onChangeText={setQuery}
+                  placeholder={searchPlaceholder}
+                  placeholderTextColor={`${SLATE}80`}
+                  style={styles.searchInput}
+                  autoCapitalize="none"
+                  autoCorrect={false}
+                  returnKeyType="search"
+                />
+                {query.length > 0 && (
+                  <TouchableOpacity onPress={() => setQuery('')} hitSlop={8}>
+                    <Ionicons name="close-circle" size={20} color={SLATE} />
+                  </TouchableOpacity>
+                )}
+              </View>
+            </View>
 
+            <View style={styles.sectionHeader}>
+              <Text style={styles.sectionTitle}>
+                {query.trim() ? t('assetList.sectionSearch') : t('assetList.sectionAll')}
+              </Text>
+              {countLabel ? <Text style={styles.countLabel}>{countLabel}</Text> : null}
+            </View>
+          </>
+        }
+        footer={
+          <View style={styles.bottomWrap}>
+            <TouchableOpacity
+              style={[styles.addButton, !selectedAsset && styles.addButtonDisabled]}
+              onPress={handleAdd}
+              disabled={!selectedAsset}
+              activeOpacity={0.85}>
+              <Text style={styles.addButtonText}>{t('assetList.goToDetail')}</Text>
+            </TouchableOpacity>
+          </View>
+        }>
           {loading ? (
             <View style={styles.centered}>
               <ActivityIndicator size="large" color={PRIMARY} />
@@ -363,27 +375,13 @@ export default function AssetListScreen() {
               }
             />
           )}
-
-          <View style={styles.bottomWrap}>
-            <TouchableOpacity
-              style={[styles.addButton, !selectedAsset && styles.addButtonDisabled]}
-              onPress={handleAdd}
-              disabled={!selectedAsset}
-              activeOpacity={0.85}>
-              <Text style={styles.addButtonText}>{t('assetList.goToDetail')}</Text>
-            </TouchableOpacity>
-          </View>
-          <View style={styles.bottomSpacer} />
-        </KeyboardAvoidingView>
-      </SafeAreaView>
+      </ScreenWithFooter>
     </View>
   );
 }
 
 const styles = StyleSheet.create({
   root: { flex: 1, backgroundColor: BG },
-  safe: { flex: 1, backgroundColor: BG },
-  kav: { flex: 1 },
   topSection: {
     paddingHorizontal: 24,
     paddingTop: 24,
@@ -497,8 +495,7 @@ const styles = StyleSheet.create({
   },
   bottomWrap: {
     paddingHorizontal: 24,
-    paddingTop: 16,
-    paddingBottom: 8,
+    paddingTop: 8,
   },
   addButton: {
     width: '100%',
@@ -514,7 +511,6 @@ const styles = StyleSheet.create({
     fontWeight: '700',
     color: WHITE,
   },
-  bottomSpacer: { height: 32, backgroundColor: BG },
   footerLoader: {
     flexDirection: 'row',
     justifyContent: 'center',

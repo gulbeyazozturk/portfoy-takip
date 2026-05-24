@@ -17,7 +17,7 @@ import {
   TouchableOpacity,
   View,
 } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { ScreenWithFooter } from '@/components/screen-with-footer';
 
 import {
   DEFAULT_MAIN_PORTFOLIO_NAME,
@@ -1179,18 +1179,20 @@ export default function BulkUploadScreen() {
 
   return (
     <View style={styles.root}>
-      <SafeAreaView style={styles.safe} edges={['top']}>
-        <View style={styles.header}>
-          <TouchableOpacity style={styles.backBtn} onPress={() => router.back()} accessibilityLabel={t('bulk.backA11y')}>
-            <Ionicons name="arrow-back" size={24} color={WHITE} />
-          </TouchableOpacity>
-          <View style={styles.headerTitleWrap}>
-            <Text style={styles.headerTitle}>{t('bulk.screenTitle')}</Text>
+      <ScreenWithFooter
+        backgroundColor={BG_DARK}
+        header={
+          <View style={styles.header}>
+            <TouchableOpacity style={styles.backBtn} onPress={() => router.back()} accessibilityLabel={t('bulk.backA11y')}>
+              <Ionicons name="arrow-back" size={24} color={WHITE} />
+            </TouchableOpacity>
+            <View style={styles.headerTitleWrap}>
+              <Text style={styles.headerTitle}>{t('bulk.screenTitle')}</Text>
+            </View>
+            <View style={styles.headerRight} />
           </View>
-          <View style={styles.headerRight} />
-        </View>
-
-        <ScrollView style={styles.scroll} contentContainerStyle={styles.scrollContent}>
+        }
+        contentContainerStyle={styles.scrollContent}>
           <View style={styles.uploadSection}>
             <TouchableOpacity
               style={[styles.uploadButton, uploading && styles.uploadButtonDisabled]}
@@ -1248,8 +1250,7 @@ export default function BulkUploadScreen() {
               )}
             />
           )}
-        </ScrollView>
-      </SafeAreaView>
+      </ScreenWithFooter>
 
       <Modal
         visible={modalVisible}

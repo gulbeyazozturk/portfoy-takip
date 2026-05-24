@@ -2,7 +2,6 @@ import React from 'react';
 import { Image, StyleSheet, Text, View } from 'react-native';
 import { useTranslation } from 'react-i18next';
 
-/** Wordmark — 1.0.0 (5) dönemi ile uyumlu (mavi + yeşil) */
 const ACCENT_A = '#38bdf8';
 const ACCENT_B = '#00e677';
 

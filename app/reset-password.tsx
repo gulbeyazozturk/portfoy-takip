@@ -7,10 +7,11 @@ import {
   TouchableOpacity,
   View,
 } from 'react-native';
-import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import { useTranslation } from 'react-i18next';
 
 import { OmnifolioBrand } from '@/components/omnifolio-brand';
+import { ScreenWithFooter } from '@/components/screen-with-footer';
 import { ThemedText } from '@/components/themed-text';
 import { Brand } from '@/constants/brand';
 import { useAuth } from '@/context/auth';
@@ -19,7 +20,6 @@ import { supabase } from '@/lib/supabase';
 
 export default function ResetPasswordScreen() {
   const { t } = useTranslation();
-  const insets = useSafeAreaInsets();
   const router = useRouter();
   const { loading, session, passwordRecoveryPending, completePasswordRecoveryFlow, signOut } = useAuth();
   const [password, setPassword] = useState('');
@@ -68,7 +68,7 @@ export default function ResetPasswordScreen() {
   if (loading) {
     return (
       <SafeAreaView style={styles.safe}>
-        <View style={[styles.container, { flex: 1, justifyContent: 'center', alignItems: 'center' }]}>
+        <View style={styles.loading}>
           <ActivityIndicator color="#60a5fa" />
         </View>
       </SafeAreaView>
@@ -77,72 +77,78 @@ export default function ResetPasswordScreen() {
 
   if (!session || !passwordRecoveryPending) {
     return (
-      <SafeAreaView style={styles.safe}>
-        <View style={[styles.container, { paddingTop: 24 + insets.top }]}>
-          <OmnifolioBrand />
-          <ThemedText style={styles.err}>{t('auth.resetLinkInvalid')}</ThemedText>
-          <TouchableOpacity style={styles.secondaryBtn} onPress={() => void goAuth()}>
-            <ThemedText style={styles.secondaryBtnText}>{t('auth.backToSignIn')}</ThemedText>
-          </TouchableOpacity>
-        </View>
-      </SafeAreaView>
+      <ScreenWithFooter
+        contentContainerStyle={styles.container}
+        footer={
+          <View style={styles.footerInner}>
+            <TouchableOpacity style={styles.secondaryBtn} onPress={() => void goAuth()}>
+              <ThemedText style={styles.secondaryBtnText}>{t('auth.backToSignIn')}</ThemedText>
+            </TouchableOpacity>
+          </View>
+        }>
+        <OmnifolioBrand />
+        <ThemedText style={styles.err}>{t('auth.resetLinkInvalid')}</ThemedText>
+      </ScreenWithFooter>
     );
   }
 
   return (
-    <SafeAreaView style={styles.safe}>
-      <View style={[styles.container, { paddingTop: 24 + insets.top }]}>
-        <OmnifolioBrand />
-        <ThemedText style={styles.title}>{t('auth.resetPasswordTitle')}</ThemedText>
-        <ThemedText style={styles.hint}>{t('auth.resetPasswordHint')}</ThemedText>
-
-        <View style={styles.card}>
-          <ThemedText style={styles.label}>{t('auth.password')}</ThemedText>
-          <TextInput
-            secureTextEntry
-            placeholder={t('auth.passwordPlaceholder')}
-            placeholderTextColor="#6b7280"
-            value={password}
-            onChangeText={setPassword}
-            style={styles.input}
-          />
-          <ThemedText style={[styles.label, { marginTop: 10 }]}>{t('auth.resetPasswordConfirm')}</ThemedText>
-          <TextInput
-            secureTextEntry
-            placeholder={t('auth.passwordPlaceholder')}
-            placeholderTextColor="#6b7280"
-            value={confirm}
-            onChangeText={setConfirm}
-            style={styles.input}
-          />
-
+    <ScreenWithFooter
+      keyboardAvoid
+      contentContainerStyle={styles.container}
+      footer={
+        <View style={styles.footerInner}>
           <TouchableOpacity
             activeOpacity={0.85}
             disabled={!canSubmit}
             style={[styles.primaryBtn, !canSubmit && styles.disabledBtn]}
-            onPress={submit}
-          >
+            onPress={submit}>
             {busy ? (
               <ActivityIndicator color="#fff" />
             ) : (
               <ThemedText style={styles.primaryBtnText}>{t('auth.resetPasswordSubmit')}</ThemedText>
             )}
           </TouchableOpacity>
+          <TouchableOpacity style={styles.linkWrap} onPress={() => void goAuth()} disabled={busy}>
+            <ThemedText style={styles.link}>{t('auth.backToSignIn')}</ThemedText>
+          </TouchableOpacity>
         </View>
+      }>
+      <OmnifolioBrand />
+      <ThemedText style={styles.title}>{t('auth.resetPasswordTitle')}</ThemedText>
+      <ThemedText style={styles.hint}>{t('auth.resetPasswordHint')}</ThemedText>
 
-        {error ? <ThemedText style={styles.errorText}>{error}</ThemedText> : null}
-
-        <TouchableOpacity style={styles.linkWrap} onPress={() => void goAuth()} disabled={busy}>
-          <ThemedText style={styles.link}>{t('auth.backToSignIn')}</ThemedText>
-        </TouchableOpacity>
+      <View style={styles.card}>
+        <ThemedText style={styles.label}>{t('auth.password')}</ThemedText>
+        <TextInput
+          secureTextEntry
+          placeholder={t('auth.passwordPlaceholder')}
+          placeholderTextColor="#6b7280"
+          value={password}
+          onChangeText={setPassword}
+          style={styles.input}
+        />
+        <ThemedText style={[styles.label, { marginTop: 10 }]}>{t('auth.resetPasswordConfirm')}</ThemedText>
+        <TextInput
+          secureTextEntry
+          placeholder={t('auth.passwordPlaceholder')}
+          placeholderTextColor="#6b7280"
+          value={confirm}
+          onChangeText={setConfirm}
+          style={styles.input}
+        />
       </View>
-    </SafeAreaView>
+
+      {error ? <ThemedText style={styles.errorText}>{error}</ThemedText> : null}
+    </ScreenWithFooter>
   );
 }
 
 const styles = StyleSheet.create({
   safe: { flex: 1, backgroundColor: '#000' },
-  container: { flex: 1, paddingHorizontal: 20 },
+  loading: { flex: 1, justifyContent: 'center', alignItems: 'center' },
+  container: { paddingHorizontal: 20, paddingTop: 24 },
+  footerInner: { paddingHorizontal: 20 },
   title: { color: '#fff', fontSize: 18, fontWeight: '700', marginTop: 16, textAlign: 'center' },
   hint: { color: '#9ca3af', fontSize: 13, marginTop: 8, marginBottom: 16, textAlign: 'center' },
   card: {
@@ -163,7 +169,6 @@ const styles = StyleSheet.create({
     paddingVertical: 10,
   },
   primaryBtn: {
-    marginTop: 14,
     backgroundColor: Brand.primarySolid,
     borderRadius: 10,
     alignItems: 'center',
@@ -176,7 +181,6 @@ const styles = StyleSheet.create({
   errorText: { color: '#ef4444', marginTop: 12, textAlign: 'center', fontSize: 13 },
   err: { color: '#ef4444', textAlign: 'center', marginTop: 24, fontSize: 14 },
   secondaryBtn: {
-    marginTop: 20,
     paddingVertical: 12,
     alignItems: 'center',
     borderWidth: 1,
@@ -184,6 +188,6 @@ const styles = StyleSheet.create({
     borderRadius: 10,
   },
   secondaryBtnText: { color: '#e5e7eb', fontWeight: '600' },
-  linkWrap: { marginTop: 20, alignItems: 'center' },
+  linkWrap: { marginTop: 16, alignItems: 'center' },
   link: { color: Brand.primary, fontSize: 14 },
 });

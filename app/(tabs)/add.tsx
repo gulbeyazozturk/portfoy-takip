@@ -11,8 +11,7 @@ import {
   TouchableOpacity,
   View,
 } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
-
+import { ScreenWithFooter } from '@/components/screen-with-footer';
 import { Brand } from '@/constants/brand';
 import { categoryDisplayLabel } from '@/lib/category-display';
 import { supabase } from '@/lib/supabase';
@@ -97,36 +96,56 @@ export default function AddScreen() {
 
   return (
     <View style={styles.root}>
-      <SafeAreaView style={styles.safe} edges={['top']}>
-        <View style={styles.header}>
-          <TouchableOpacity
-            style={styles.backBtn}
-            onPress={() => router.back()}
-            activeOpacity={0.8}>
-            <Ionicons name="arrow-back" size={22} color={WHITE} />
-          </TouchableOpacity>
-          <View style={styles.headerTitleWrap}>
-            <Text style={styles.headerTitle}>{t('add.title')}</Text>
-          </View>
-          <View style={styles.headerRight} />
-        </View>
+      <ScreenWithFooter
+        scroll={false}
+        backgroundColor={BG_DARK}
+        header={
+          <>
+            <View style={styles.header}>
+              <TouchableOpacity
+                style={styles.backBtn}
+                onPress={() => router.back()}
+                activeOpacity={0.8}>
+                <Ionicons name="arrow-back" size={22} color={WHITE} />
+              </TouchableOpacity>
+              <View style={styles.headerTitleWrap}>
+                <Text style={styles.headerTitle}>{t('add.title')}</Text>
+              </View>
+              <View style={styles.headerRight} />
+            </View>
 
-        <View style={styles.searchWrap}>
-          <View style={styles.searchBar}>
-            <Ionicons name="search" size={18} color="#94A3B8" />
-            <TextInput
-              value={query}
-              onChangeText={setQuery}
-              placeholder={t('add.searchPlaceholder')}
-              placeholderTextColor="#64748B"
-              style={styles.searchInput}
-              autoCapitalize="none"
-              autoCorrect={false}
-              returnKeyType="search"
-            />
+            <View style={styles.searchWrap}>
+              <View style={styles.searchBar}>
+                <Ionicons name="search" size={18} color="#94A3B8" />
+                <TextInput
+                  value={query}
+                  onChangeText={setQuery}
+                  placeholder={t('add.searchPlaceholder')}
+                  placeholderTextColor="#64748B"
+                  style={styles.searchInput}
+                  autoCapitalize="none"
+                  autoCorrect={false}
+                  returnKeyType="search"
+                />
+              </View>
+            </View>
+          </>
+        }
+        footer={
+          <View style={styles.footerWrap}>
+            <View style={styles.helpCard}>
+              <Text style={styles.helpTitle} numberOfLines={2}>
+                {t('add.bulkPrompt')}
+              </Text>
+              <TouchableOpacity
+                style={styles.helpButton}
+                activeOpacity={0.8}
+                onPress={() => router.push('/bulk-upload')}>
+                <Text style={styles.helpButtonText}>{t('add.continue')}</Text>
+              </TouchableOpacity>
+            </View>
           </View>
-        </View>
-
+        }>
         {loading ? (
           <View style={styles.centered}>
             <ActivityIndicator size="large" color={PRIMARY} />
@@ -165,32 +184,15 @@ export default function AddScreen() {
                 <Ionicons name="chevron-forward" size={20} color="#475569" />
               </TouchableOpacity>
             )}
-            ListFooterComponent={
-              <View style={styles.footerWrap}>
-                <View style={styles.helpCard}>
-                  <Text style={styles.helpTitle} numberOfLines={2}>
-                    {t('add.bulkPrompt')}
-                  </Text>
-                  <TouchableOpacity
-                    style={styles.helpButton}
-                    activeOpacity={0.8}
-                    onPress={() => router.push('/bulk-upload')}
-                  >
-                    <Text style={styles.helpButtonText}>{t('add.continue')}</Text>
-                  </TouchableOpacity>
-                </View>
-              </View>
-            }
           />
         )}
-      </SafeAreaView>
+      </ScreenWithFooter>
     </View>
   );
 }
 
 const styles = StyleSheet.create({
   root: { flex: 1, backgroundColor: BG_DARK },
-  safe: { flex: 1, backgroundColor: BG_DARK },
   header: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -263,7 +265,7 @@ const styles = StyleSheet.create({
   },
   rowTitle: { fontSize: 16, fontWeight: '500', color: WHITE },
   rowSubtitle: { fontSize: 12, color: '#64748B', marginTop: 3 },
-  footerWrap: { paddingTop: 12, paddingBottom: 12 },
+  footerWrap: { paddingHorizontal: 24, paddingTop: 8 },
   helpCard: {
     flexDirection: 'row',
     alignItems: 'center',

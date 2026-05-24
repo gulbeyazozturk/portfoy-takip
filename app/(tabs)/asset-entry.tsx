@@ -7,11 +7,9 @@ import {
   Alert,
   InputAccessoryView,
   Keyboard,
-  KeyboardAvoidingView,
   Modal,
   Platform,
   Pressable,
-  SafeAreaView,
   ScrollView,
   StyleSheet,
   Text,
@@ -23,6 +21,7 @@ import { Image } from 'expo-image';
 import Svg, { Circle, Defs, LinearGradient, Path, Stop } from 'react-native-svg';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
+import { ScreenWithFooter } from '@/components/screen-with-footer';
 import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
 import { usePortfolio } from '@/context/portfolio';
@@ -1437,34 +1436,103 @@ export default function AssetEntryScreen() {
   const positionGainPct =
     hasExplicitAvgCost && totalCost > 0 ? (totalGainLoss / totalCost) * 100 : null;
 
-  return (
-    <SafeAreaView style={styles.safeArea}>
-      <ThemedView style={styles.container} lightColor="#000000" darkColor="#000000">
-        <View style={styles.obsHeader}>
-          <TouchableOpacity onPress={handleBack} activeOpacity={0.8} hitSlop={12} style={styles.obsHeaderBtn}>
-            <Ionicons name="chevron-back" size={22} color={PRIMARY} />
+  const formFooter = useMemo(() => {
+    if (formMode === 'add') {
+      return (
+        <View style={styles.footerPad}>
+          <TouchableOpacity
+            style={[
+              styles.confirmCta,
+              styles.confirmCtaAdd,
+              saving && styles.actionBtnDisabled,
+              categoryId === 'mevduat' && { marginTop: 0 },
+            ]}
+            activeOpacity={0.9}
+            onPress={handleAdd}
+            disabled={saving}>
+            {saving ? (
+              <ActivityIndicator size="small" color={ON_PRIMARY_FIXED} />
+            ) : (
+              <ThemedText style={styles.confirmCtaText}>{t('assetEntry.btnAdd')}</ThemedText>
+            )}
           </TouchableOpacity>
-          <ThemedText style={styles.obsHeaderTitle}>{t('assetEntry.screenTitle')}</ThemedText>
-          <View style={styles.obsHeaderSpacer} />
         </View>
+      );
+    }
+    if (formMode === 'reduce') {
+      return (
+        <View style={styles.footerPad}>
+          <TouchableOpacity
+            style={[styles.confirmCta, styles.confirmCtaAmber, saving && styles.actionBtnDisabled]}
+            activeOpacity={0.9}
+            onPress={handleReduce}
+            disabled={saving}>
+            {saving ? (
+              <ActivityIndicator size="small" color="#fff" />
+            ) : (
+              <ThemedText style={[styles.confirmCtaText, { color: '#fff' }]}>
+                {t('assetEntry.btnReduce')}
+              </ThemedText>
+            )}
+          </TouchableOpacity>
+        </View>
+      );
+    }
+    if (formMode === 'delete' && holdingId) {
+      return (
+        <View style={styles.footerPad}>
+          <TouchableOpacity
+            style={[styles.confirmCta, styles.confirmCtaDanger, saving && styles.actionBtnDisabled]}
+            activeOpacity={0.9}
+            onPress={handleDeleteConfirm}
+            disabled={saving}>
+            {saving ? (
+              <ActivityIndicator size="small" color="#fff" />
+            ) : (
+              <ThemedText style={[styles.confirmCtaText, { color: '#fff' }]}>
+                {t('assetEntry.btnDelete')}
+              </ThemedText>
+            )}
+          </TouchableOpacity>
+        </View>
+      );
+    }
+    return null;
+  }, [
+    formMode,
+    saving,
+    holdingId,
+    categoryId,
+    handleAdd,
+    handleReduce,
+    handleDeleteConfirm,
+    t,
+  ]);
 
-        <KeyboardAvoidingView
-          style={{ flex: 1 }}
-          behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-          enabled={Platform.OS === 'ios'}>
-        <ScrollView
-          ref={scrollViewRef}
-          style={{ flex: 1 }}
-          onLayout={(e) => {
+  return (
+    <ThemedView style={styles.safeArea} lightColor="#000000" darkColor="#000000">
+      <ScreenWithFooter
+        keyboardAvoid
+        scrollRef={scrollViewRef}
+        header={
+          <View style={styles.obsHeader}>
+            <TouchableOpacity onPress={handleBack} activeOpacity={0.8} hitSlop={12} style={styles.obsHeaderBtn}>
+              <Ionicons name="chevron-back" size={22} color={PRIMARY} />
+            </TouchableOpacity>
+            <ThemedText style={styles.obsHeaderTitle}>{t('assetEntry.screenTitle')}</ThemedText>
+            <View style={styles.obsHeaderSpacer} />
+          </View>
+        }
+        footer={formFooter}
+        contentContainerStyle={{
+          paddingBottom: 16 + (Platform.OS === 'android' ? keyboardHeight : 0),
+        }}
+        scrollProps={{
+          onLayout: (e) => {
             scrollViewLayoutHRef.current = e.nativeEvent.layout.height;
-          }}
-          contentContainerStyle={{
-            paddingBottom:
-              insets.bottom + 32 + (Platform.OS === 'android' ? keyboardHeight : 0),
-          }}
-          showsVerticalScrollIndicator={false}
-          keyboardShouldPersistTaps="handled"
-          keyboardDismissMode="on-drag">
+          },
+        }}
+        footerStyle={styles.footerShell}>
           <View style={styles.heroBlock}>
             <View style={styles.heroIdentity}>
               <View style={styles.heroIconBox}>
@@ -1806,39 +1874,7 @@ export default function AssetEntryScreen() {
                     ) : null}
                   </>
                 ) : null}
-                <TouchableOpacity
-                  style={[
-                    styles.confirmCta,
-                    styles.confirmCtaAdd,
-                    saving && styles.actionBtnDisabled,
-                    categoryId === 'mevduat' && { marginTop: 14 },
-                  ]}
-                  activeOpacity={0.9}
-                  onPress={handleAdd}
-                  disabled={saving}>
-                  {saving ? (
-                    <ActivityIndicator size="small" color={ON_PRIMARY_FIXED} />
-                  ) : (
-                    <ThemedText style={styles.confirmCtaText}>{t('assetEntry.btnAdd')}</ThemedText>
-                  )}
-                </TouchableOpacity>
               </>
-            )}
-
-            {formMode === 'reduce' && (
-              <TouchableOpacity
-                style={[styles.confirmCta, styles.confirmCtaAmber, saving && styles.actionBtnDisabled]}
-                activeOpacity={0.9}
-                onPress={handleReduce}
-                disabled={saving}>
-                {saving ? (
-                  <ActivityIndicator size="small" color="#fff" />
-                ) : (
-                  <ThemedText style={[styles.confirmCtaText, { color: '#fff' }]}>
-                    {t('assetEntry.btnReduce')}
-                  </ThemedText>
-                )}
-              </TouchableOpacity>
             )}
 
             {formMode === 'delete' && holdingId && (
@@ -1857,19 +1893,6 @@ export default function AssetEntryScreen() {
                     })}${currSuffix}`,
                   })}
                 </ThemedText>
-                <TouchableOpacity
-                  style={[styles.confirmCta, styles.confirmCtaDanger, saving && styles.actionBtnDisabled]}
-                  activeOpacity={0.9}
-                  onPress={handleDeleteConfirm}
-                  disabled={saving}>
-                  {saving ? (
-                    <ActivityIndicator size="small" color="#fff" />
-                  ) : (
-                    <ThemedText style={[styles.confirmCtaText, { color: '#fff' }]}>
-                      {t('assetEntry.btnDelete')}
-                    </ThemedText>
-                  )}
-                </TouchableOpacity>
               </View>
             )}
 
@@ -1878,9 +1901,7 @@ export default function AssetEntryScreen() {
             )}
             </View>
           </View>
-        </ScrollView>
-        </KeyboardAvoidingView>
-      </ThemedView>
+      </ScreenWithFooter>
 
       {Platform.OS === 'ios' ? (
         <InputAccessoryView nativeID={NUMERIC_KEYBOARD_ACCESSORY_ID}>
@@ -1978,7 +1999,7 @@ export default function AssetEntryScreen() {
           ) : null}
         </View>
       </Modal>
-    </SafeAreaView>
+    </ThemedView>
   );
 }
 
@@ -1987,8 +2008,11 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: '#000000',
   },
-  container: {
-    flex: 1,
+  footerShell: {
+    backgroundColor: '#000000',
+  },
+  footerPad: {
+    paddingHorizontal: 20,
   },
   obsHeader: {
     flexDirection: 'row',

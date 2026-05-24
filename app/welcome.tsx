@@ -1,10 +1,11 @@
 import { useRouter } from 'expo-router';
 import React, { useCallback, useEffect, useState } from 'react';
-import { ActivityIndicator, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
-import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
+import { ActivityIndicator, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { LanguageToggle } from '@/components/language-toggle';
 import { OmnifolioBrand } from '@/components/omnifolio-brand';
+import { ScreenWithFooter } from '@/components/screen-with-footer';
 import { Brand } from '@/constants/brand';
 import { useAuth } from '@/context/auth';
 import { setWelcomeDismissedForUser } from '@/lib/welcome-dismissed';
@@ -12,7 +13,6 @@ import { useTranslation } from 'react-i18next';
 
 export default function WelcomeScreen() {
   const { t } = useTranslation();
-  const insets = useSafeAreaInsets();
   const router = useRouter();
   const { session } = useAuth();
   const [busy, setBusy] = useState(false);
@@ -41,7 +41,7 @@ export default function WelcomeScreen() {
   if (!session) {
     return (
       <SafeAreaView style={styles.safe} edges={['top', 'bottom']}>
-        <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center' }}>
+        <View style={styles.loading}>
           <ActivityIndicator color={Brand.primary} />
         </View>
       </SafeAreaView>
@@ -49,34 +49,13 @@ export default function WelcomeScreen() {
   }
 
   return (
-    <SafeAreaView style={styles.safe} edges={['top', 'bottom']}>
-      <View style={[styles.langCorner, { top: Math.max(insets.top, 8) + 6 }]}>
-        <LanguageToggle />
-      </View>
-
-      <ScrollView
-        style={styles.scroll}
-        contentContainerStyle={styles.scrollContent}
-        showsVerticalScrollIndicator={false}
-        keyboardShouldPersistTaps="handled">
-        <OmnifolioBrand />
-
-        <Text style={styles.lead}>{t('welcome.lead')}</Text>
-
-        <Text style={styles.sectionTitle}>{t('welcome.whatTitle')}</Text>
-        <Bullet text={t('welcome.bullet1')} />
-        <Bullet text={t('welcome.bullet2')} />
-        <Bullet text={t('welcome.bullet3')} />
-
-        <Text style={styles.sectionTitle}>{t('welcome.dataTitle')}</Text>
-        <Text style={styles.paragraph}>{t('welcome.dataBody')}</Text>
-
-        <View style={styles.disclaimerBox}>
-          <Text style={styles.disclaimer}>{t('welcome.disclaimer')}</Text>
-        </View>
-
-        <View style={[styles.bottomActionWrap, { paddingBottom: Math.max(insets.bottom, 16) }]}>
-          <Pressable
+    <ScreenWithFooter
+      headerOverlay={<LanguageToggle />}
+      contentContainerStyle={styles.scrollContent}
+      footer={
+        <View style={styles.footerInner}>
+          <TouchableOpacity
+            activeOpacity={0.85}
             style={[styles.primaryBtn, busy && styles.primaryBtnDisabled]}
             onPress={onContinue}
             disabled={busy}
@@ -87,10 +66,25 @@ export default function WelcomeScreen() {
             ) : (
               <Text style={styles.primaryBtnText}>{t('welcome.continue')}</Text>
             )}
-          </Pressable>
+          </TouchableOpacity>
         </View>
-      </ScrollView>
-    </SafeAreaView>
+      }>
+      <OmnifolioBrand />
+
+      <Text style={styles.lead}>{t('welcome.lead')}</Text>
+
+      <Text style={styles.sectionTitle}>{t('welcome.whatTitle')}</Text>
+      <Bullet text={t('welcome.bullet1')} />
+      <Bullet text={t('welcome.bullet2')} />
+      <Bullet text={t('welcome.bullet3')} />
+
+      <Text style={styles.sectionTitle}>{t('welcome.dataTitle')}</Text>
+      <Text style={styles.paragraph}>{t('welcome.dataBody')}</Text>
+
+      <View style={styles.disclaimerBox}>
+        <Text style={styles.disclaimer}>{t('welcome.disclaimer')}</Text>
+      </View>
+    </ScreenWithFooter>
   );
 }
 
@@ -105,16 +99,13 @@ function Bullet({ text }: { text: string }) {
 
 const styles = StyleSheet.create({
   safe: { flex: 1, backgroundColor: '#000' },
-  langCorner: {
-    position: 'absolute',
-    right: 16,
-    zIndex: 10,
-  },
-  scroll: { flex: 1 },
+  loading: { flex: 1, justifyContent: 'center', alignItems: 'center' },
   scrollContent: {
     paddingHorizontal: 22,
     paddingTop: 56,
-    paddingBottom: 24,
+  },
+  footerInner: {
+    paddingHorizontal: 22,
   },
   lead: {
     marginTop: 8,
@@ -169,10 +160,6 @@ const styles = StyleSheet.create({
     fontSize: 14,
     lineHeight: 21,
     textAlign: 'center',
-  },
-  bottomActionWrap: {
-    marginTop: 18,
-    paddingTop: 8,
   },
   primaryBtn: {
     backgroundColor: Brand.primarySolid,

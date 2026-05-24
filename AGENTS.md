@@ -29,6 +29,10 @@ Bu dosya Cursor ve benzeri araçlar için **proje özgü** kısa kurallar içeri
 - Şemalar: `database/migrations/`, özet: `scripts/init-db.sql`.
 - RLS değişikliklerinde istemci + service role davranışını ayrı düşün.
 
+## UI: alt butonlar (dokunma)
+- Birincil CTA’lar (`Devam`, giriş, sosyal giriş, form onayı vb.) **`ScrollView` / `FlatList` içine konmaz**; `components/screen-with-footer.tsx` içindeki **`ScreenWithFooter`** bileşeninin `footer` slot’una verilir.
+- Gövde kayar (`children` / `scroll={true}`), footer sabit kalır; alt safe area yalnızca `ScreenWithFooter` tarafından uygulanır.
+
 ## Bitirmeden önce
 - Mümkünse `npx tsc --noEmit`; davranış değiştiyse ilgili ekran veya script akışını gözden geçir.
 - Kapsamı gereksiz büyütme; aynı mantığı tekrar etme — ortak `lib/` veya mevcut hook’ları genişlet.
