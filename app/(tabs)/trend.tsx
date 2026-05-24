@@ -20,6 +20,7 @@ import { PortfolioPickerModal } from '@/components/portfolio-picker-modal';
 import type { HoldingRow } from '@/hooks/use-portfolio-core-data';
 import { normalizeAsset, usePortfolioCoreData } from '@/hooks/use-portfolio-core-data';
 import { useMinuteTick } from '@/hooks/use-minute-tick';
+import { useScreenLayout } from '@/hooks/use-screen-layout';
 import { usePortfolioHistorySeries } from '@/hooks/use-portfolio-history-series';
 import { categoryDisplayLabel } from '@/lib/category-display';
 import type { PortfolioHistoryTf } from '@/lib/portfolio-history-math';
@@ -47,7 +48,6 @@ const TIMEFRAMES = ['1D', '1W', '1M', '1Y', '5Y'] as const;
 const TREND_CATEGORY_ORDER = ['yurtdisi', 'bist', 'doviz', 'emtia', 'fon', 'kripto', 'mevduat'] as const;
 
 const CHART_W = 400;
-const CHART_H = 120;
 
 function fmtPortfolioAxis(
   v: number,
@@ -76,6 +76,7 @@ function TrendInteractiveChart({
   numberLocale,
   selectedIdx,
   onSelect,
+  chartHeight,
 }: {
   values: number[];
   dates: Date[];
@@ -84,6 +85,7 @@ function TrendInteractiveChart({
   numberLocale: string;
   selectedIdx: number | null;
   onSelect: (idx: number | null) => void;
+  chartHeight: number;
 }) {
   const [chartWidth, setChartWidth] = useState(0);
 
@@ -97,7 +99,7 @@ function TrendInteractiveChart({
   const vMin = minVal - padding;
   const vMax = maxVal + padding;
   const vRange = vMax - vMin || 1;
-  const toY = (v: number) => CHART_H - ((v - vMin) / vRange) * CHART_H;
+  const toY = (v: number) => chartHeight - ((v - vMin) / vRange) * chartHeight;
   const lineColor = isPositive ? Brand.chartPositive : Brand.chartNegative;
 
   let dLine = '';
@@ -106,7 +108,7 @@ function TrendInteractiveChart({
     const y = toY(v);
     dLine += idx === 0 ? `M ${x} ${y}` : ` L ${x} ${y}`;
   });
-  const dFill = `${dLine} L ${CHART_W} ${CHART_H} L 0 ${CHART_H} Z`;
+  const dFill = `${dLine} L ${CHART_W} ${chartHeight} L 0 ${chartHeight} Z`;
 
   const midVal = (minVal + maxVal) / 2;
   const gridVals = [maxVal, midVal, minVal];
@@ -191,6 +193,7 @@ function TrendInteractiveChart({
 export default function TrendScreen() {
   const { t, i18n } = useTranslation();
   const { width: windowWidth } = useWindowDimensions();
+  const layout = useScreenLayout();
   const numberLocale = i18n.language?.toLowerCase().startsWith('en') ? 'en-US' : 'tr-TR';
   const [fontsLoaded] = useFonts({ Manrope_800ExtraBold });
   const fontHead800 = fontsLoaded ? 'Manrope_800ExtraBold' : undefined;
@@ -344,7 +347,7 @@ export default function TrendScreen() {
   return (
     <View style={styles.root}>
       <SafeAreaView style={styles.safe} edges={['top']}>
-        <View style={styles.header}>
+        <View style={[styles.header, { paddingVertical: layout.headerPaddingVertical }]}>
           <Pressable
             style={styles.headerTitleBtn}
             onPress={() => portfolios.length > 0 && setPortfolioPickerOpen(true)}
@@ -352,7 +355,10 @@ export default function TrendScreen() {
             accessibilityRole="button"
             accessibilityLabel={t('portfolio.pickPortfolio')}>
             <Text
-              style={[styles.headerPortfolioTitle, { fontFamily: fontHead800 }]}
+              style={[
+                styles.headerPortfolioTitle,
+                { fontFamily: fontHead800, fontSize: layout.headerTitleFontSize },
+              ]}
               numberOfLines={2}>
               {currentPortfolioName || t('portfolio.headerTitle')}
             </Text>
@@ -388,7 +394,9 @@ export default function TrendScreen() {
           ) : null}
 
           <View style={styles.card}>
-            <Text style={styles.sectionTitle}>{t('portfolio.performance')}</Text>
+            <Text style={[styles.sectionTitle, { padding: layout.sectionPadding, paddingBottom: layout.isCompact ? 6 : 8 }]}>
+              {t('portfolio.performance')}
+            </Text>
             <ScrollView
               horizontal
               nestedScrollEnabled
@@ -422,11 +430,11 @@ export default function TrendScreen() {
                 );
               })}
             </ScrollView>
-            <View style={styles.performanceBody}>
+            <View style={[styles.performanceBody, { padding: layout.sectionPadding, paddingTop: layout.isCompact ? 8 : 12 }]}>
               <View style={styles.performanceTop}>
                 <View>
                   <Text style={styles.totalLabel}>{t('portfolio.totalValueLabel')}</Text>
-                  <Text style={styles.totalValue}>
+                  <Text style={[styles.totalValue, { fontSize: layout.trendTotalValueFontSize }]}>
                     {(perfCurrency === 'TL' ? performanceValues.totalValueTL : performanceValues.totalValueUSD).toLocaleString(
                       perfCurrency === 'USD' ? 'en-US' : numberLocale,
                       {
@@ -516,6 +524,7 @@ export default function TrendScreen() {
                   numberLocale={numberLocale}
                   selectedIdx={chartSelectedIdx}
                   onSelect={setChartSelectedIdx}
+                  chartHeight={layout.chartHeight}
                 />
               </View>
               <Text style={styles.chartFootnote}>{t('trend.historyExplainer')}</Text>
