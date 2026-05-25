@@ -1,6 +1,7 @@
 /**
  * BIST hisse senedi batch (ekran kazıma):
  * - Öncelik sırasıyla kaynaklar: BigPara (harf sayfaları ile geniş liste) → Uzmanpara canlı borsa
+ * - BigPara `api/v1/hisse/list` ile tam sembol evreni birleştirilir (yeni halka arzlar, örn. EKDMR).
  * - Buna ek olarak herkese açık bir master BIST listesi ile birleştirilir; böylece eksik / yeni halka arz
  *   semboller de assets tablosuna düzenli düşer.
  * - Kod, ad, son fiyat, değişim %, (varsa) güncelleme alanlarını parse eder
@@ -9,6 +10,9 @@
  *
  * Çalıştırma:
  *   npm run sync-bist-scrape
+ *
+ * Otomatik: GitHub `portfolio-sync.yml` (Supabase pg_cron ~15 dk → dispatch-portfolio-sync).
+ * Scrape kaynakları düşse bile BigPara API evreni ve upsert çalışır (BIST_SCRAPE_ALLOW_FAILURE=1).
  *
  * Gereksinim:
  *   - Node 18+ (global fetch var)
@@ -36,6 +40,9 @@ const BIST_SCRAPE_FULL_LIST_MIN = Math.max(1, Number(process.env.BIST_SCRAPE_FUL
 const BIST_MASTER_LIST_URL =
   process.env.BIST_MASTER_LIST_URL ||
   'https://raw.githubusercontent.com/ahmeterenodaci/Istanbul-Stock-Exchange--BIST--including-symbols-and-logos/main/bist.json';
+const BIST_BIGPARA_API_LIST_URL =
+  process.env.BIST_BIGPARA_API_LIST_URL ||
+  'https://bigpara.hurriyet.com.tr/api/v1/hisse/list';
 const BIST_BIGPARA_UNIVERSE_URL =
   process.env.BIST_BIGPARA_UNIVERSE_URL ||
   'https://bigpara.hurriyet.com.tr/borsa/hisse-fiyatlari/garan-detay/';
@@ -238,7 +245,46 @@ function parseBigparaUniverseSymbols(html) {
   return Array.from(out.values()).sort();
 }
 
+/** BigPara resmi JSON listesi — yeni halka arzlar (ör. EKDMR) GitHub master’da gecikmeli kalabilir. */
+function parseBigparaApiList(body) {
+  const items = Array.isArray(body?.data) ? body.data : [];
+  const out = [];
+  for (const item of items) {
+    const tip = String(item?.tip || '').trim();
+    if (tip && tip.toLowerCase() !== 'hisse') continue;
+    const code = String(item?.kod || '')
+      .trim()
+      .toUpperCase();
+    const name = String(item?.ad || '').trim();
+    if (!isBigparaUniverseSymbolCandidate(code)) continue;
+    out.push({
+      code,
+      name: name || code,
+      last: null,
+      changePct: null,
+      updatedAtIso: null,
+    });
+  }
+  return out;
+}
+
+async function fetchBigparaApiUniverseRows() {
+  const body = await fetchJsonOnce(BIST_BIGPARA_API_LIST_URL);
+  const rows = parseBigparaApiList(body);
+  if (!rows.length) throw new Error('BigPara API hisse listesi boş.');
+  return rows;
+}
+
 async function fetchBigparaUniverseSymbols() {
+  try {
+    const rows = await fetchBigparaApiUniverseRows();
+    return rows.map((r) => r.code);
+  } catch (e) {
+    console.warn(
+      '[sync-bist-scrape] BigPara API evreni alınamadı, HTML yedek deneniyor:',
+      e?.message || e,
+    );
+  }
   const fetched = await fetchHtmlFromUrlList([BIST_BIGPARA_UNIVERSE_URL]);
   return parseBigparaUniverseSymbols(fetched.html);
 }
@@ -595,6 +641,57 @@ async function deleteRemovedBistAssets(supabase, validCodes) {
   return { tried: candidates.length, deleted, failed };
 }
 
+/** Canlı fiyat scrape + master + BigPara API/HTML evreni → tek BIST satır listesi. */
+async function buildBistRows(supabase, scrapedRows) {
+  let rows = Array.isArray(scrapedRows) ? [...scrapedRows] : [];
+
+  let masterRows = [];
+  try {
+    console.log('BIST master liste çekiliyor…');
+    masterRows = await fetchPublicBistMasterList();
+    console.log('BIST master liste satırı:', masterRows.length);
+  } catch (e) {
+    console.warn('[sync-bist-scrape] BIST master liste alınamadı, scrape listesiyle devam ediliyor:', e?.message || e);
+  }
+
+  if (masterRows.length > 0) {
+    rows = mergeScrapedRowsWithMasterList(rows, masterRows);
+    console.log('Master liste ile birleştirilmiş toplam BIST satırı:', rows.length);
+  }
+
+  try {
+    console.log('BigPara hisse evreni (API) çekiliyor…');
+    const apiUniverseRows = await fetchBigparaApiUniverseRows();
+    console.log('BigPara API evren satırı:', apiUniverseRows.length);
+    const currentSymbols = new Set(rows.map((row) => String(row.code || '').trim().toUpperCase()).filter(Boolean));
+    const missingApiRows = apiUniverseRows.filter((row) => !currentSymbols.has(row.code));
+    if (missingApiRows.length > 0) {
+      console.log('Master/scrape dışında kalan ek BigPara (API) sembolleri:', missingApiRows.length);
+      rows = mergeScrapedRowsWithMasterList(rows, missingApiRows);
+      console.log('BigPara API evreni ile birleştirilmiş toplam BIST satırı:', rows.length);
+    }
+  } catch (e) {
+    console.warn('[sync-bist-scrape] BigPara API evreni alınamadı, HTML yedek deneniyor:', e?.message || e);
+    try {
+      const universeSymbols = await fetchBigparaUniverseSymbols();
+      console.log('BigPara HTML evren satırı:', universeSymbols.length);
+      const currentSymbols = new Set(rows.map((row) => String(row.code || '').trim().toUpperCase()).filter(Boolean));
+      const missingUniverseSymbols = universeSymbols.filter((symbol) => !currentSymbols.has(symbol));
+      if (missingUniverseSymbols.length > 0) {
+        console.log('Master/scrape dışında kalan ek BigPara (HTML) sembolleri:', missingUniverseSymbols.length);
+        const existingNameMap = await fetchExistingBistAssetNameMap(supabase);
+        const placeholderRows = await resolveBigparaUniversePlaceholderRows(missingUniverseSymbols, existingNameMap);
+        rows = mergeScrapedRowsWithMasterList(rows, placeholderRows);
+        console.log('BigPara HTML evreni ile birleştirilmiş toplam BIST satırı:', rows.length);
+      }
+    } catch (e2) {
+      console.warn('[sync-bist-scrape] BigPara sembol evreni alınamadı, mevcut listeyle devam ediliyor:', e2?.message || e2);
+    }
+  }
+
+  return rows;
+}
+
 async function main() {
   await loadEnv();
 
@@ -614,67 +711,31 @@ async function main() {
   const { createClient } = require('@supabase/supabase-js');
   const supabase = createClient(url, key);
 
+  let scrapedRows = [];
   console.log('BIST scrape zinciri (BigPara → Uzmanpara)…');
-  let rows;
-  let sourceUrl = null;
-  let sourceId = null;
   try {
     const parsed = await fetchAndParseBistChain();
-    rows = parsed.rows;
-    sourceUrl = parsed.sourceUrl;
-    sourceId = parsed.sourceId;
-    console.log('BIST kaynak:', sourceId, 'URL:', sourceUrl);
+    scrapedRows = parsed.rows;
+    console.log('BIST kaynak:', parsed.sourceId, 'URL:', parsed.sourceUrl);
+    console.log('Canlı scrape satırı:', scrapedRows.length);
   } catch (e) {
-    if (BIST_SCRAPE_ALLOW_FAILURE) {
-      console.warn(
-        '[sync-bist-scrape] BIST kaynakları erişilemedi, adım soft-fail geçiliyor:',
-        e?.message || e,
-      );
-      return;
-    }
-    throw e;
+    if (!BIST_SCRAPE_ALLOW_FAILURE) throw e;
+    console.warn(
+      '[sync-bist-scrape] Canlı scrape başarısız; BigPara API evreni ile liste güncellemesi devam ediyor:',
+      e?.message || e,
+    );
   }
 
-  console.log('Toplam satır:', rows.length);
+  const rows = await buildBistRows(supabase, scrapedRows);
+  console.log('Upsert öncesi toplam BIST satırı:', rows.length);
 
   if (!rows.length) {
     if (BIST_SCRAPE_ALLOW_FAILURE) {
-      console.warn('[sync-bist-scrape] Hiç satır parse edilemedi, adım soft-fail geçiliyor.');
+      console.warn('[sync-bist-scrape] Birleşik liste boş, upsert atlandı.');
       return;
     }
-    console.error('Hiç satır parse edilemedi, script iptal.');
+    console.error('BIST listesi oluşturulamadı, script iptal.');
     process.exit(1);
-  }
-
-  let masterRows = [];
-  try {
-    console.log('BIST master liste çekiliyor…');
-    masterRows = await fetchPublicBistMasterList();
-    console.log('BIST master liste satırı:', masterRows.length);
-  } catch (e) {
-    console.warn('[sync-bist-scrape] BIST master liste alınamadı, scrape listesiyle devam ediliyor:', e?.message || e);
-  }
-
-  if (masterRows.length > 0) {
-    rows = mergeScrapedRowsWithMasterList(rows, masterRows);
-    console.log('Master liste ile birleştirilmiş toplam BIST satırı:', rows.length);
-  }
-
-  try {
-    console.log('BigPara sembol evreni çekiliyor…');
-    const universeSymbols = await fetchBigparaUniverseSymbols();
-    console.log('BigPara sembol evreni satırı:', universeSymbols.length);
-    const currentSymbols = new Set(rows.map((row) => String(row.code || '').trim().toUpperCase()).filter(Boolean));
-    const missingUniverseSymbols = universeSymbols.filter((symbol) => !currentSymbols.has(symbol));
-    if (missingUniverseSymbols.length > 0) {
-      console.log('Master/scrape dışında kalan ek BigPara sembolleri:', missingUniverseSymbols.length);
-      const existingNameMap = await fetchExistingBistAssetNameMap(supabase);
-      const placeholderRows = await resolveBigparaUniversePlaceholderRows(missingUniverseSymbols, existingNameMap);
-      rows = mergeScrapedRowsWithMasterList(rows, placeholderRows);
-      console.log('BigPara evreni ile birleştirilmiş toplam BIST satırı:', rows.length);
-    }
-  } catch (e) {
-    console.warn('[sync-bist-scrape] BigPara sembol evreni alınamadı, mevcut listeyle devam ediliyor:', e?.message || e);
   }
 
   console.log('Supabase assets (bist) upsert…');

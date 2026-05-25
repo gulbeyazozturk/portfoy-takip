@@ -77,6 +77,16 @@ select cron.schedule(
 - ABD tam senkron (ayrı workflow): `docs/SUPABASE-ABD-SYNC.md`
 - Harici cron (cron-job.org) alternatifi: `docs/SYNC-SCHEDULE.md`
 
+## BIST hisse listesi (otomatik)
+
+`portfolio-sync.yml` içinde `sync-bist-scrape.js` çalışır (~15 dk). Script:
+
+1. Canlı fiyat scrape (BigPara / Uzmanpara yedek),
+2. GitHub master BIST JSON,
+3. **BigPara `api/v1/hisse/list`** — yeni halka arz sembolleri (ör. EKDMR) dahil tam evren.
+
+Scrape kaynakları GitHub runner’da düşerse (`BIST_SCRAPE_ALLOW_FAILURE=1`) yine API evreni upsert edilir; ardından `sync-bist-yahoo.js` fiyatları günceller.
+
 ## GitHub workflow: günlük fiyat push’ları
 
 `portfolio-sync.yml` sonunda `node scripts/send-daily-gain-push.js` çalışır.

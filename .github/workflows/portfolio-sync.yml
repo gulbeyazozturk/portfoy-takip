@@ -46,7 +46,7 @@ jobs:
       - name: Sync crypto (CoinGecko)
         run: node scripts/sync-crypto-prices.js
 
-      - name: Sync BIST (scrape)
+      - name: Sync BIST list and prices (scrape + BigPara API universe)
         run: node scripts/sync-bist-scrape.js
 
       - name: Sync BIST prices (Yahoo)

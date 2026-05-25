@@ -72,11 +72,15 @@ function checkCronViaPg(databaseUrl) {
   if (!databaseUrl) return { ok: false, detail: 'DATABASE_URL yok — pg_cron SQL kontrolü atlandı' };
   const { Client } = require('pg');
   const client = new Client({ connectionString: databaseUrl, ssl: { rejectUnauthorized: false } });
-  const expectedJobs = [
-    'tefas_sync_morning_tr',
-    'portfolio_github_dispatch_every_15m',
-    'abd_github_dispatch_every_15m',
+  const expectedCronGroups = [
+    { key: 'tefas', names: ['tefas_sync_morning_tr'] },
+    {
+      key: 'portfolio',
+      names: ['portfolio_github_dispatch_every_15m_v2', 'portfolio_github_dispatch_every_15m'],
+    },
+    { key: 'abd', names: ['abd_prices_edge_every_15m', 'abd_github_dispatch_every_15m'] },
   ];
+  const expectedJobs = expectedCronGroups.flatMap((g) => g.names);
   return client
     .connect()
     .then(() =>
@@ -88,12 +92,14 @@ function checkCronViaPg(databaseUrl) {
     .then((r) => {
       const found = r.rows || [];
       const names = found.map((row) => row.jobname);
-      const missing = expectedJobs.filter((n) => !names.includes(n));
+      const missing = expectedCronGroups
+        .filter((g) => !found.some((row) => g.names.includes(row.jobname) && row.active))
+        .map((g) => g.key);
       return {
-        ok: missing.length === 0 && found.every((row) => row.active),
+        ok: missing.length === 0,
         jobs: found,
         missing,
-        detail: found.length ? `${found.length} job bulundu` : 'hiç job yok',
+        detail: found.length ? `${found.length} job satırı` : 'hiç job yok',
       };
     })
     .catch((e) => ({ ok: false, detail: e.message, jobs: [], missing: expectedJobs }))

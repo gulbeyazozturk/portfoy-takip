@@ -140,6 +140,7 @@ const BIST_NAMES: Record<string, string> = {
   ALTNY: 'Altınay Savunma',
   BAGFS: 'Bagfaş',
   BJKAS: 'Beşiktaş Futbol',
+  EKDMR: 'Ekinciler Demir ve Çelik',
   EGGUB: 'Ege Gübre',
   FENER: 'Fenerbahçe Futbol',
   GEDIK: 'Gedik Yatırım',
