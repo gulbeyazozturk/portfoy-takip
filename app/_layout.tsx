@@ -1,7 +1,6 @@
 import '@/lib/native-webcrypto-polyfill';
 import '@/lib/i18n';
 
-import AsyncStorage from '@react-native-async-storage/async-storage';
 import { DarkTheme, DefaultTheme, ThemeProvider } from '@react-navigation/native';
 import { Stack } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
@@ -21,14 +20,14 @@ import { PortfolioProvider } from '@/context/portfolio';
 import { SelectedCategoriesProvider } from '@/context/selected-categories';
 import { isSupabaseConfigured } from '@/lib/supabase';
 import { WelcomeGateProvider } from '@/context/welcome-gate';
-import { isWelcomeDismissedForUser, welcomeStorageKey } from '@/lib/welcome-dismissed';
+import { isWelcomeDismissedForUser } from '@/lib/welcome-dismissed';
 
 export const unstable_settings = {
   anchor: '(tabs)',
 };
 
+/** Bu e-posta ile oturumda hoş geldin (Devam) her zaman gösterilir. */
 const ALWAYS_SHOW_WELCOME_ON_LOGIN_EMAIL = 'hasimozturk@gmail.com';
-const WELCOME_LOGIN_MARKER_PREFIX = '@omnifolio_welcome_login_marker';
 
 export default function RootLayout() {
   const colorScheme = useColorScheme();
@@ -116,7 +115,6 @@ function AuthenticatedAppStack() {
   useEffect(() => {
     const uid = session?.user?.id;
     const email = (session?.user?.email ?? '').trim().toLowerCase();
-    const signInMarker = session?.user?.last_sign_in_at ?? '';
     if (!uid) {
       setGate('skip');
       return;
@@ -125,13 +123,8 @@ function AuthenticatedAppStack() {
     void (async () => {
       try {
         if (email === ALWAYS_SHOW_WELCOME_ON_LOGIN_EMAIL) {
-          const loginMarkerKey = `${WELCOME_LOGIN_MARKER_PREFIX}:${uid}`;
-          const seenMarker = await AsyncStorage.getItem(loginMarkerKey);
-          const currentMarker = signInMarker || 'session';
-          if (seenMarker !== currentMarker) {
-            await AsyncStorage.removeItem(welcomeStorageKey(uid));
-            await AsyncStorage.setItem(loginMarkerKey, currentMarker);
-          }
+          if (!cancelled) setGate('show');
+          return;
         }
         const dismissed = await isWelcomeDismissedForUser(uid);
         if (!cancelled) setGate(dismissed ? 'skip' : 'show');
@@ -142,7 +135,7 @@ function AuthenticatedAppStack() {
     return () => {
       cancelled = true;
     };
-  }, [session?.user?.id, session?.user?.email, session?.user?.last_sign_in_at]);
+  }, [session?.user?.id, session?.user?.email]);
 
   if (gate === 'loading') {
     return (
