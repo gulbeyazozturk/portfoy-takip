@@ -75,6 +75,7 @@ export default {
     menuPortfolio: 'Portföy',
     menuNotifications: 'Bildirimler',
     menuSecurity: 'Güvenlik',
+    menuAboutApp: 'Uygulama hakkında',
     menuSupport: 'Destek',
     support: 'Destek',
     privacy: 'Gizlilik politikası',
@@ -357,6 +358,10 @@ export default {
   errors: {
     oauthCancelled: 'Giriş iptal edildi.',
     oauthIncomplete: 'Giriş tamamlanamadı. Metro konsoldaki redirect URL’yi Supabase’e ekleyip tekrar deneyin.',
+    oauthLanRedirect:
+      'Expo Go (LAN) ile Google girişi çalışmaz. Metro’yu `npm run start:tunnel` ile başlatın; konsoldaki exp://… adresini Supabase → Redirect URLs’e ekleyin veya .env içine EXPO_PUBLIC_OAUTH_REDIRECT_URL olarak yazın. Şu anki adres: {{url}}',
+    networkUnreachable:
+      'Sunucuya ulaşılamadı. İnternet bağlantını kontrol et; Expo Go kullanıyorsan tünel modunu dene (npm run start:tunnel).',
     pkceMismatch:
       'Oturum anahtarı eşleşmedi. Uygulamayı tam kapatıp tekrar açın, sonra tekrar deneyin.',
     sessionParams: 'Oturum bilgisi alınamadı. Supabase’te Redirect URLs listesinde bu adres olmalı: {{url}}',

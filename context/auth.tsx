@@ -38,7 +38,16 @@ function isPasswordRecoveryPath(url: string | null): boolean {
   return /(reset-password|update-password|password-reset|resetPassword)/i.test(url);
 }
 
-type SocialSignInResult = { error: string | null; hasSession: boolean };
+type SocialSignInResult = { error: string | null; hasSession: boolean; cancelled?: boolean };
+
+function isAppleSignInCancelled(e: unknown): boolean {
+  if (!e || typeof e !== 'object') return false;
+  const rec = e as { code?: string | number; message?: string };
+  const code = String(rec.code ?? '');
+  if (code === 'ERR_REQUEST_CANCELED' || code === 'ERR_CANCELED' || code === '1001') return true;
+  const msg = (rec.message ?? '').toLowerCase();
+  return msg.includes('cancel') || msg.includes('iptal') || msg.includes('canceled');
+}
 
 type AuthContextValue = {
   loading: boolean;
@@ -243,14 +252,13 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       const waited = await waitForSupabaseSessionAfterBrowser(90);
       return { error: null, hasSession: waited };
     } catch (e: unknown) {
-      const code = e && typeof e === 'object' && 'code' in e ? String((e as { code?: string }).code) : '';
-      if (code === 'ERR_REQUEST_CANCELED' || code === 'ERR_CANCELED') {
-        return { error: i18n.t('errors.oauthCancelled'), hasSession: false };
+      if (isAppleSignInCancelled(e)) {
+        return { error: null, hasSession: false, cancelled: true };
       }
       const msg = e instanceof Error ? e.message : i18n.t('errors.appleNativeFailed');
       return { error: mapAuthErrorMessage(msg), hasSession: false };
     }
-  }, []);
+  }, [signInWithOAuth]);
 
   const signOut = useCallback(async () => {
     setPasswordRecoveryPending(false);

@@ -15,7 +15,7 @@ export type OAuthPrepared = {
   redirectTo: string;
 };
 
-export type SocialSignInResult = { error: string | null; hasSession: boolean };
+export type SocialSignInResult = { error: string | null; hasSession: boolean; cancelled?: boolean };
 
 /** OAuth redirect — `context/auth.tsx` ile aynı mantık. */
 export function getOAuthRedirectUrl(): string {
@@ -26,7 +26,25 @@ export function getOAuthRedirectUrl(): string {
   if (devOverride && Platform.OS !== 'web') {
     return devOverride;
   }
+  /** TestFlight / mağaza: sabit scheme; Linking varyasyonu Supabase whitelist ile kaymasın. */
+  if (!__DEV__) {
+    return 'omnifolio://oauth-callback';
+  }
   return Linking.createURL('oauth-callback');
+}
+
+const PRIVATE_LAN_HOST =
+  /(?:^exp:\/\/|\/\/)(?:192\.168\.|10\.|172\.(?:1[6-9]|2\d|3[01])\.|localhost|127\.0\.0\.1)/i;
+
+/** Expo Go + LAN: Supabase redirect’i reddedebilir; tarayıcıda “sunucuya ulaşılamadı” görünür. */
+export function getOAuthRedirectMisconfiguration(redirectTo: string): string | null {
+  if (!__DEV__) return null;
+  if ((process.env.EXPO_PUBLIC_OAUTH_REDIRECT_URL ?? '').trim()) return null;
+  if (redirectTo.startsWith('omnifolio://')) return null;
+  if (PRIVATE_LAN_HOST.test(redirectTo)) {
+    return i18n.t('errors.oauthLanRedirect', { url: redirectTo });
+  }
+  return null;
 }
 
 /** iOS: tarayıcıyı açmadan önce URL hazırla (kullanıcı jesti + hızlı açılış). */
@@ -34,6 +52,13 @@ export async function prepareOAuthSignInUrl(
   provider: OAuthProvider,
 ): Promise<{ prepared: OAuthPrepared | null; error: string | null }> {
   const redirectTo = getOAuthRedirectUrl();
+  const misconfig = getOAuthRedirectMisconfiguration(redirectTo);
+  if (misconfig) {
+    return { prepared: null, error: misconfig };
+  }
+  if (__DEV__) {
+    console.info('[OAuth] redirectTo:', redirectTo);
+  }
   const { data, error } = await supabase.auth.signInWithOAuth({
     provider,
     options: { redirectTo, skipBrowserRedirect: true },

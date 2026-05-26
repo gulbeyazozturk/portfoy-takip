@@ -2,9 +2,8 @@ import React from 'react';
 import { Image, StyleSheet, Text, View } from 'react-native';
 import { useTranslation } from 'react-i18next';
 
-/** Wordmark — ikon yeşili ile uyumlu */
-const ACCENT_A = '#00e677';
-const ACCENT_B = '#22c55e';
+const ACCENT_A = '#38bdf8';
+const ACCENT_B = '#00e677';
 
 /** Ana ekran / splash ile aynı kaynak — `app.json` içindeki `expo.icon` ile eşleşir. */
 const APP_ICON = require('@/assets/images/icon.png');

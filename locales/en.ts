@@ -73,6 +73,7 @@ export default {
     menuPortfolio: 'Portfolio',
     menuNotifications: 'Notifications',
     menuSecurity: 'Security',
+    menuAboutApp: 'About the app',
     menuSupport: 'Support',
     support: 'Support',
     privacy: 'Privacy policy',
@@ -351,6 +352,10 @@ export default {
   errors: {
     oauthCancelled: 'Sign-in cancelled.',
     oauthIncomplete: 'Sign-in could not be completed. Add the redirect URL from Metro to Supabase and try again.',
+    oauthLanRedirect:
+      'Google sign-in does not work with Expo Go over LAN. Start Metro with `npm run start:tunnel`, add the exp://… URL to Supabase → Redirect URLs, or set EXPO_PUBLIC_OAUTH_REDIRECT_URL in .env. Current redirect: {{url}}',
+    networkUnreachable:
+      'Could not reach the server. Check your connection; if using Expo Go, try tunnel mode (npm run start:tunnel).',
     pkceMismatch: 'Session key mismatch. Fully close the app and try again.',
     sessionParams: 'Could not read session. This URL must be in Supabase Redirect URLs: {{url}}',
     oauthStart: 'Could not start OAuth.',

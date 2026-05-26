@@ -4,7 +4,7 @@ import '@/lib/i18n';
 import { DarkTheme, DefaultTheme, ThemeProvider } from '@react-navigation/native';
 import { Stack } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
-import React, { useCallback, useEffect, useState } from 'react';
+import React from 'react';
 import 'react-native-reanimated';
 import { ActivityIndicator, View } from 'react-native';
 import { useTranslation } from 'react-i18next';
@@ -19,15 +19,9 @@ import { useColorScheme } from '@/hooks/use-color-scheme';
 import { PortfolioProvider } from '@/context/portfolio';
 import { SelectedCategoriesProvider } from '@/context/selected-categories';
 import { isSupabaseConfigured } from '@/lib/supabase';
-import { WelcomeGateProvider } from '@/context/welcome-gate';
-import { isWelcomeDismissedForUser } from '@/lib/welcome-dismissed';
-
 export const unstable_settings = {
   anchor: '(tabs)',
 };
-
-/** Bu e-posta ile oturumda hoş geldin (Devam) her zaman gösterilir. */
-const ALWAYS_SHOW_WELCOME_ON_LOGIN_EMAIL = 'hasimozturk@gmail.com';
 
 export default function RootLayout() {
   const colorScheme = useColorScheme();
@@ -89,6 +83,7 @@ function RootNavigator() {
     return (
       <Stack>
         <Stack.Screen name="auth" options={{ headerShown: false }} />
+        <Stack.Screen name="forgot-password" options={{ headerShown: false }} />
         <Stack.Screen name="oauth-callback" options={{ headerShown: false }} />
         <Stack.Screen name="reset-password" options={{ headerShown: false }} />
         <Stack.Screen name="update-password" options={{ headerShown: false }} />
@@ -101,63 +96,20 @@ function RootNavigator() {
   return <AuthenticatedAppStack />;
 }
 
-type WelcomeGate = 'loading' | 'show' | 'skip';
-
-/**
- * Oturum açık: önce tek seferlik hoş geldin (kullanıcı başına), sonra kilit + ana stack.
- */
+/** Oturum açık: kilit (açıksa) + ana stack. */
 function AuthenticatedAppStack() {
   const { t } = useTranslation();
-  const { session } = useAuth();
-  const [gate, setGate] = useState<WelcomeGate>('loading');
-  const markWelcomeComplete = useCallback(() => setGate('skip'), []);
-
-  useEffect(() => {
-    const uid = session?.user?.id;
-    const email = (session?.user?.email ?? '').trim().toLowerCase();
-    if (!uid) {
-      setGate('skip');
-      return;
-    }
-    let cancelled = false;
-    void (async () => {
-      try {
-        if (email === ALWAYS_SHOW_WELCOME_ON_LOGIN_EMAIL) {
-          if (!cancelled) setGate('show');
-          return;
-        }
-        const dismissed = await isWelcomeDismissedForUser(uid);
-        if (!cancelled) setGate(dismissed ? 'skip' : 'show');
-      } catch {
-        if (!cancelled) setGate('skip');
-      }
-    })();
-    return () => {
-      cancelled = true;
-    };
-  }, [session?.user?.id, session?.user?.email]);
-
-  if (gate === 'loading') {
-    return (
-      <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: '#000' }}>
-        <ActivityIndicator color="#89acff" />
-      </View>
-    );
-  }
 
   return (
-    <WelcomeGateProvider markWelcomeComplete={markWelcomeComplete}>
-      <AppLockGate>
-        <Stack initialRouteName={gate === 'show' ? 'welcome' : '(tabs)'}>
-          <Stack.Screen name="welcome" options={{ headerShown: false }} />
-          <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
-          <Stack.Screen
-            name="bulk-upload"
-            options={{ headerShown: false, title: t('layout.bulkUploadTitle') }}
-          />
-          <Stack.Screen name="modal" options={{ presentation: 'modal', title: t('layout.modalTitle') }} />
-        </Stack>
-      </AppLockGate>
-    </WelcomeGateProvider>
+    <AppLockGate>
+      <Stack>
+        <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
+        <Stack.Screen
+          name="bulk-upload"
+          options={{ headerShown: false, title: t('layout.bulkUploadTitle') }}
+        />
+        <Stack.Screen name="modal" options={{ presentation: 'modal', title: t('layout.modalTitle') }} />
+      </Stack>
+    </AppLockGate>
   );
 }

@@ -1,9 +1,11 @@
 import React from 'react';
 import {
+  Keyboard,
   KeyboardAvoidingView,
   Platform,
   ScrollView,
   StyleSheet,
+  TouchableWithoutFeedback,
   View,
   type ScrollViewProps,
   type StyleProp,
@@ -37,6 +39,8 @@ export type ScreenWithFooterProps = {
   backgroundColor?: string;
   footerBackgroundColor?: string;
   testID?: string;
+  /** Boş alana dokununca klavyeyi kapat (ScrollView gövdesi). */
+  dismissKeyboardOnPress?: boolean;
 };
 
 /**
@@ -63,6 +67,7 @@ export function ScreenWithFooter({
   backgroundColor = '#000',
   footerBackgroundColor,
   testID,
+  dismissKeyboardOnPress = false,
 }: ScreenWithFooterProps) {
   const insets = useSafeAreaInsets();
   const footerBg = footerBackgroundColor ?? backgroundColor;
@@ -70,9 +75,21 @@ export function ScreenWithFooter({
 
   const scrollContentStyles = [
     footer != null ? styles.scrollContentWithFooter : styles.scrollContent,
+    dismissKeyboardOnPress ? styles.scrollContentDismissTap : null,
     { paddingBottom: SCROLL_BOTTOM_GAP },
     contentContainerStyle,
   ];
+
+  const bodyChildren =
+    dismissKeyboardOnPress && scroll ? (
+      <TouchableWithoutFeedback onPress={Keyboard.dismiss} accessible={false}>
+        <View style={styles.dismissTapFill} collapsable={false}>
+          {children}
+        </View>
+      </TouchableWithoutFeedback>
+    ) : (
+      children
+    );
 
   const scrollBody = scroll ? (
     <ScrollView
@@ -80,11 +97,11 @@ export function ScreenWithFooter({
       style={[styles.flex, bodyStyle]}
       contentContainerStyle={scrollContentStyles}
       showsVerticalScrollIndicator={false}
-      keyboardShouldPersistTaps="always"
+      keyboardShouldPersistTaps={dismissKeyboardOnPress ? 'handled' : 'always'}
       keyboardDismissMode="on-drag"
       removeClippedSubviews={false}
       {...scrollProps}>
-      {children}
+      {bodyChildren}
     </ScrollView>
   ) : (
     <View style={[styles.flex, bodyStyle]}>{children}</View>
@@ -148,6 +165,8 @@ const styles = StyleSheet.create({
   },
   /** Footer varken flexGrow kapalı — iOS’ta ScrollView’un alt CTA ile çakışmasını azaltır. */
   scrollContentWithFooter: {},
+  scrollContentDismissTap: { flexGrow: 1 },
+  dismissTapFill: { flexGrow: 1 },
   footer: {
     paddingTop: 8,
     flexShrink: 0,

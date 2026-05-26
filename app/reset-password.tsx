@@ -95,6 +95,7 @@ export default function ResetPasswordScreen() {
   return (
     <ScreenWithFooter
       keyboardAvoid
+      dismissKeyboardOnPress
       contentContainerStyle={styles.container}
       footer={
         <View style={styles.footerInner}>

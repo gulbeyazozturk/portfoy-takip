@@ -62,9 +62,9 @@ export default function SettingsScreen() {
   const [lockBusy, setLockBusy] = useState(false);
   const [notificationsEnabled, setNotificationsEnabled] = useState(true);
   const [notificationsBusy, setNotificationsBusy] = useState(false);
-  const [expandedMenu, setExpandedMenu] = useState<'general' | 'portfolio' | 'notifications' | 'security' | 'support' | null>(
-    null,
-  );
+  const [expandedMenu, setExpandedMenu] = useState<
+    'general' | 'portfolio' | 'notifications' | 'security' | 'aboutApp' | 'support' | null
+  >(null);
 
   const [addModalOpen, setAddModalOpen] = useState(false);
   const [renameModalOpen, setRenameModalOpen] = useState(false);
@@ -420,6 +420,32 @@ export default function SettingsScreen() {
               </View>
             ) : null}
 
+            <Pressable
+              style={styles.menuRow}
+              onPress={() => setExpandedMenu(expandedMenu === 'aboutApp' ? null : 'aboutApp')}>
+              <View style={styles.menuRowLeft}>
+                <View style={styles.menuIconWrap}>
+                  <Ionicons name="information-circle-outline" size={18} color={PRIMARY} />
+                </View>
+                <ThemedText style={styles.menuLabel}>{t('settings.menuAboutApp')}</ThemedText>
+              </View>
+              <ThemedText style={styles.menuChevron}>{expandedMenu === 'aboutApp' ? '˅' : '›'}</ThemedText>
+            </Pressable>
+            {expandedMenu === 'aboutApp' ? (
+              <View style={styles.menuContent}>
+                <ThemedText style={styles.aboutLead}>{t('welcome.lead')}</ThemedText>
+                <ThemedText style={styles.aboutSectionTitle}>{t('welcome.whatTitle')}</ThemedText>
+                <ThemedText style={styles.aboutBullet}>• {t('welcome.bullet1')}</ThemedText>
+                <ThemedText style={styles.aboutBullet}>• {t('welcome.bullet2')}</ThemedText>
+                <ThemedText style={styles.aboutBullet}>• {t('welcome.bullet3')}</ThemedText>
+                <ThemedText style={styles.aboutSectionTitle}>{t('welcome.dataTitle')}</ThemedText>
+                <ThemedText style={styles.aboutParagraph}>{t('welcome.dataBody')}</ThemedText>
+                <View style={styles.disclaimerBox}>
+                  <ThemedText style={styles.disclaimerText}>{t('welcome.disclaimer')}</ThemedText>
+                </View>
+              </View>
+            ) : null}
+
             <Pressable style={styles.menuRow} onPress={() => setExpandedMenu(expandedMenu === 'support' ? null : 'support')}>
               <View style={styles.menuRowLeft}>
                 <View style={styles.menuIconWrap}>
@@ -591,6 +617,19 @@ const styles = StyleSheet.create({
     backgroundColor: '#111111',
   },
   aboutLine: { color: '#d1d5db', fontSize: 14, lineHeight: 20 },
+  aboutLead: { color: '#d1d5db', fontSize: 14, lineHeight: 21, marginBottom: 12 },
+  aboutSectionTitle: { color: '#e5e7eb', fontSize: 15, fontWeight: '700', marginTop: 10, marginBottom: 6 },
+  aboutBullet: { color: '#d1d5db', fontSize: 14, lineHeight: 21, marginBottom: 6, paddingLeft: 4 },
+  aboutParagraph: { color: '#d1d5db', fontSize: 14, lineHeight: 21 },
+  disclaimerBox: {
+    marginTop: 14,
+    padding: 12,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: 'rgba(72,72,72,0.45)',
+    backgroundColor: SURFACE_CONTAINER_HIGH,
+  },
+  disclaimerText: { color: '#9ca3af', fontSize: 13, lineHeight: 19, textAlign: 'center' },
   portfolioList: { gap: 8, marginTop: 8 },
   portfolioRow: {
     flexDirection: 'row',
