@@ -168,6 +168,7 @@ export default {
     totalBalance: 'PORTFOLIO OVERVIEW',
     notificationsA11y: 'Notifications',
     notificationsPlaceholder: 'Notifications coming soon.',
+    priceUpdating: 'Updating price…',
   },
   categories: {
     yurtdisi: 'USA',

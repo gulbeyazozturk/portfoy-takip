@@ -76,30 +76,6 @@ function effectiveDailyPctForSort(h: HoldingRow, asset: AssetRow, usdTry: number
   return chgEff != null && Number.isFinite(chgEff) ? chgEff : 0;
 }
 
-const ASSET_ICONS: Record<string, { icon: string; bg: string; color: string }> = {
-  default: { icon: 'ellipse-outline', bg: 'rgba(148,163,184,0.2)', color: '#94A3B8' },
-  BTC: { icon: 'cash', bg: 'rgba(249,115,22,0.2)', color: '#f97316' },
-  ETH: { icon: 'analytics', bg: 'rgba(59,130,246,0.2)', color: '#3b82f6' },
-  SOL: { icon: 'flash', bg: 'rgba(168,85,247,0.2)', color: '#a855f7' },
-  ADA: { icon: 'diamond-outline', bg: 'rgba(99,102,241,0.2)', color: '#6366f1' },
-  XRP: { icon: 'flash-outline', bg: Brand.chartPositiveMuted, color: Brand.chartPositive },
-  DOT: { icon: 'ellipse-outline', bg: 'rgba(234,88,12,0.2)', color: '#ea580c' },
-  XAU: { icon: 'cube', bg: 'rgba(250,204,21,0.4)', color: '#facc15' },
-  XAG: { icon: 'cube', bg: 'rgba(148,163,184,0.4)', color: '#e5e7eb' },
-  XPT: { icon: 'cube', bg: 'rgba(156,163,175,0.4)', color: '#d1d5db' },
-  XPD: { icon: 'cube', bg: 'rgba(129,140,248,0.4)', color: '#a5b4fc' },
-  XAUT: { icon: 'cube', bg: 'rgba(250,204,21,0.45)', color: '#facc15' },
-  PAXG: { icon: 'cube', bg: 'rgba(234,179,8,0.4)', color: '#fbbf24' },
-  emtia: { icon: 'cube-outline', bg: 'rgba(250,204,21,0.28)', color: '#facc15' },
-  bist: { icon: 'stats-chart', bg: 'rgba(137,172,255,0.28)', color: Brand.primary },
-  mevduat: { icon: 'wallet-outline', bg: 'rgba(255,215,0,0.25)', color: '#FFD700' },
-  VADESIZ: { icon: 'wallet-outline', bg: 'rgba(255,215,0,0.25)', color: '#FFD700' },
-  VADELI: { icon: 'time-outline', bg: 'rgba(255,215,0,0.25)', color: '#FFD700' },
-  BES: { icon: 'shield-checkmark-outline', bg: 'rgba(255,215,0,0.25)', color: '#FFD700' },
-  KASA: { icon: 'lock-closed-outline', bg: 'rgba(255,215,0,0.25)', color: '#FFD700' },
-  DIGER: { icon: 'ellipsis-horizontal-circle-outline', bg: 'rgba(255,215,0,0.25)', color: '#FFD700' },
-};
-
 type SortMode = 'todayTopGainers' | 'todayTopLosers' | 'highestValue' | 'lowestValue' | 'alphaAZ' | 'alphaZA';
 
 type PortfolioSummaryData = {
@@ -121,15 +97,47 @@ type PortfolioSummaryData = {
   mergedDailyAmtUSD: number;
   mergedDailyPctTL: number;
   mergedDailyPctUSD: number;
+  mergedTotalAmtTL: number;
+  mergedTotalAmtUSD: number;
   mergedTotalPctTL: number;
   mergedTotalPctUSD: number;
 };
 
-/** Portföy tutarları: kuruş yok, yukarı yuvarlanmış tam birim. */
-function formatAmountCeiling(value: number, locale: string): string {
-  const n = Number.isFinite(value) ? Math.ceil(value) : 0;
-  return n.toLocaleString(locale, { minimumFractionDigits: 0, maximumFractionDigits: 0 });
+/** Liste satırı: birim fiyat / tutar (2 ondalık). */
+function formatRowMoney(value: number, currency: 'TL' | 'USD', locale: string): string {
+  if (!Number.isFinite(value)) value = 0;
+  const n = value.toLocaleString(locale, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  return currency === 'USD' ? `$${n}` : `${n} TL`;
 }
+
+/** P/L satırı: $486,60 (%2,99) */
+function formatRowPlLine(
+  amount: number,
+  pct: number,
+  currency: 'TL' | 'USD',
+  locale: string,
+): { text: string; neutral: boolean; up: boolean } {
+  const neutral = Math.abs(pct) < 0.005 && Math.abs(amount) < 0.005;
+  const up = amount >= 0;
+  const pctAbs = Math.abs(pct).toLocaleString(locale, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  const amtAbs = Math.abs(amount);
+  const amtCore = amtAbs.toLocaleString(locale, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  const amtStr = currency === 'USD' ? `$${amtCore}` : `${amtCore} TL`;
+  const signedAmt = neutral || up ? amtStr : `-${amtStr}`;
+  const signedPct = pct >= 0 ? pctAbs : `-${pctAbs}`;
+  return { text: `${signedAmt} (%${signedPct})`, neutral, up };
+}
+
+const AVATAR_SOLID: Record<string, string> = {
+  default: '#546e7a',
+  bist: '#1e88e5',
+  yurtdisi: '#455a64',
+  kripto: '#7c3aed',
+  fon: '#5e35b1',
+  doviz: '#0288d1',
+  emtia: '#f59e0b',
+  mevduat: '#ca8a04',
+};
 
 export function PortfolioScreen() {
   const { t, i18n } = useTranslation();
@@ -407,6 +415,8 @@ export function PortfolioScreen() {
       mergedDailyAmtUSD,
       mergedDailyPctTL,
       mergedDailyPctUSD,
+      mergedTotalAmtTL,
+      mergedTotalAmtUSD,
       mergedTotalPctTL,
       mergedTotalPctUSD,
     };
@@ -494,6 +504,13 @@ export function PortfolioScreen() {
             const isDaily = summaryMode === 'daily';
             const mainTotal =
               summaryDisplayCurrency === 'TL' ? summaryData.mergedTotalTL : summaryData.mergedTotalUSD;
+            const changeAmt = isDaily
+              ? summaryDisplayCurrency === 'TL'
+                ? summaryData.mergedDailyAmtTL
+                : summaryData.mergedDailyAmtUSD
+              : summaryDisplayCurrency === 'TL'
+                ? summaryData.mergedTotalAmtTL
+                : summaryData.mergedTotalAmtUSD;
             const changePct = isDaily
               ? summaryDisplayCurrency === 'TL'
                 ? summaryData.mergedDailyPctTL
@@ -501,11 +518,7 @@ export function PortfolioScreen() {
               : summaryDisplayCurrency === 'TL'
                 ? summaryData.mergedTotalPctTL
                 : summaryData.mergedTotalPctUSD;
-            const pctPositive = changePct >= 0;
-            const pctStr = `${pctPositive ? '+' : ''}${changePct.toLocaleString(numberLocale, {
-              minimumFractionDigits: 2,
-              maximumFractionDigits: 2,
-            })}%`;
+            const plLine = formatRowPlLine(changeAmt, changePct, summaryDisplayCurrency, numberLocale);
             const amountStr =
               summaryDisplayCurrency === 'USD'
                 ? formatPortfolioMoneyCeil(mainTotal, 'en-US')
@@ -533,18 +546,13 @@ export function PortfolioScreen() {
                   </Text>
                 </View>
                 <View style={styles.heroPctRow}>
-                  <Ionicons
-                    name={pctPositive ? 'caret-up' : 'caret-down'}
-                    size={18}
-                    color={pctPositive ? SECONDARY : ERROR}
-                  />
                   <Text
                     style={[
                       styles.heroPct,
                       { fontFamily: fontHead700, fontSize: layout.heroPctFontSize },
-                      pctPositive ? styles.pctUp : styles.pctDown,
+                      plLine.neutral ? styles.pctNeutral : plLine.up ? styles.pctUp : styles.pctDown,
                     ]}>
-                    {pctStr}
+                    {plLine.text}
                   </Text>
                 </View>
                 <View
@@ -733,7 +741,7 @@ export function PortfolioScreen() {
                   ) ?? null;
                 const nativeCurrency = isUsdNativeCategory(asset.category_id) ? 'USD' : 'TL';
                 const displayCurrency = summaryDisplayCurrency;
-                const displayLocale = displayCurrency === 'USD' ? 'en-US' : numberLocale;
+                const displayLocale = numberLocale;
                 const displayedUnitPrice =
                   nativeCurrency === displayCurrency
                     ? currentPrice
@@ -757,17 +765,6 @@ export function PortfolioScreen() {
                     ? ((currentPrice - costPrice) / costPrice) * 100
                     : dailyPct;
                 const displayPct = summaryMode === 'daily' ? dailyPct : totalPct;
-                const isNeutral = Math.abs(displayPct) < 0.005;
-                const up = displayPct > 0;
-                const pctText = isNeutral
-                  ? `${displayPct.toLocaleString(numberLocale, {
-                      minimumFractionDigits: 2,
-                      maximumFractionDigits: 2,
-                    })}%`
-                  : `${up ? '+' : ''}${displayPct.toLocaleString(numberLocale, {
-                      minimumFractionDigits: 2,
-                      maximumFractionDigits: 2,
-                    })}%`;
                 const changeAmtNative =
                   summaryMode === 'daily'
                     ? dailyPrevValueFromChangePct(value, changePct).dailyDelta
@@ -780,17 +777,11 @@ export function PortfolioScreen() {
                     : nativeCurrency === 'USD'
                       ? changeAmtNative * rate
                       : changeAmtNative / rate;
-                const amtNeutral = Math.abs(displayedChangeAmt) < 0.5;
-                const amtUp = displayedChangeAmt > 0;
-                const amtText = amtNeutral
-                  ? `0 ${displayCurrency}`
-                  : displayCurrency === 'USD'
-                    ? `${amtUp ? '+' : '-'}$${formatAmountCeiling(Math.abs(displayedChangeAmt), 'en-US')}`
-                    : `${amtUp ? '+' : '-'}${formatAmountCeiling(Math.abs(displayedChangeAmt), displayLocale)} ${displayCurrency}`;
-                const iconStyle =
-                  ASSET_ICONS[asset.symbol] ??
-                  ASSET_ICONS[asset.category_id] ??
-                  ASSET_ICONS.default;
+                const avatarBg =
+                  AVATAR_SOLID[asset.symbol] ??
+                  AVATAR_SOLID[asset.category_id] ??
+                  AVATAR_SOLID.default;
+                const plLine = formatRowPlLine(displayedChangeAmt, displayPct, displayCurrency, displayLocale);
                 const assetDisplayName =
                   asset.category_id === 'bist'
                     ? resolveBistDisplayName(asset.symbol, asset.name)
@@ -827,28 +818,41 @@ export function PortfolioScreen() {
                       })
                     }>
                     <View style={[styles.assetLeft, { gap: layout.assetGap }]}>
-                      <View
-                        style={[
-                          styles.assetIconCircle,
-                          {
-                            width: layout.assetIconSize,
-                            height: layout.assetIconSize,
-                            borderRadius: layout.assetIconSize / 2,
-                          },
-                        ]}>
-                        {asset.category_id === 'doviz' && asset.icon_url ? (
-                          <Image
-                            source={{ uri: asset.icon_url }}
-                            style={styles.assetIconImage}
-                            resizeMode="contain"
-                          />
-                        ) : (
-                          <Ionicons
-                            name={iconStyle.icon as keyof typeof Ionicons.glyphMap}
-                            size={layout.isCompact ? 20 : 22}
-                            color={PRIMARY}
-                          />
-                        )}
+                      <View style={styles.assetIconWrap}>
+                        <View
+                          style={[
+                            styles.assetIconCircle,
+                            {
+                              width: layout.assetIconSize,
+                              height: layout.assetIconSize,
+                              borderRadius: layout.assetIconSize / 2,
+                              backgroundColor: asset.icon_url ? '#ffffff' : avatarBg,
+                            },
+                          ]}>
+                          {asset.icon_url ? (
+                            <Image
+                              source={{ uri: asset.icon_url }}
+                              style={[
+                                styles.assetIconImage,
+                                {
+                                  width: layout.assetIconSize - 8,
+                                  height: layout.assetIconSize - 8,
+                                  borderRadius: (layout.assetIconSize - 8) / 2,
+                                },
+                              ]}
+                              resizeMode="contain"
+                            />
+                          ) : (
+                            <Text style={[styles.assetIconLetter, { fontFamily: fontHead700 }]}>
+                              {asset.symbol.charAt(0).toUpperCase()}
+                            </Text>
+                          )}
+                        </View>
+                        {!hasLivePrice ? (
+                          <View style={styles.assetIconClock}>
+                            <Ionicons name="time-outline" size={11} color="#fff" />
+                          </View>
+                        ) : null}
                       </View>
                       <View style={styles.assetTextCol}>
                         <Text
@@ -860,50 +864,31 @@ export function PortfolioScreen() {
                           {asset.symbol}
                         </Text>
                         <Text style={[styles.assetSubtitle, { fontFamily: fontBody }]} numberOfLines={1}>
-                          {hasLivePrice
-                            ? `${displayedUnitPrice.toLocaleString(
-                                displayLocale,
-                                { minimumFractionDigits: 2, maximumFractionDigits: 2 },
-                              )} ${displayCurrency}`
-                            : ''}
+                          {hasLivePrice ? formatRowMoney(displayedUnitPrice, displayCurrency, displayLocale) : '—'}
                         </Text>
                       </View>
                     </View>
                     <View style={styles.assetRight}>
-                      <Text style={[styles.assetValue, { fontFamily: fontHead700 }]} numberOfLines={2}>
-                        {hasLivePrice ? (
-                          <>
-                            {formatPortfolioMoneyCeil(displayedValue, displayLocale)} {displayCurrency}
-                            <Text
-                              style={[
-                                styles.assetValuePct,
-                                { fontFamily: fontBodySemi },
-                                isNeutral ? styles.assetPctNeutral : up ? styles.assetPctUp : styles.assetPctDown,
-                              ]}>
-                              {` (${pctText})`}
-                            </Text>
-                          </>
-                        ) : (
-                          'Fiyat güncelleniyor...'
-                        )}
+                      <Text style={[styles.assetValue, { fontFamily: fontHead700 }]} numberOfLines={1}>
+                        {hasLivePrice
+                          ? formatRowMoney(displayedValue, displayCurrency, displayLocale)
+                          : t('portfolio.priceUpdating')}
                       </Text>
-                      <View style={styles.assetPctRow}>
-                        {!amtNeutral ? (
-                          <Ionicons
-                            name={amtUp ? 'caret-up' : 'caret-down'}
-                            size={14}
-                            color={amtUp ? SECONDARY : ERROR}
-                          />
-                        ) : null}
+                      {hasLivePrice ? (
                         <Text
                           style={[
-                            styles.assetPct,
+                            styles.assetPlLine,
                             { fontFamily: fontBodySemi },
-                            amtNeutral ? styles.assetPctNeutral : amtUp ? styles.assetPctUp : styles.assetPctDown,
-                          ]}>
-                          {amtText}
+                            plLine.neutral
+                              ? styles.assetPctNeutral
+                              : plLine.up
+                                ? styles.assetPctUp
+                                : styles.assetPctDown,
+                          ]}
+                          numberOfLines={1}>
+                          {plLine.text}
                         </Text>
-                      </View>
+                      ) : null}
                     </View>
                   </Pressable>
                 );
@@ -997,6 +982,7 @@ const styles = StyleSheet.create({
   heroPct: { fontSize: 18, fontWeight: '700', fontVariant: ['tabular-nums'] as any },
   pctUp: { color: SECONDARY },
   pctDown: { color: ERROR },
+  pctNeutral: { color: MUTED_PCT },
   heroPillsRow: {
     flexDirection: 'row',
     flexWrap: 'wrap',
@@ -1077,7 +1063,7 @@ const styles = StyleSheet.create({
   sortMenuItem: { paddingHorizontal: 14, paddingVertical: 12 },
   sortMenuItemText: { fontSize: 13, color: ON_SURFACE_VARIANT },
   sortMenuItemTextActive: { fontWeight: '700', color: ON_SURFACE },
-  assetList: { gap: 0 },
+  assetList: { marginTop: 4 },
   emptyWrap: { padding: 24, alignItems: 'center', gap: 14 },
   emptyIconCircle: {
     width: 56,
@@ -1092,37 +1078,55 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    paddingVertical: 16,
-    paddingHorizontal: 8,
-    borderRadius: 16,
+    paddingVertical: 14,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: 'rgba(72,72,72,0.55)',
   },
-  assetRowPressed: { backgroundColor: 'rgba(19,19,19,0.5)' },
-  assetLeft: { flex: 1, minWidth: 0, flexDirection: 'row', alignItems: 'center', gap: 16 },
+  assetRowPressed: { opacity: 0.72 },
+  assetLeft: { flex: 1, minWidth: 0, flexDirection: 'row', alignItems: 'center', gap: 12 },
+  assetIconWrap: { position: 'relative' },
   assetIconCircle: {
     width: 48,
     height: 48,
     borderRadius: 24,
-    backgroundColor: SURFACE_CONTAINER,
-    borderWidth: 1,
-    borderColor: 'rgba(72,72,72,0.35)',
+    alignItems: 'center',
+    justifyContent: 'center',
+    overflow: 'hidden',
+  },
+  assetIconLetter: { color: '#ffffff', fontSize: 18, fontWeight: '700' },
+  assetIconClock: {
+    position: 'absolute',
+    right: -2,
+    top: -2,
+    width: 18,
+    height: 18,
+    borderRadius: 9,
+    backgroundColor: '#374151',
+    borderWidth: 1.5,
+    borderColor: BG,
     alignItems: 'center',
     justifyContent: 'center',
   },
-  assetIconImage: { width: 30, height: 30, borderRadius: 15 },
-  assetTextCol: { flex: 1, minWidth: 0 },
-  assetSymbol: { fontSize: 18, fontWeight: '700', color: ON_SURFACE },
-  assetSubtitle: { fontSize: 12, color: ON_SURFACE_VARIANT, marginTop: 2, fontWeight: '500' },
-  assetRight: { flexShrink: 0, alignItems: 'flex-end' },
+  assetIconImage: { width: 40, height: 40, borderRadius: 20 },
+  assetTextCol: { flex: 1, minWidth: 0, justifyContent: 'center' },
+  assetSymbol: { fontSize: 16, fontWeight: '700', color: ON_SURFACE, letterSpacing: -0.2 },
+  assetSubtitle: { fontSize: 13, color: ON_SURFACE_VARIANT, marginTop: 3, fontWeight: '400' },
+  assetRight: { flexShrink: 0, alignItems: 'flex-end', marginLeft: 12, maxWidth: '46%' },
   assetValue: {
     fontSize: 16,
     fontWeight: '700',
     color: ON_SURFACE,
     fontVariant: ['tabular-nums'] as any,
     textAlign: 'right',
+    letterSpacing: -0.2,
   },
-  assetValuePct: { fontSize: 14, fontWeight: '700', fontVariant: ['tabular-nums'] as any },
-  assetPctRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'flex-end', gap: 2, marginTop: 4 },
-  assetPct: { fontSize: 12, fontWeight: '700', fontVariant: ['tabular-nums'] as any },
+  assetPlLine: {
+    fontSize: 13,
+    fontWeight: '600',
+    marginTop: 4,
+    fontVariant: ['tabular-nums'] as any,
+    textAlign: 'right',
+  },
   assetPctUp: { color: SECONDARY },
   assetPctDown: { color: ERROR },
   assetPctNeutral: { color: MUTED_PCT },

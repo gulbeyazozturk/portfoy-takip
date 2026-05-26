@@ -172,6 +172,7 @@ export default {
     totalBalance: 'PORTFÖY PANORAMASI',
     notificationsA11y: 'Bildirimler',
     notificationsPlaceholder: 'Bildirimler yakında.',
+    priceUpdating: 'Fiyat güncelleniyor…',
   },
   categories: {
     yurtdisi: 'ABD',
