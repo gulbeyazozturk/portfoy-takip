@@ -18,6 +18,7 @@ import {
 
 import { ScreenWithFooter } from '@/components/screen-with-footer';
 import { Brand } from '@/constants/brand';
+import { assetAvatarBg } from '@/lib/asset-avatar';
 import { resolveBistDisplayName } from '@/lib/bist-display-name';
 import { supabase } from '@/lib/supabase';
 import { useTranslation } from 'react-i18next';
@@ -27,7 +28,7 @@ const SURFACE = '#1C1C1E';
 const WHITE = '#FFFFFF';
 const SLATE = '#AAB0C4';
 const PRIMARY = Brand.primary;
-const ICON_BG = '#111827';
+const ADD_TAB_HREF = '/(tabs)/add' as const;
 
 const PAGE_SIZE = 500;
 /** Aynı satırda iki dokunuş “Detaya git” ile aynı navigasyonu tetikler */
@@ -261,7 +262,7 @@ export default function AssetListScreen() {
           <>
             <View style={styles.topSection}>
               <TouchableOpacity
-                onPress={() => router.back()}
+                onPress={() => router.replace(ADD_TAB_HREF)}
                 hitSlop={12}
                 style={styles.backBtn}>
                 <Ionicons name="arrow-back" size={26} color={WHITE} />
@@ -341,12 +342,17 @@ export default function AssetListScreen() {
               })}
               renderItem={({ item }) => {
                 const selected = selectedId === item.id;
+                const avatarBg = assetAvatarBg(item.symbol, categoryId);
                 return (
                   <Pressable
                     style={({ pressed }) => [styles.row, pressed && styles.rowPressed]}
                     onPress={() => onRowPress(item)}>
                     <View style={styles.rowLeft}>
-                      <View style={styles.iconCircle}>
+                      <View
+                        style={[
+                          styles.iconCircle,
+                          { backgroundColor: item.iconUrl ? '#ffffff' : avatarBg },
+                        ]}>
                         {item.iconUrl ? (
                           <Image
                             source={{ uri: item.iconUrl }}
@@ -460,22 +466,22 @@ const styles = StyleSheet.create({
   },
   rowTextWrap: { flex: 1 },
   iconCircle: {
-    width: 36,
-    height: 36,
-    borderRadius: 18,
-    backgroundColor: ICON_BG,
+    width: 40,
+    height: 40,
+    borderRadius: 20,
     alignItems: 'center',
     justifyContent: 'center',
+    overflow: 'hidden',
   },
   iconImage: {
-    width: 28,
-    height: 28,
-    borderRadius: 14,
+    width: 32,
+    height: 32,
+    borderRadius: 16,
   },
   iconFallback: {
-    fontSize: 16,
+    fontSize: 17,
     fontWeight: '700',
-    color: WHITE,
+    color: '#ffffff',
   },
   rowName: { fontSize: 16, fontWeight: '600', color: WHITE },
   rowSymbol: { fontSize: 14, fontWeight: '500', color: SLATE, marginTop: 2, opacity: 0.7 },

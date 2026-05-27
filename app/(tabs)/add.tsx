@@ -22,6 +22,7 @@ const SURFACE = '#1A1C24';
 const WHITE = '#FFFFFF';
 const BORDER = 'rgba(255,255,255,0.10)';
 const PRIMARY = Brand.primarySolid;
+const HOME_TAB_HREF = '/(tabs)/home' as const;
 
 type CategoryRow = {
   id: string;
@@ -104,7 +105,7 @@ export default function AddScreen() {
             <View style={styles.header}>
               <TouchableOpacity
                 style={styles.backBtn}
-                onPress={() => router.back()}
+                onPress={() => router.replace(HOME_TAB_HREF)}
                 activeOpacity={0.8}>
                 <Ionicons name="arrow-back" size={22} color={WHITE} />
               </TouchableOpacity>

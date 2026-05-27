@@ -32,6 +32,7 @@ import {
 import { useMinuteTick } from '@/hooks/use-minute-tick';
 import { useScreenLayout } from '@/hooks/use-screen-layout';
 import { kriptoStoredUnitToUsd, legacyCryptoStoredUnitToUsd } from '@/lib/crypto-price-usd';
+import { assetAvatarBg } from '@/lib/asset-avatar';
 import { resolveBistDisplayName } from '@/lib/bist-display-name';
 import { Brand } from '@/constants/brand';
 import { categoryDisplayLabel } from '@/lib/category-display';
@@ -127,17 +128,6 @@ function formatRowPlLine(
   const signedPct = pct >= 0 ? pctAbs : `-${pctAbs}`;
   return { text: `${signedAmt} (%${signedPct})`, neutral, up };
 }
-
-const AVATAR_SOLID: Record<string, string> = {
-  default: '#546e7a',
-  bist: '#1e88e5',
-  yurtdisi: '#455a64',
-  kripto: '#7c3aed',
-  fon: '#5e35b1',
-  doviz: '#0288d1',
-  emtia: '#f59e0b',
-  mevduat: '#ca8a04',
-};
 
 export function PortfolioScreen() {
   const { t, i18n } = useTranslation();
@@ -777,10 +767,7 @@ export function PortfolioScreen() {
                     : nativeCurrency === 'USD'
                       ? changeAmtNative * rate
                       : changeAmtNative / rate;
-                const avatarBg =
-                  AVATAR_SOLID[asset.symbol] ??
-                  AVATAR_SOLID[asset.category_id] ??
-                  AVATAR_SOLID.default;
+                const avatarBg = assetAvatarBg(asset.symbol, asset.category_id);
                 const plLine = formatRowPlLine(displayedChangeAmt, displayPct, displayCurrency, displayLocale);
                 const assetDisplayName =
                   asset.category_id === 'bist'
