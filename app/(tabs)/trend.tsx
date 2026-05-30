@@ -17,6 +17,7 @@ import { useTranslation } from 'react-i18next';
 
 import { Brand } from '@/constants/brand';
 import { PortfolioPickerModal } from '@/components/portfolio-picker-modal';
+import { TabScreenRoot } from '@/components/tab-screen-root';
 import type { HoldingRow } from '@/hooks/use-portfolio-core-data';
 import { normalizeAsset, usePortfolioCoreData } from '@/hooks/use-portfolio-core-data';
 import { useMinuteTick } from '@/hooks/use-minute-tick';
@@ -349,7 +350,7 @@ export default function TrendScreen() {
   ]);
 
   return (
-    <View style={styles.root}>
+    <TabScreenRoot style={styles.root}>
       <SafeAreaView style={styles.safe} edges={['top']}>
         <View style={[styles.header, { paddingVertical: layout.headerPaddingVertical }]}>
           <Pressable
@@ -550,7 +551,7 @@ export default function TrendScreen() {
           <View style={styles.bottomSpacer} />
         </ScrollView>
       </SafeAreaView>
-    </View>
+    </TabScreenRoot>
   );
 }
 

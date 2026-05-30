@@ -17,6 +17,7 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { LanguageToggle } from '@/components/language-toggle';
+import { TabScreenRoot } from '@/components/tab-screen-root';
 import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
 import { useAppLock } from '@/context/app-lock';
@@ -277,7 +278,8 @@ export default function SettingsScreen() {
   };
 
   return (
-    <SafeAreaView style={styles.safeArea}>
+    <TabScreenRoot style={styles.safeArea}>
+      <SafeAreaView style={styles.safeAreaInner} edges={['top']}>
       <ThemedView style={styles.container} lightColor="#000000" darkColor="#000000">
         <ScrollView
           contentContainerStyle={styles.scrollContent}
@@ -557,12 +559,17 @@ export default function SettingsScreen() {
           </Pressable>
         </Modal>
       </ThemedView>
-    </SafeAreaView>
+      </SafeAreaView>
+    </TabScreenRoot>
   );
 }
 
 const styles = StyleSheet.create({
   safeArea: {
+    flex: 1,
+    backgroundColor: '#000000',
+  },
+  safeAreaInner: {
     flex: 1,
     backgroundColor: '#000000',
   },

@@ -27,6 +27,8 @@ function buildReportXlsxBuffer(data) {
       'E-posta',
       'Portföy sayısı',
       'Toplam varlık',
+      'Toplam değer (TRY)',
+      'Toplam değer (USD)',
       'Giriş (oturum)',
       'Süre (dakika)',
       'Süre',
@@ -35,6 +37,8 @@ function buildReportXlsxBuffer(data) {
       u.email,
       u.portfolioCount,
       u.totalAssets,
+      u.totalValueTL ?? '—',
+      u.totalValueUSD ?? '—',
       u.sessions,
       u.durationMinutes,
       u.durationLabel,
@@ -43,10 +47,54 @@ function buildReportXlsxBuffer(data) {
   XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(kullanicilar), 'Kullanıcılar');
 
   const portfoyler = [
-    ['E-posta', 'Portföy adı', 'Varlık sayısı'],
-    ...data.portfolios.map((p) => [p.email, p.portfolioName, p.assetCount]),
+    [
+      'E-posta',
+      'Portföy adı',
+      'Portföy para birimi',
+      'Varlık sayısı',
+      'Toplam değer (TRY)',
+      'Toplam değer (USD)',
+    ],
+    ...data.portfolios.map((p) => [
+      p.email,
+      p.portfolioName,
+      p.portfolioCurrency ?? '—',
+      p.assetCount,
+      p.totalValueTL ?? '—',
+      p.totalValueUSD ?? '—',
+    ]),
   ];
   XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(portfoyler), 'Portföyler');
+
+  const varliklar = [
+    [
+      'E-posta',
+      'Portföy',
+      'Kategori',
+      'Sembol',
+      'Varlık adı',
+      'Adet / miktar',
+      'Birim fiyat',
+      'Fiyat birimi',
+      'Fiyat kaynağı',
+      'Toplam değer (TRY)',
+      'Toplam değer (USD)',
+    ],
+    ...(data.assets || []).map((a) => [
+      a.email,
+      a.portfolioName,
+      a.category,
+      a.symbol,
+      a.assetName,
+      a.quantity,
+      a.unitPrice ?? '',
+      a.unitCurrency,
+      a.priceSource,
+      a.valueTL ?? '',
+      a.valueUSD ?? '',
+    ]),
+  ];
+  XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(varliklar), 'Varlıklar');
 
   return XLSX.write(wb, { type: 'buffer', bookType: 'xlsx' });
 }

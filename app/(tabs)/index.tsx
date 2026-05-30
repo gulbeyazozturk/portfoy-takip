@@ -22,6 +22,7 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { PortfolioPickerModal } from '@/components/portfolio-picker-modal';
+import { TabScreenRoot } from '@/components/tab-screen-root';
 import { useSelectedCategories } from '@/context/selected-categories';
 import {
   normalizeAsset,
@@ -439,7 +440,7 @@ export function PortfolioScreen() {
   };
 
   return (
-    <View style={styles.root}>
+    <TabScreenRoot style={styles.root}>
       <View style={styles.glowOrb} pointerEvents="none" />
       <SafeAreaView style={styles.safe} edges={['top']}>
         <View style={[styles.header, { paddingVertical: layout.headerPaddingVertical }]}>
@@ -885,7 +886,7 @@ export function PortfolioScreen() {
           <View style={[styles.bottomSpacer, { height: layout.bottomSpacerHeight }]} />
         </ScrollView>
       </SafeAreaView>
-    </View>
+    </TabScreenRoot>
   );
 }
 

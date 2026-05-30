@@ -2,11 +2,11 @@ import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import React, { useMemo, useState } from 'react';
 import { ActivityIndicator, Platform, StyleSheet, TextInput, TouchableOpacity, View } from 'react-native';
-import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
+import { Pressable } from 'react-native-gesture-handler';
 
 import { LanguageToggle } from '@/components/language-toggle';
-import { DismissKeyboardView } from '@/components/dismiss-keyboard-view';
 import { OmnifolioBrand } from '@/components/omnifolio-brand';
+import { ScreenWithFooter } from '@/components/screen-with-footer';
 import { ThemedText } from '@/components/themed-text';
 import { useAuth } from '@/context/auth';
 import { waitForSignedInAfterOAuth } from '@/lib/oauth-session-wait';
@@ -15,12 +15,10 @@ import { useTranslation } from 'react-i18next';
 
 type Mode = 'signin' | 'signup';
 
-/** Tagline / üst boşluk — OmnifolioBrand altındaki “3 satır” payı. */
 const AUTH_THREE_LINES = 20 * 3;
 
 export default function AuthScreen() {
   const { t } = useTranslation();
-  const insets = useSafeAreaInsets();
   const router = useRouter();
   const { signInWithEmail, signUpWithEmail, signInWithGoogle, signInWithApple } = useAuth();
   const [mode, setMode] = useState<Mode>('signin');
@@ -75,7 +73,6 @@ export default function AuthScreen() {
         return;
       }
 
-      // Confirm-email kapalı akışta kullanıcıyı direkt girişe al.
       const { error: signInError, hasSession } = await withTimeout(signInWithEmail(email.trim(), password.trim()), 10000);
       if (signInError) {
         setInfo(t('auth.signupThenSignIn'));
@@ -130,107 +127,110 @@ export default function AuthScreen() {
   };
 
   return (
-    <SafeAreaView style={styles.safe}>
-      <DismissKeyboardView>
-        <View style={[styles.langCorner, { top: insets.top + 8 }]}>
-          <LanguageToggle />
-        </View>
-        <View style={styles.container}>
-        <OmnifolioBrand />
+    <ScreenWithFooter
+      keyboardAvoid
+      dismissKeyboardOnPress
+      headerOverlay={<LanguageToggle />}
+      contentContainerStyle={styles.scrollContent}
+      footer={
+        <View style={styles.footer}>
+          <ThemedText style={styles.orText}>{t('auth.or')}</ThemedText>
 
-        <View style={styles.modeRow}>
-          <TouchableOpacity
-            activeOpacity={0.85}
-            style={[styles.modeBtn, mode === 'signin' && styles.modeBtnActive]}
-            onPress={() => setMode('signin')}
-          >
-            <ThemedText style={[styles.modeText, mode === 'signin' && styles.modeTextActive]}>{t('auth.signIn')}</ThemedText>
-          </TouchableOpacity>
-          <TouchableOpacity
-            activeOpacity={0.85}
-            style={[styles.modeBtn, mode === 'signup' && styles.modeBtnActive]}
-            onPress={() => setMode('signup')}
-          >
-            <ThemedText style={[styles.modeText, mode === 'signup' && styles.modeTextActive]}>{t('auth.signUp')}</ThemedText>
-          </TouchableOpacity>
-        </View>
+          <Pressable
+            style={({ pressed }) => [styles.socialBtn, pressed && styles.socialBtnPressed]}
+            onPress={() => social('google')}
+            disabled={busy}>
+            <Ionicons name="logo-google" size={18} color="#e5e7eb" pointerEvents="none" />
+            <ThemedText style={styles.socialText}>{t('auth.googleContinue')}</ThemedText>
+          </Pressable>
 
-        <View style={styles.card}>
-          <ThemedText style={styles.label}>{t('auth.email')}</ThemedText>
-          <TextInput
-            autoCapitalize="none"
-            keyboardType="email-address"
-            placeholder={t('auth.emailPlaceholder')}
-            placeholderTextColor="#6b7280"
-            value={email}
-            onChangeText={setEmail}
-            style={styles.input}
-          />
-
-          <ThemedText style={[styles.label, { marginTop: 10 }]}>{t('auth.password')}</ThemedText>
-          <TextInput
-            secureTextEntry
-            placeholder={t('auth.passwordPlaceholder')}
-            placeholderTextColor="#6b7280"
-            value={password}
-            onChangeText={setPassword}
-            style={styles.input}
-          />
-
-          {mode === 'signin' ? (
-            <TouchableOpacity
-              style={styles.forgotLinkWrap}
-              onPress={() => router.push({ pathname: '/forgot-password', params: { email: email.trim() } })}>
-              <ThemedText style={styles.forgotLink}>{t('auth.forgotPassword')}</ThemedText>
-            </TouchableOpacity>
+          {showAppleButton ? (
+            <Pressable
+              style={({ pressed }) => [styles.socialBtn, pressed && styles.socialBtnPressed]}
+              onPress={() => social('apple')}
+              disabled={busy}>
+              <Ionicons name="logo-apple" size={18} color="#e5e7eb" pointerEvents="none" />
+              <ThemedText style={styles.socialText}>{t('auth.appleContinue')}</ThemedText>
+            </Pressable>
           ) : null}
 
-          <TouchableOpacity
-            activeOpacity={0.85}
-            disabled={busy}
-            style={[styles.primaryBtn, (!canSubmit || busy) && styles.disabledBtn]}
-            onPress={submit}
-          >
-            {busy ? (
-              <ActivityIndicator color="#fff" />
-            ) : (
-              <ThemedText style={styles.primaryBtnText}>
-                {mode === 'signin' ? t('auth.signIn') : t('auth.signUp')}
-              </ThemedText>
-            )}
-          </TouchableOpacity>
+          {error ? <ThemedText style={styles.errorText}>{error}</ThemedText> : null}
+          {info ? <ThemedText style={styles.infoText}>{info}</ThemedText> : null}
         </View>
+      }>
+      <OmnifolioBrand />
 
-        <ThemedText style={styles.orText}>{t('auth.or')}</ThemedText>
-
-        <TouchableOpacity activeOpacity={0.85} style={styles.socialBtn} onPress={() => social('google')} disabled={busy}>
-          <Ionicons name="logo-google" size={18} color="#e5e7eb" />
-          <ThemedText style={styles.socialText}>{t('auth.googleContinue')}</ThemedText>
+      <View style={styles.modeRow}>
+        <TouchableOpacity
+          activeOpacity={0.85}
+          style={[styles.modeBtn, mode === 'signin' && styles.modeBtnActive]}
+          onPress={() => setMode('signin')}>
+          <ThemedText style={[styles.modeText, mode === 'signin' && styles.modeTextActive]}>{t('auth.signIn')}</ThemedText>
         </TouchableOpacity>
+        <TouchableOpacity
+          activeOpacity={0.85}
+          style={[styles.modeBtn, mode === 'signup' && styles.modeBtnActive]}
+          onPress={() => setMode('signup')}>
+          <ThemedText style={[styles.modeText, mode === 'signup' && styles.modeTextActive]}>{t('auth.signUp')}</ThemedText>
+        </TouchableOpacity>
+      </View>
 
-        {showAppleButton ? (
-          <TouchableOpacity activeOpacity={0.85} style={styles.socialBtn} onPress={() => social('apple')} disabled={busy}>
-            <Ionicons name="logo-apple" size={18} color="#e5e7eb" />
-            <ThemedText style={styles.socialText}>{t('auth.appleContinue')}</ThemedText>
+      <View style={styles.card}>
+        <ThemedText style={styles.label}>{t('auth.email')}</ThemedText>
+        <TextInput
+          autoCapitalize="none"
+          keyboardType="email-address"
+          placeholder={t('auth.emailPlaceholder')}
+          placeholderTextColor="#6b7280"
+          value={email}
+          onChangeText={setEmail}
+          style={styles.input}
+        />
+
+        <ThemedText style={[styles.label, { marginTop: 10 }]}>{t('auth.password')}</ThemedText>
+        <TextInput
+          secureTextEntry
+          placeholder={t('auth.passwordPlaceholder')}
+          placeholderTextColor="#6b7280"
+          value={password}
+          onChangeText={setPassword}
+          style={styles.input}
+        />
+
+        {mode === 'signin' ? (
+          <TouchableOpacity
+            style={styles.forgotLinkWrap}
+            onPress={() => router.push({ pathname: '/forgot-password', params: { email: email.trim() } })}>
+            <ThemedText style={styles.forgotLink}>{t('auth.forgotPassword')}</ThemedText>
           </TouchableOpacity>
         ) : null}
 
-        {error ? <ThemedText style={styles.errorText}>{error}</ThemedText> : null}
-        {info ? <ThemedText style={styles.infoText}>{info}</ThemedText> : null}
-        </View>
-      </DismissKeyboardView>
-    </SafeAreaView>
+        <TouchableOpacity
+          activeOpacity={0.85}
+          disabled={busy}
+          style={[styles.primaryBtn, (!canSubmit || busy) && styles.disabledBtn]}
+          onPress={submit}>
+          {busy ? (
+            <ActivityIndicator color="#fff" />
+          ) : (
+            <ThemedText style={styles.primaryBtnText}>
+              {mode === 'signin' ? t('auth.signIn') : t('auth.signUp')}
+            </ThemedText>
+          )}
+        </TouchableOpacity>
+      </View>
+    </ScreenWithFooter>
   );
 }
 
 const styles = StyleSheet.create({
-  safe: { flex: 1, backgroundColor: '#000' },
-  langCorner: {
-    position: 'absolute',
-    right: 16,
-    zIndex: 10,
+  scrollContent: {
+    paddingHorizontal: 20,
+    paddingTop: 24 + AUTH_THREE_LINES,
   },
-  container: { flex: 1, paddingHorizontal: 20, paddingTop: 24 + AUTH_THREE_LINES },
+  footer: {
+    paddingHorizontal: 20,
+  },
   modeRow: { flexDirection: 'row', gap: 8, marginTop: 12, marginBottom: 12 },
   modeBtn: {
     flex: 1,
@@ -272,7 +272,7 @@ const styles = StyleSheet.create({
   },
   disabledBtn: { opacity: 0.5 },
   primaryBtnText: { color: '#fff', fontWeight: '700' },
-  orText: { textAlign: 'center', color: '#6b7280', marginVertical: 14 },
+  orText: { textAlign: 'center', color: '#6b7280', marginBottom: 14 },
   socialBtn: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -285,9 +285,10 @@ const styles = StyleSheet.create({
     marginBottom: 10,
     backgroundColor: '#111827',
   },
+  socialBtnPressed: { opacity: 0.85 },
   socialText: { color: '#e5e7eb', fontWeight: '600' },
-  errorText: { color: '#ef4444', marginTop: 8, textAlign: 'center', fontSize: 13 },
-  infoText: { color: '#22c55e', marginTop: 8, textAlign: 'center', fontSize: 13 },
+  errorText: { color: '#ef4444', marginTop: 4, textAlign: 'center', fontSize: 13 },
+  infoText: { color: '#22c55e', marginTop: 4, textAlign: 'center', fontSize: 13 },
   forgotLinkWrap: { alignSelf: 'flex-end', marginTop: 8 },
   forgotLink: { color: '#00e677', fontSize: 13, fontWeight: '600' },
 });

@@ -1,4 +1,5 @@
 import * as XLSX from 'https://esm.sh/xlsx@0.18.5';
+import type { AssetRow } from './holding-value.ts';
 
 export type ReportData = {
   reportDate: string;
@@ -8,11 +9,21 @@ export type ReportData = {
     email: string;
     portfolioCount: number;
     totalAssets: number;
+    totalValueTL: number | string;
+    totalValueUSD: number | string;
     sessions: string | number;
     durationMinutes: string | number;
     durationLabel: string;
   }[];
-  portfolios: { email: string; portfolioName: string; assetCount: number }[];
+  portfolios: {
+    email: string;
+    portfolioName: string;
+    portfolioCurrency: string;
+    assetCount: number;
+    totalValueTL: number;
+    totalValueUSD: number;
+  }[];
+  assets: AssetRow[];
 };
 
 export function formatDuration(totalSeconds: number): string {
@@ -41,20 +52,53 @@ export function sampleUsageForEmail(email: string, reportDate: string) {
 export function buildReportData(opts: {
   reportDate: string;
   users: { id: string; email?: string }[];
-  portfolios: { id: string; name: string; user_id: string }[];
+  portfolios: { id: string; name: string; user_id: string; currency?: string | null }[];
   holdingsByPortfolio: Map<string, number>;
   usageByUserId: Map<string, { sessions: number; totalSeconds: number }> | null;
   usageIsSample: boolean;
+  assets: AssetRow[];
+  portfolioValueTL: Map<string, number>;
+  portfolioValueUSD: Map<string, number>;
+  usdTry: number;
+  totalValueTL: number;
+  totalValueUSD: number;
 }): ReportData {
-  const { reportDate, users, portfolios, holdingsByPortfolio, usageByUserId, usageIsSample } = opts;
+  const {
+    reportDate,
+    users,
+    portfolios,
+    holdingsByPortfolio,
+    usageByUserId,
+    usageIsSample,
+    assets,
+    portfolioValueTL,
+    portfolioValueUSD,
+    usdTry,
+    totalValueTL,
+    totalValueUSD,
+  } = opts;
   const emailById = new Map(users.map((u) => [u.id, u.email || '(e-posta yok)']));
 
-  const portfoliosByUser = new Map<string, { name: string; assetCount: number }[]>();
+  const portfoliosByUser = new Map<
+    string,
+    {
+      id: string;
+      name: string;
+      currency: string;
+      assetCount: number;
+      totalValueTL: number;
+      totalValueUSD: number;
+    }[]
+  >();
   for (const p of portfolios) {
     if (!portfoliosByUser.has(p.user_id)) portfoliosByUser.set(p.user_id, []);
     portfoliosByUser.get(p.user_id)!.push({
+      id: p.id,
       name: p.name,
+      currency: p.currency || 'USD',
       assetCount: holdingsByPortfolio.get(p.id) || 0,
+      totalValueTL: portfolioValueTL.get(p.id) ?? 0,
+      totalValueUSD: portfolioValueUSD.get(p.id) ?? 0,
     });
   }
 
@@ -65,6 +109,14 @@ export function buildReportData(opts: {
     { metric: 'Portföyü olan kullanıcı', value: portfoliosByUser.size },
     { metric: 'Toplam portföy', value: portfolios.length },
     { metric: 'Toplam varlık (holding)', value: totalHoldings },
+    { metric: 'USD/TRY (rapor anı)', value: usdTry },
+    { metric: 'Toplam piyasa değeri (TRY)', value: totalValueTL },
+    { metric: 'Toplam piyasa değeri (USD)', value: totalValueUSD },
+    {
+      metric: 'Değerleme notu',
+      value:
+        'Portföy toplamları uygulamadaki computePortfolioPerformanceValues ile aynıdır; Portföyler sayfasında USD sütunu uygulamada USD gösterimine karşılık gelir.',
+    },
   ];
   if (usageIsSample) {
     summary.push({ metric: 'Kullanım verisi', value: 'Örnek (app_usage_sessions yok/boş)' });
@@ -87,6 +139,8 @@ export function buildReportData(opts: {
     const plist = portfoliosByUser.get(u.id) || [];
     const portfolioCount = plist.length;
     const totalAssets = plist.reduce((s, p) => s + p.assetCount, 0);
+    const userTotalTL = plist.reduce((s, p) => s + (p.totalValueTL || 0), 0);
+    const userTotalUSD = plist.reduce((s, p) => s + (p.totalValueUSD || 0), 0);
 
     let sessions = 0;
     let totalSeconds = 0;
@@ -105,16 +159,22 @@ export function buildReportData(opts: {
       email,
       portfolioCount,
       totalAssets,
+      totalValueTL: portfolioCount > 0 ? Math.round(userTotalTL * 100) / 100 : '—',
+      totalValueUSD: portfolioCount > 0 ? Math.round(userTotalUSD * 100) / 100 : '—',
       sessions: hasUsage ? sessions : '—',
       durationMinutes: hasUsage ? durationMinutes(totalSeconds) : '—',
       durationLabel: hasUsage ? formatDuration(totalSeconds) : '—',
     });
 
     for (const p of plist) {
-      portfolioRows.push({ email, portfolioName: p.name, assetCount: p.assetCount });
-    }
-    if (plist.length === 0) {
-      portfolioRows.push({ email, portfolioName: '—', assetCount: 0 });
+      portfolioRows.push({
+        email,
+        portfolioName: p.name,
+        portfolioCurrency: p.currency,
+        assetCount: p.assetCount,
+        totalValueTL: p.totalValueTL,
+        totalValueUSD: p.totalValueUSD,
+      });
     }
   }
 
@@ -124,7 +184,14 @@ export function buildReportData(opts: {
       a.portfolioName.localeCompare(b.portfolioName, 'tr'),
   );
 
-  return { reportDate, usageIsSample, summary, users: userRows, portfolios: portfolioRows };
+  return {
+    reportDate,
+    usageIsSample,
+    summary,
+    users: userRows,
+    portfolios: portfolioRows,
+    assets,
+  };
 }
 
 export function buildEmailPlainText(data: ReportData): string {
@@ -134,10 +201,9 @@ export function buildEmailPlainText(data: ReportData): string {
     'Özet:',
     ...data.summary.map((r) => `- ${r.metric}: ${r.value}`),
     '',
-    `Kullanıcı satırı: ${data.users.length}`,
-    `Portföy satırı: ${data.portfolios.length}`,
+    `Varlık satırı: ${data.assets.length}`,
     '',
-    'Ayrıntılı tablolar ekteki Excel dosyasında (Özet, Kullanıcılar, Portföyler).',
+    'Ayrıntılı tablolar ekteki Excel dosyasında (Özet, Kullanıcılar, Portföyler, Varlıklar).',
   ];
   if (data.usageIsSample) lines.push('', 'Not: Kullanım sütunları örnek veridir.');
   return lines.join('\n');
@@ -160,11 +226,22 @@ export function buildXlsxBase64(data: ReportData): string {
   XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(ozet), 'Özet');
 
   const kullanicilar = [
-    ['E-posta', 'Portföy sayısı', 'Toplam varlık', 'Giriş (oturum)', 'Süre (dakika)', 'Süre'],
+    [
+      'E-posta',
+      'Portföy sayısı',
+      'Toplam varlık',
+      'Toplam değer (TRY)',
+      'Toplam değer (USD)',
+      'Giriş (oturum)',
+      'Süre (dakika)',
+      'Süre',
+    ],
     ...data.users.map((u) => [
       u.email,
       u.portfolioCount,
       u.totalAssets,
+      u.totalValueTL ?? '—',
+      u.totalValueUSD ?? '—',
       u.sessions,
       u.durationMinutes,
       u.durationLabel,
@@ -173,10 +250,54 @@ export function buildXlsxBase64(data: ReportData): string {
   XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(kullanicilar), 'Kullanıcılar');
 
   const portfoyler = [
-    ['E-posta', 'Portföy adı', 'Varlık sayısı'],
-    ...data.portfolios.map((p) => [p.email, p.portfolioName, p.assetCount]),
+    [
+      'E-posta',
+      'Portföy adı',
+      'Portföy para birimi',
+      'Varlık sayısı',
+      'Toplam değer (TRY)',
+      'Toplam değer (USD)',
+    ],
+    ...data.portfolios.map((p) => [
+      p.email,
+      p.portfolioName,
+      p.portfolioCurrency ?? '—',
+      p.assetCount,
+      p.totalValueTL ?? '—',
+      p.totalValueUSD ?? '—',
+    ]),
   ];
   XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(portfoyler), 'Portföyler');
+
+  const varliklar = [
+    [
+      'E-posta',
+      'Portföy',
+      'Kategori',
+      'Sembol',
+      'Varlık adı',
+      'Adet / miktar',
+      'Birim fiyat',
+      'Fiyat birimi',
+      'Fiyat kaynağı',
+      'Toplam değer (TRY)',
+      'Toplam değer (USD)',
+    ],
+    ...data.assets.map((a) => [
+      a.email,
+      a.portfolioName,
+      a.category,
+      a.symbol,
+      a.assetName,
+      a.quantity,
+      a.unitPrice ?? '',
+      a.unitCurrency,
+      a.priceSource,
+      a.valueTL ?? '',
+      a.valueUSD ?? '',
+    ]),
+  ];
+  XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(varliklar), 'Varlıklar');
 
   const bytes = XLSX.write(wb, { type: 'array', bookType: 'xlsx' }) as ArrayBuffer;
   const u8 = new Uint8Array(bytes);

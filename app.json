@@ -28,6 +28,7 @@
     "newArchEnabled": true,
     "android": {
       "package": "com.gulbeyazozturk.omnifolio",
+      "googleServicesFile": "./google-services.json",
       "adaptiveIcon": {
         "backgroundColor": "#0B1220",
         "foregroundImage": "./assets/images/android-icon-foreground.png",

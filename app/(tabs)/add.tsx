@@ -11,6 +11,7 @@ import {
   TouchableOpacity,
   View,
 } from 'react-native';
+import { Pressable } from 'react-native-gesture-handler';
 import { ScreenWithFooter } from '@/components/screen-with-footer';
 import { Brand } from '@/constants/brand';
 import { categoryDisplayLabel } from '@/lib/category-display';
@@ -138,12 +139,11 @@ export default function AddScreen() {
               <Text style={styles.helpTitle} numberOfLines={2}>
                 {t('add.bulkPrompt')}
               </Text>
-              <TouchableOpacity
-                style={styles.helpButton}
-                activeOpacity={0.8}
+              <Pressable
+                style={({ pressed }) => [styles.helpButton, pressed && styles.helpButtonPressed]}
                 onPress={() => router.push('/bulk-upload')}>
                 <Text style={styles.helpButtonText}>{t('add.continue')}</Text>
-              </TouchableOpacity>
+              </Pressable>
             </View>
           </View>
         }>
@@ -288,5 +288,6 @@ const styles = StyleSheet.create({
     paddingVertical: 10,
     borderRadius: 10,
   },
+  helpButtonPressed: { opacity: 0.85 },
   helpButtonText: { color: BG_DARK, fontSize: 13, fontWeight: '600' },
 });

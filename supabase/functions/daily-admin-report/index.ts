@@ -2,6 +2,7 @@
  * Günlük admin raporu → Excel eki + kısa özet (hasimozturk@gmail.com, Resend).
  */
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.49.1';
+import { fetchPortfolioBlock } from './holding-value.ts';
 import {
   buildEmailPlainText,
   buildReportData,
@@ -39,28 +40,6 @@ async function listAllUsers(sb: ReturnType<typeof createClient>) {
     page += 1;
   }
   return users;
-}
-
-async function fetchPortfolioRows(sb: ReturnType<typeof createClient>) {
-  const { data, error } = await sb
-    .from('portfolios')
-    .select('id, name, user_id')
-    .not('user_id', 'is', null);
-  if (error) throw error;
-  const portfolios = data || [];
-  const portfolioIds = portfolios.map((p) => p.id);
-  const holdingsByPortfolio = new Map<string, number>();
-  if (portfolioIds.length) {
-    const { data: hData, error: hErr } = await sb
-      .from('holdings')
-      .select('id, portfolio_id')
-      .in('portfolio_id', portfolioIds);
-    if (hErr) throw hErr;
-    for (const h of hData || []) {
-      holdingsByPortfolio.set(h.portfolio_id, (holdingsByPortfolio.get(h.portfolio_id) || 0) + 1);
-    }
-  }
-  return { portfolios, holdingsByPortfolio };
 }
 
 async function fetchUsageForDate(sb: ReturnType<typeof createClient>, reportDate: string) {
@@ -146,17 +125,23 @@ Deno.serve(async (req: Request) => {
     });
 
     const users = await listAllUsers(sb);
-    const { portfolios, holdingsByPortfolio } = await fetchPortfolioRows(sb);
+    const portfolioBlock = await fetchPortfolioBlock(sb, users);
     const usage = await fetchUsageForDate(sb, reportDate);
     const usageIsSample = usage.missingTable || !usage.rows || usage.rows.size === 0;
 
     const data = buildReportData({
       reportDate,
       users,
-      portfolios,
-      holdingsByPortfolio,
+      portfolios: portfolioBlock.portfolios,
+      holdingsByPortfolio: portfolioBlock.holdingsByPortfolio,
       usageByUserId: usage.rows,
       usageIsSample,
+      assets: portfolioBlock.assets,
+      portfolioValueTL: portfolioBlock.portfolioValueTL,
+      portfolioValueUSD: portfolioBlock.portfolioValueUSD,
+      usdTry: portfolioBlock.usdTry,
+      totalValueTL: portfolioBlock.totalValueTL,
+      totalValueUSD: portfolioBlock.totalValueUSD,
     });
 
     const filename = xlsxFilename(reportDate);

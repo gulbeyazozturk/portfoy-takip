@@ -44,27 +44,126 @@ async function listAllUsers(sb) {
   return users;
 }
 
-async function fetchPortfolioRows(sb) {
-  const { data, error } = await sb
+function roundMoney(n) {
+  if (!Number.isFinite(n)) return null;
+  return Math.round(n * 100) / 100;
+}
+
+async function fetchPortfolioAndHoldings(sb, users) {
+  const {
+    computeHoldingValues,
+    computePortfolioPerformanceValuesJs,
+    fetchUsdTryRate,
+    normalizeAssetRow,
+  } = require('./holding-market-value');
+  const usdTry = await fetchUsdTryRate(sb);
+  const emailById = new Map(users.map((u) => [u.id, u.email || '(e-posta yok)']));
+
+  const { data: portfolios, error: pErr } = await sb
     .from('portfolios')
-    .select('id, name, user_id')
+    .select('id, name, user_id, currency')
     .not('user_id', 'is', null);
-  if (error) throw error;
-  const portfolioIds = (data || []).map((p) => p.id);
+  if (pErr) throw pErr;
+  const portList = portfolios || [];
+  const portfolioIds = portList.map((p) => p.id);
+  const portById = new Map(portList.map((p) => [p.id, p]));
+
   let holdings = [];
   if (portfolioIds.length) {
     const { data: hData, error: hErr } = await sb
       .from('holdings')
-      .select('id, portfolio_id')
+      .select('id, portfolio_id, asset_id, quantity, avg_price')
       .in('portfolio_id', portfolioIds);
     if (hErr) throw hErr;
     holdings = hData || [];
   }
-  const holdingsByPortfolio = new Map();
-  for (const h of holdings) {
-    holdingsByPortfolio.set(h.portfolio_id, (holdingsByPortfolio.get(h.portfolio_id) || 0) + 1);
+
+  const assetIds = [...new Set(holdings.map((h) => h.asset_id))];
+  let assets = [];
+  if (assetIds.length) {
+    const { data: aData, error: aErr } = await sb
+      .from('assets')
+      .select('id, name, symbol, category_id, current_price, currency')
+      .in('id', assetIds);
+    if (aErr) throw aErr;
+    assets = aData || [];
   }
-  return { portfolios: data || [], holdingsByPortfolio };
+  const assetById = new Map(assets.map((a) => [a.id, a]));
+
+  const holdingsByPortfolio = new Map();
+  const holdingsGrouped = new Map();
+  for (const h of holdings) {
+    const qty = Number(h.quantity) || 0;
+    if (!(qty > 0)) continue;
+    holdingsByPortfolio.set(h.portfolio_id, (holdingsByPortfolio.get(h.portfolio_id) || 0) + 1);
+    if (!holdingsGrouped.has(h.portfolio_id)) holdingsGrouped.set(h.portfolio_id, []);
+    const asset = assetById.get(h.asset_id);
+    holdingsGrouped.get(h.portfolio_id).push({ ...h, asset: normalizeAssetRow(asset) });
+  }
+
+  const portfolioValueTL = new Map();
+  const portfolioValueUSD = new Map();
+  let totalValueTL = 0;
+  let totalValueUSD = 0;
+  for (const p of portList) {
+    const perf = computePortfolioPerformanceValuesJs(holdingsGrouped.get(p.id) || [], usdTry);
+    const tl = roundMoney(perf.totalValueTL) ?? 0;
+    const usd = roundMoney(perf.totalValueUSD) ?? 0;
+    portfolioValueTL.set(p.id, tl);
+    portfolioValueUSD.set(p.id, usd);
+    totalValueTL += tl;
+    totalValueUSD += usd;
+  }
+
+  const assetRows = [];
+  for (const h of holdings) {
+    const qty = Number(h.quantity) || 0;
+    if (!(qty > 0)) continue;
+    const port = portById.get(h.portfolio_id);
+    const asset = normalizeAssetRow(assetById.get(h.asset_id));
+    const vals = computeHoldingValues(h, asset || {}, usdTry);
+
+    const priceSourceLabel =
+      vals.priceSource === 'current_price'
+        ? 'güncel fiyat'
+        : vals.priceSource === 'avg_price'
+          ? 'maliyet (avg)'
+          : 'fiyat yok';
+
+    assetRows.push({
+      email: emailById.get(port?.user_id) || '?',
+      portfolioName: port?.name || '?',
+      category: asset?.category_id || '?',
+      symbol: asset?.symbol || '?',
+      assetName: asset?.name || '?',
+      quantity: qty,
+      unitPrice: vals.unitNative > 0 ? roundMoney(vals.unitNative) : null,
+      unitCurrency: vals.unitCurrency,
+      priceSource: priceSourceLabel,
+      valueTL: roundMoney(vals.valueTL),
+      valueUSD: roundMoney(vals.valueUSD),
+    });
+  }
+
+  assetRows.sort((a, b) => {
+    const c =
+      a.email.localeCompare(b.email, 'tr') ||
+      a.portfolioName.localeCompare(b.portfolioName, 'tr') ||
+      a.category.localeCompare(b.category) ||
+      a.symbol.localeCompare(b.symbol);
+    return c;
+  });
+
+  return {
+    portfolios: portList,
+    holdingsByPortfolio,
+    portfolioValueTL,
+    portfolioValueUSD,
+    assets: assetRows,
+    usdTry: roundMoney(usdTry),
+    totalValueTL: roundMoney(totalValueTL),
+    totalValueUSD: roundMoney(totalValueUSD),
+  };
 }
 
 async function fetchUsageForDate(sb, reportDate) {
@@ -112,15 +211,34 @@ async function fetchUsageForDate(sb, reportDate) {
  *   portfolios: { email: string; portfolioName: string; assetCount: number }[];
  * }}
  */
-function buildReportData({ reportDate, users, portfolios, holdingsByPortfolio, usageByUserId, usageIsSample }) {
+function buildReportData({
+  reportDate,
+  users,
+  portfolios,
+  holdingsByPortfolio,
+  usageByUserId,
+  usageIsSample,
+  assets,
+  portfolioValueTL,
+  portfolioValueUSD,
+  usdTry,
+  totalValueTL,
+  totalValueUSD,
+}) {
   const emailById = new Map(users.map((u) => [u.id, u.email || '(e-posta yok)']));
+  const valueTLByPortId = portfolioValueTL || new Map();
+  const valueUSDByPortId = portfolioValueUSD || new Map();
 
   const portfoliosByUser = new Map();
   for (const p of portfolios) {
     if (!portfoliosByUser.has(p.user_id)) portfoliosByUser.set(p.user_id, []);
     portfoliosByUser.get(p.user_id).push({
+      id: p.id,
       name: p.name,
+      currency: p.currency || 'USD',
       assetCount: holdingsByPortfolio.get(p.id) || 0,
+      totalValueTL: valueTLByPortId.get(p.id) ?? 0,
+      totalValueUSD: valueUSDByPortId.get(p.id) ?? 0,
     });
   }
 
@@ -131,6 +249,14 @@ function buildReportData({ reportDate, users, portfolios, holdingsByPortfolio, u
     { metric: 'Portföyü olan kullanıcı', value: portfoliosByUser.size },
     { metric: 'Toplam portföy', value: portfolios.length },
     { metric: 'Toplam varlık (holding)', value: totalHoldings },
+    { metric: 'USD/TRY (rapor anı)', value: usdTry ?? '—' },
+    { metric: 'Toplam piyasa değeri (TRY)', value: totalValueTL ?? '—' },
+    { metric: 'Toplam piyasa değeri (USD)', value: totalValueUSD ?? '—' },
+    {
+      metric: 'Değerleme notu',
+      value:
+        'Portföy toplamları uygulamadaki computePortfolioPerformanceValues ile aynıdır; Portföyler sayfasında USD sütunu uygulamada USD gösterimine karşılık gelir.',
+    },
   ];
   if (usageIsSample) {
     summary.push({ metric: 'Kullanım verisi', value: 'Örnek (app_usage_sessions yok/boş)' });
@@ -153,6 +279,8 @@ function buildReportData({ reportDate, users, portfolios, holdingsByPortfolio, u
     const plist = portfoliosByUser.get(u.id) || [];
     const portfolioCount = plist.length;
     const totalAssets = plist.reduce((s, p) => s + p.assetCount, 0);
+    const userTotalTL = plist.reduce((s, p) => s + (p.totalValueTL || 0), 0);
+    const userTotalUSD = plist.reduce((s, p) => s + (p.totalValueUSD || 0), 0);
 
     let sessions = 0;
     let totalSeconds = 0;
@@ -171,6 +299,8 @@ function buildReportData({ reportDate, users, portfolios, holdingsByPortfolio, u
       email,
       portfolioCount,
       totalAssets,
+      totalValueTL: portfolioCount > 0 ? roundMoney(userTotalTL) ?? 0 : '—',
+      totalValueUSD: portfolioCount > 0 ? roundMoney(userTotalUSD) ?? 0 : '—',
       sessions: hasUsage ? sessions : '—',
       durationMinutes: hasUsage ? durationMinutes(totalSeconds) : '—',
       durationLabel: hasUsage ? formatDuration(totalSeconds) : '—',
@@ -180,11 +310,11 @@ function buildReportData({ reportDate, users, portfolios, holdingsByPortfolio, u
       portfolioRows.push({
         email,
         portfolioName: p.name,
+        portfolioCurrency: p.currency,
         assetCount: p.assetCount,
+        totalValueTL: p.totalValueTL,
+        totalValueUSD: p.totalValueUSD,
       });
-    }
-    if (plist.length === 0) {
-      portfolioRows.push({ email, portfolioName: '—', assetCount: 0 });
     }
   }
 
@@ -198,6 +328,7 @@ function buildReportData({ reportDate, users, portfolios, holdingsByPortfolio, u
     summary,
     users: userRows,
     portfolios: portfolioRows,
+    assets: assets || [],
   };
 }
 
@@ -211,7 +342,7 @@ function buildEmailPlainText(data) {
     `Kullanıcı satırı: ${data.users.length}`,
     `Portföy satırı: ${data.portfolios.length}`,
     '',
-    'Ayrıntılı tablolar ekteki Excel dosyasında (Özet, Kullanıcılar, Portföyler sayfaları).',
+    'Ayrıntılı tablolar ekteki Excel dosyasında (Özet, Kullanıcılar, Portföyler, Varlıklar).',
   ];
   if (data.usageIsSample) {
     lines.push('', 'Not: Kullanım sütunları örnek veridir.');
@@ -230,7 +361,7 @@ function buildReportMarkdown(data) {
 
 async function fetchReportInputs(sb, reportDate, forceSample) {
   const users = await listAllUsers(sb);
-  const { portfolios, holdingsByPortfolio } = await fetchPortfolioRows(sb);
+  const portfolioBlock = await fetchPortfolioAndHoldings(sb, users);
 
   let usageByUserId = null;
   let usageIsSample = forceSample;
@@ -245,7 +376,19 @@ async function fetchReportInputs(sb, reportDate, forceSample) {
     }
   }
 
-  return { users, portfolios, holdingsByPortfolio, usageByUserId, usageIsSample };
+  return {
+    users,
+    portfolios: portfolioBlock.portfolios,
+    holdingsByPortfolio: portfolioBlock.holdingsByPortfolio,
+    assets: portfolioBlock.assets,
+    portfolioValueTL: portfolioBlock.portfolioValueTL,
+    portfolioValueUSD: portfolioBlock.portfolioValueUSD,
+    usdTry: portfolioBlock.usdTry,
+    totalValueTL: portfolioBlock.totalValueTL,
+    totalValueUSD: portfolioBlock.totalValueUSD,
+    usageByUserId,
+    usageIsSample,
+  };
 }
 
 /**

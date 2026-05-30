@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "244415176771",
+    "project_id": "omnifolio-ce45e",
+    "storage_bucket": "omnifolio-ce45e.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:244415176771:android:a67e1c253eaf8f63d0f4f6",
+        "android_client_info": {
+          "package_name": "com.gulbeyazozturk.omnifolio"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyDXH7EdQE3cRi7n5Cxv2GP1O_V_cx6iVBo"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

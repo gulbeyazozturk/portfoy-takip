@@ -1,3 +1,4 @@
+import { useBottomTabBarHeight } from '@react-navigation/bottom-tabs';
 import React from 'react';
 import {
   Keyboard,
@@ -70,6 +71,7 @@ export function ScreenWithFooter({
   dismissKeyboardOnPress = false,
 }: ScreenWithFooterProps) {
   const insets = useSafeAreaInsets();
+  const tabBarHeight = useBottomTabBarHeight();
   const footerBg = footerBackgroundColor ?? backgroundColor;
   const bottomPad = Math.max(insets.bottom, MIN_FOOTER_BOTTOM_PAD);
 
@@ -120,10 +122,14 @@ export function ScreenWithFooter({
   );
 
   const layout = (
-    <View style={[styles.flex, styles.column]} testID={testID}>
+    <View
+      style={[styles.flex, styles.column, tabBarHeight > 0 ? { paddingBottom: tabBarHeight } : null]}
+      testID={testID}>
       {header}
       <View style={styles.bodySlot} pointerEvents="box-none">
-        {body}
+        <View style={styles.bodyClip} collapsable={false}>
+          {body}
+        </View>
       </View>
       {footer != null ? (
         <View
@@ -156,6 +162,12 @@ const styles = StyleSheet.create({
   /** minHeight:0 — ScrollView/FlatList’in footer ile çakışmadan kalan yüksekliğe sığması için gerekli. */
   column: { flexDirection: 'column' },
   bodySlot: {
+    flex: 1,
+    minHeight: 0,
+    overflow: 'hidden',
+  },
+  /** ScrollView/FlatList dokunuş alanının footer/tab bar altına taşmasını sınırla (iPad + New Arch). */
+  bodyClip: {
     flex: 1,
     minHeight: 0,
     overflow: 'hidden',

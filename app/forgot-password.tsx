@@ -1,12 +1,12 @@
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import React, { useMemo, useState } from 'react';
-import { ActivityIndicator, StyleSheet, TextInput, TouchableOpacity, View } from 'react-native';
-import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
+import { ActivityIndicator, StyleSheet, TextInput, View } from 'react-native';
+import { Pressable } from 'react-native-gesture-handler';
 import { useTranslation } from 'react-i18next';
 
 import { LanguageToggle } from '@/components/language-toggle';
-import { DismissKeyboardView } from '@/components/dismiss-keyboard-view';
 import { OmnifolioBrand } from '@/components/omnifolio-brand';
+import { ScreenWithFooter } from '@/components/screen-with-footer';
 import { ThemedText } from '@/components/themed-text';
 import { useAuth } from '@/context/auth';
 
@@ -14,7 +14,6 @@ const AUTH_THREE_LINES = 20 * 3;
 
 export default function ForgotPasswordScreen() {
   const { t } = useTranslation();
-  const insets = useSafeAreaInsets();
   const router = useRouter();
   const params = useLocalSearchParams<{ email?: string }>();
   const initialEmail = typeof params.email === 'string' ? params.email : '';
@@ -59,60 +58,59 @@ export default function ForgotPasswordScreen() {
   };
 
   return (
-    <SafeAreaView style={styles.safe}>
-      <DismissKeyboardView>
-        <View style={[styles.langCorner, { top: insets.top + 8 }]}>
-          <LanguageToggle />
-        </View>
-        <View style={styles.container}>
-        <OmnifolioBrand compact />
-        <ThemedText style={styles.hint}>{t('auth.forgotPasswordHint')}</ThemedText>
-
-        <View style={styles.card}>
-          <ThemedText style={styles.label}>{t('auth.email')}</ThemedText>
-          <TextInput
-            autoCapitalize="none"
-            keyboardType="email-address"
-            placeholder={t('auth.emailPlaceholder')}
-            placeholderTextColor="#6b7280"
-            value={email}
-            onChangeText={setEmail}
-            style={styles.input}
-          />
-
-          <TouchableOpacity
-            activeOpacity={0.85}
+    <ScreenWithFooter
+      keyboardAvoid
+      dismissKeyboardOnPress
+      headerOverlay={<LanguageToggle />}
+      contentContainerStyle={styles.scrollContent}
+      footer={
+        <View style={styles.footer}>
+          <Pressable
+            style={({ pressed }) => [styles.primaryBtn, !canSend && styles.disabledBtn, pressed && canSend && styles.btnPressed]}
             disabled={!canSend}
-            style={[styles.primaryBtn, !canSend && styles.disabledBtn]}
             onPress={sendReset}>
             {busy ? (
               <ActivityIndicator color="#fff" />
             ) : (
               <ThemedText style={styles.primaryBtnText}>{t('auth.sendResetLink')}</ThemedText>
             )}
-          </TouchableOpacity>
-        </View>
+          </Pressable>
 
-        <TouchableOpacity style={styles.backLink} onPress={() => router.back()}>
-          <ThemedText style={styles.backLinkText}>{t('auth.backToSignIn')}</ThemedText>
-        </TouchableOpacity>
+          <Pressable style={({ pressed }) => [styles.backLink, pressed && styles.btnPressed]} onPress={() => router.back()}>
+            <ThemedText style={styles.backLinkText}>{t('auth.backToSignIn')}</ThemedText>
+          </Pressable>
 
-        {info ? <ThemedText style={styles.infoText}>{info}</ThemedText> : null}
-        {error ? <ThemedText style={styles.errorText}>{error}</ThemedText> : null}
+          {info ? <ThemedText style={styles.infoText}>{info}</ThemedText> : null}
+          {error ? <ThemedText style={styles.errorText}>{error}</ThemedText> : null}
         </View>
-      </DismissKeyboardView>
-    </SafeAreaView>
+      }>
+      <OmnifolioBrand compact />
+      <ThemedText style={styles.hint}>{t('auth.forgotPasswordHint')}</ThemedText>
+
+      <View style={styles.card}>
+        <ThemedText style={styles.label}>{t('auth.email')}</ThemedText>
+        <TextInput
+          autoCapitalize="none"
+          keyboardType="email-address"
+          placeholder={t('auth.emailPlaceholder')}
+          placeholderTextColor="#6b7280"
+          value={email}
+          onChangeText={setEmail}
+          style={styles.input}
+        />
+      </View>
+    </ScreenWithFooter>
   );
 }
 
 const styles = StyleSheet.create({
-  safe: { flex: 1, backgroundColor: '#000' },
-  langCorner: {
-    position: 'absolute',
-    right: 16,
-    zIndex: 10,
+  scrollContent: {
+    paddingHorizontal: 20,
+    paddingTop: 24 + AUTH_THREE_LINES,
   },
-  container: { flex: 1, paddingHorizontal: 20, paddingTop: 24 + AUTH_THREE_LINES },
+  footer: {
+    paddingHorizontal: 20,
+  },
   hint: {
     marginTop: 16,
     marginBottom: 16,
@@ -139,7 +137,6 @@ const styles = StyleSheet.create({
     paddingVertical: 10,
   },
   primaryBtn: {
-    marginTop: 14,
     backgroundColor: '#00b863',
     borderRadius: 10,
     alignItems: 'center',
@@ -148,8 +145,9 @@ const styles = StyleSheet.create({
     borderColor: 'rgba(0,230,119,0.45)',
   },
   disabledBtn: { opacity: 0.5 },
+  btnPressed: { opacity: 0.85 },
   primaryBtnText: { color: '#fff', fontWeight: '700' },
-  backLink: { marginTop: 20, alignItems: 'center' },
+  backLink: { marginTop: 16, alignItems: 'center', paddingVertical: 8 },
   backLinkText: { color: '#00e677', fontSize: 14, fontWeight: '600' },
   errorText: { color: '#ef4444', marginTop: 12, textAlign: 'center', fontSize: 13 },
   infoText: { color: '#22c55e', marginTop: 12, textAlign: 'center', fontSize: 13, lineHeight: 19 },

@@ -48,6 +48,8 @@ supabase/.temp/
 
 app-example
 
-# generated native folders
-/ios
-/android
+# Firebase service account (FCM / Play submit — gizli anahtar, commit etme)
+*firebase*adminsdk*.json
+*service-account*.json
+firebase-service-account.json
+

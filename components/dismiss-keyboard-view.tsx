@@ -1,24 +1,16 @@
 import React from 'react';
-import {
-  Keyboard,
-  StyleProp,
-  TouchableWithoutFeedback,
-  View,
-  ViewStyle,
-} from 'react-native';
+import { StyleProp, View, ViewStyle } from 'react-native';
 
 type Props = {
   children: React.ReactNode;
   style?: StyleProp<ViewStyle>;
 };
 
-/** Boş alana dokununca klavyeyi kapatır; input ve butonlar normal çalışır. */
+/** Klavye kapatma: ScrollView / ScreenWithFooter (`dismissKeyboardOnPress`) kullanın; tam ekran TouchableWithoutFeedback iPad’de alt CTA’ları yutabiliyor. */
 export function DismissKeyboardView({ children, style }: Props) {
   return (
-    <TouchableWithoutFeedback onPress={Keyboard.dismiss} accessible={false}>
-      <View style={[{ flex: 1 }, style]} collapsable={false}>
-        {children}
-      </View>
-    </TouchableWithoutFeedback>
+    <View style={[{ flex: 1 }, style]} collapsable={false}>
+      {children}
+    </View>
   );
 }

@@ -18,6 +18,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { useTranslation } from 'react-i18next';
 
 import { PortfolioPickerModal } from '@/components/portfolio-picker-modal';
+import { TabScreenRoot } from '@/components/tab-screen-root';
 import { UltraDarkDonutChart } from '@/components/ultra-dark-donut-chart';
 import { Brand } from '@/constants/brand';
 import { getSingleChartCategoryId, useSelectedCategories } from '@/context/selected-categories';
@@ -187,8 +188,8 @@ export default function HomeScreen() {
   const maskIfHidden = (text: string) => (hideAmounts ? '*****' : text);
 
   return (
-    <View style={styles.root}>
-      <SafeAreaView style={styles.safe} edges={['top', 'bottom']}>
+    <TabScreenRoot style={styles.root}>
+      <SafeAreaView style={styles.safe} edges={['top']}>
         {error ? (
           <View style={styles.errorWrap}>
             <Text style={styles.errorText}>{error}</Text>
@@ -485,7 +486,7 @@ export default function HomeScreen() {
           void selectPortfolio(id);
         }}
       />
-    </View>
+    </TabScreenRoot>
   );
 }
 
