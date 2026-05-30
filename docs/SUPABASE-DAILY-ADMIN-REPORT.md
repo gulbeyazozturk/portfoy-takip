@@ -22,6 +22,18 @@ npm run setup:daily-report
 
 Bitti. Her gün ~20:00 TSİ **hasimozturk@gmail.com** adresine rapor gelir.
 
+E-postada **Excel eki** (`omnifolio-gunluk-rapor-YYYY-MM-DD.xlsx`):
+
+- **Özet** — metrik / değer sütunları
+- **Kullanıcılar** — e-posta, portföy sayısı, varlık, giriş, süre
+- **Portföyler** — e-posta, portföy adı, varlık sayısı
+
+Hemen test:
+
+```powershell
+npm run daily-admin-report:now
+```
+
 ---
 
 ## Terminalde yapıştıramıyorsanız
