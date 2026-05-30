@@ -31,6 +31,7 @@ Bu dosya Cursor ve benzeri araçlar için **proje özgü** kısa kurallar içeri
 - ABD (yurtdışı) fiyatları: Yahoo GitHub runner’da (`us-sync.yml`); periyot **Supabase** `pg_cron` → Edge `sync-abd-prices` (`github_dispatch`). GitHub’da `schedule` yok: `docs/SUPABASE-ABD-SYNC.md`.
 - **Portfolio sync** (kripto/BIST/döviz/emtıa/holdings yurtdışı/snapshot): `portfolio-sync.yml`; periyot **Supabase** `pg_cron` → Edge `dispatch-portfolio-sync`: `docs/SUPABASE-PORTFOLIO-SYNC.md`.
 - Kullanıcı verisini silme/temizlik: `reset-for-csv-import.js` (master `assets` silmez); tam kullanıcı silme: `delete-user-by-email.js`.
+- Günlük admin raporu (20:00 TSİ → hasimozturk@gmail.com): Supabase Edge `daily-admin-report` + `node scripts/setup-daily-report-supabase.mjs re_...` — `docs/SUPABASE-DAILY-ADMIN-REPORT.md`.
 
 ## Veritabanı
 - Şemalar: `database/migrations/`, özet: `scripts/init-db.sql`.

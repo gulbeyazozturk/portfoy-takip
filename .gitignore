@@ -27,6 +27,7 @@ npm-debug.*
 yarn-debug.*
 yarn-error.*
 ios-build*.log
+scripts/windows/*.log
 
 # Cursor / IDE
 .cursor/

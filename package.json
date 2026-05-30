@@ -1,7 +1,7 @@
 {
   "name": "portfoy-takip",
   "main": "expo-router/entry",
-  "version": "1.0.1",
+  "version": "1.0.2",
   "scripts": {
     "postinstall": "patch-package",
     "start": "expo start",
@@ -43,7 +43,10 @@
     "lint": "expo lint",
     "verify:csv-decode": "npx tsx scripts/verify-decode-csv-bytes.ts",
     "apple:client-secret": "node ./scripts/generate-apple-client-secret.js",
-    "icons:square": "node ./scripts/square-expo-icons.js"
+    "icons:square": "node ./scripts/square-expo-icons.js",
+    "daily-admin-report": "node ./scripts/daily-admin-report.js",
+    "daily-admin-report:email": "node ./scripts/send-daily-admin-report-email.js",
+    "setup:daily-report": "node ./scripts/setup-daily-report-supabase.mjs"
   },
   "dependencies": {
     "@babel/runtime": "^7.29.2",
@@ -103,6 +106,8 @@
     "eslint": "^9.25.0",
     "eslint-config-expo": "~10.0.0",
     "jose": "^5.9.6",
+    "nodemailer": "^7.0.13",
+    "xlsx": "^0.18.5",
     "patch-package": "^8.0.1",
     "pg": "^8.20.0",
     "sharp": "^0.34.5",

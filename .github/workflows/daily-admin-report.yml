@@ -1,0 +1,46 @@
+# Alternatif: SMTP ile GitHub (önerilen yol Supabase — docs/SUPABASE-DAILY-ADMIN-REPORT.md).
+# Alıcı varsayılan: hasimozturk@gmail.com (secret DAILY_REPORT_TO ile override).
+
+name: Daily admin report
+
+on:
+  schedule:
+    # 17:00 UTC = 20:00 Europe/Istanbul (TSİ, yaz/kış farkı yok)
+    - cron: '0 17 * * *'
+  workflow_dispatch:
+
+concurrency:
+  group: daily-admin-report
+  cancel-in-progress: false
+
+jobs:
+  email-report:
+    runs-on: ubuntu-latest
+    env:
+      FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v5
+
+      - name: Setup Node
+        uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          package-manager-cache: false
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Send daily admin report email
+        env:
+          EXPO_PUBLIC_SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          DAILY_REPORT_TO: hasimozturk@gmail.com
+          SMTP_HOST: ${{ secrets.SMTP_HOST }}
+          SMTP_PORT: ${{ secrets.SMTP_PORT }}
+          SMTP_USER: ${{ secrets.SMTP_USER }}
+          SMTP_PASS: ${{ secrets.SMTP_PASS }}
+          SMTP_FROM: ${{ secrets.SMTP_FROM }}
+        run: node scripts/send-daily-admin-report-email.js
