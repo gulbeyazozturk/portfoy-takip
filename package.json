@@ -109,12 +109,12 @@
     "eslint-config-expo": "~10.0.0",
     "jose": "^5.9.6",
     "nodemailer": "^7.0.13",
-    "xlsx": "^0.18.5",
     "patch-package": "^8.0.1",
     "pg": "^8.20.0",
     "sharp": "^0.34.5",
     "supabase": "^2.93.0",
-    "typescript": "~5.9.2"
+    "typescript": "~5.9.2",
+    "xlsx": "^0.18.5"
   },
   "private": true
 }
