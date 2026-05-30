@@ -46,6 +46,8 @@
     "icons:square": "node ./scripts/square-expo-icons.js",
     "daily-admin-report": "node ./scripts/daily-admin-report.js",
     "daily-admin-report:email": "node ./scripts/send-daily-admin-report-email.js",
+    "daily-admin-report:now": "node ./scripts/send-daily-admin-report-email.js",
+    "daily-admin-report:xlsx": "node ./scripts/send-daily-admin-report-email.js --save-xlsx",
     "setup:daily-report": "node ./scripts/setup-daily-report-supabase.mjs"
   },
   "dependencies": {

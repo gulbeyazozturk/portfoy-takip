@@ -1,11 +1,13 @@
 /**
- * Günlük admin raporu → hasimozturk@gmail.com (Resend).
- * Zamanlama: pg_cron → pg_net → POST + x-daily-report-cron
- *
- * Edge secrets: SERVICE_ROLE_KEY, DAILY_REPORT_CRON_SECRET, RESEND_API_KEY
- * Opsiyonel: RESEND_FROM (yoksa onboarding@resend.dev)
+ * Günlük admin raporu → Excel eki + kısa özet (hasimozturk@gmail.com, Resend).
  */
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.49.1';
+import {
+  buildEmailPlainText,
+  buildReportData,
+  buildXlsxBase64,
+  xlsxFilename,
+} from './report.ts';
 
 const REPORT_TO = 'hasimozturk@gmail.com';
 
@@ -23,26 +25,6 @@ function istanbulTodayYmd(): string {
     month: '2-digit',
     day: '2-digit',
   }).format(new Date());
-}
-
-function formatDuration(totalSeconds: number): string {
-  const s = Math.max(0, Number(totalSeconds) || 0);
-  const m = Math.floor(s / 60);
-  const r = s % 60;
-  if (m >= 60) {
-    const h = Math.floor(m / 60);
-    const mm = m % 60;
-    return `${h}s ${mm}dk`;
-  }
-  return `${m}dk ${r}sn`;
-}
-
-function sampleUsageForEmail(email: string, reportDate: string) {
-  const seed = [...(email + reportDate)].reduce((a, c) => a + c.charCodeAt(0), 0);
-  return {
-    sessions: 1 + (seed % 4),
-    totalSeconds: 90 + (seed % 7) * 120 + (1 + (seed % 4)) * 45,
-  };
 }
 
 async function listAllUsers(sb: ReturnType<typeof createClient>) {
@@ -112,91 +94,7 @@ async function fetchUsageForDate(sb: ReturnType<typeof createClient>, reportDate
   return { rows: byUser, missingTable: false };
 }
 
-function buildReportMarkdown(opts: {
-  reportDate: string;
-  users: { id: string; email?: string }[];
-  portfolios: { id: string; name: string; user_id: string }[];
-  holdingsByPortfolio: Map<string, number>;
-  usageByUserId: Map<string, { sessions: number; totalSeconds: number }> | null;
-  usageIsSample: boolean;
-}): string {
-  const { reportDate, users, portfolios, holdingsByPortfolio, usageByUserId, usageIsSample } = opts;
-  const emailById = new Map(users.map((u) => [u.id, u.email || '(e-posta yok)']));
-  const portfoliosByUser = new Map<string, { name: string; assetCount: number }[]>();
-  for (const p of portfolios) {
-    if (!portfoliosByUser.has(p.user_id)) portfoliosByUser.set(p.user_id, []);
-    portfoliosByUser.get(p.user_id)!.push({
-      name: p.name,
-      assetCount: holdingsByPortfolio.get(p.id) || 0,
-    });
-  }
-
-  const lines: string[] = [];
-  lines.push(`# Günlük rapor — ${reportDate} (TSİ)`);
-  lines.push('');
-  lines.push('## Özet');
-  lines.push('| Metrik | Değer |');
-  lines.push('|--------|------:|');
-  lines.push(`| Kayıtlı kullanıcı (auth) | ${users.length} |`);
-  lines.push(`| Portföyü olan kullanıcı | ${portfoliosByUser.size} |`);
-  lines.push(`| Toplam portföy | ${portfolios.length} |`);
-  const totalHoldings = [...holdingsByPortfolio.values()].reduce((a, b) => a + b, 0);
-  lines.push(`| Toplam varlık (holding) | ${totalHoldings} |`);
-  if (usageIsSample) {
-    lines.push('| Kullanım verisi | Örnek (app_usage_sessions yok/boş) |');
-  } else {
-    lines.push(`| Bugün oturum kaydı olan kullanıcı | ${usageByUserId?.size ?? 0} |`);
-  }
-  lines.push('');
-  lines.push('## Kullanıcı detayı');
-  lines.push('');
-  lines.push(
-    '| E-posta | Portföy | Varlık | Portföyler | Giriş | Süre |',
-  );
-  lines.push('|---------|--------:|-------:|------------|------:|------|');
-
-  const sorted = [...users].sort((a, b) => (a.email || '').localeCompare(b.email || '', 'tr'));
-  for (const u of sorted) {
-    const email = emailById.get(u.id)!;
-    const plist = portfoliosByUser.get(u.id) || [];
-    const portfolioCount = plist.length;
-    const totalAssets = plist.reduce((s, p) => s + p.assetCount, 0);
-    const portfolioDetail =
-      portfolioCount === 0 ? '—' : plist.map((p) => `${p.name} (${p.assetCount})`).join('; ');
-
-    let sessions = 0;
-    let totalSeconds = 0;
-    if (usageByUserId?.has(u.id)) {
-      const uu = usageByUserId.get(u.id)!;
-      sessions = uu.sessions;
-      totalSeconds = uu.totalSeconds;
-    } else if (usageIsSample && portfolioCount > 0) {
-      const sample = sampleUsageForEmail(email, reportDate);
-      sessions = sample.sessions;
-      totalSeconds = sample.totalSeconds;
-    }
-
-    const usageCol =
-      portfolioCount === 0 && !usageByUserId?.has(u.id) ? '—' : String(sessions);
-    const durationCol =
-      portfolioCount === 0 && !usageByUserId?.has(u.id)
-        ? '—'
-        : formatDuration(totalSeconds);
-
-    lines.push(
-      `| ${email} | ${portfolioCount} | ${totalAssets} | ${portfolioDetail} | ${usageCol} | ${durationCol} |`,
-    );
-  }
-
-  if (usageIsSample) {
-    lines.push('');
-    lines.push('_Kullanım: app_usage_sessions migration + istemci kaydı gerekir._');
-  }
-
-  return lines.join('\n');
-}
-
-async function sendResendEmail(subject: string, text: string) {
+async function sendResendEmail(subject: string, text: string, xlsxBase64: string, filename: string) {
   const apiKey = (Deno.env.get('RESEND_API_KEY') || '').trim();
   if (!apiKey) {
     return { ok: false, status: 0, body: 'RESEND_API_KEY_edge_secret_missing' };
@@ -213,6 +111,7 @@ async function sendResendEmail(subject: string, text: string) {
       to: [REPORT_TO],
       subject,
       text,
+      attachments: [{ filename, content: xlsxBase64 }],
     }),
   });
   const body = await res.text();
@@ -248,11 +147,10 @@ Deno.serve(async (req: Request) => {
 
     const users = await listAllUsers(sb);
     const { portfolios, holdingsByPortfolio } = await fetchPortfolioRows(sb);
-
     const usage = await fetchUsageForDate(sb, reportDate);
     const usageIsSample = usage.missingTable || !usage.rows || usage.rows.size === 0;
 
-    const markdown = buildReportMarkdown({
+    const data = buildReportData({
       reportDate,
       users,
       portfolios,
@@ -261,19 +159,21 @@ Deno.serve(async (req: Request) => {
       usageIsSample,
     });
 
+    const filename = xlsxFilename(reportDate);
+    const xlsxBase64 = buildXlsxBase64(data);
+    const emailText = buildEmailPlainText(data);
     const subject = `Omnifolio günlük rapor — ${reportDate} (TSİ)`;
-    const mail = await sendResendEmail(subject, markdown);
+
+    const mail = await sendResendEmail(subject, emailText, xlsxBase64, filename);
     if (!mail.ok) {
       return json(
         {
           ok: false,
           reportDate,
           to: REPORT_TO,
+          attachment: filename,
           email_error: mail.body,
           email_http: mail.status,
-          hint:
-            'Supabase Edge secrets: RESEND_API_KEY (resend.com → API Keys). Ücretsiz hesapta onboarding@resend.dev yalnızca kayıt e-postasına gönderir.',
-          report_preview_lines: markdown.split('\n').slice(0, 12),
         },
         502,
       );
@@ -283,6 +183,7 @@ Deno.serve(async (req: Request) => {
       ok: true,
       reportDate,
       to: REPORT_TO,
+      attachment: filename,
       email_http: mail.status,
       users: users.length,
       usage_is_sample: usageIsSample,
