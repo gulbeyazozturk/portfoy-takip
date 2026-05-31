@@ -1957,6 +1957,10 @@ export default function AssetEntryScreen() {
                           onFocus={onQtyKeyboardFieldFocus}
                           onBlur={onQtyKeyboardFieldBlur}
                           inputAccessoryViewID={DECIMAL_KEYBOARD_ACCESSORY_ID}
+                          autoCorrect={false}
+                          autoComplete="off"
+                          spellCheck={false}
+                          importantForAutofill="no"
                         />
                         <ThemedText style={styles.txnFormUnitChip}>{amountUnitLabel}</ThemedText>
                       </View>
@@ -1983,6 +1987,10 @@ export default function AssetEntryScreen() {
                             onFocus={onCostFieldFocus}
                             onBlur={onCostFieldBlur}
                             inputAccessoryViewID={DECIMAL_KEYBOARD_ACCESSORY_ID}
+                            autoCorrect={false}
+                            autoComplete="off"
+                            spellCheck={false}
+                            importantForAutofill="no"
                           />
                         </View>
                       </View>
@@ -2058,6 +2066,37 @@ export default function AssetEntryScreen() {
                   {formFooter}
                 </View>
               ) : null}
+
+              {Platform.OS === 'android' && keyboardHeight > 0 && numericAccessoryOpen ? (
+                <View
+                  style={[styles.txnModalKeyboardAccessory, { bottom: keyboardHeight }]}
+                  pointerEvents="box-none">
+                  <View style={styles.keyboardAccessoryToolbar}>
+                    {decimalFieldFocus ? (
+                      <TouchableOpacity
+                        onPress={insertDecimalComma}
+                        activeOpacity={0.7}
+                        hitSlop={{ top: 12, bottom: 12, left: 16, right: 16 }}
+                        style={styles.keyboardAccessoryCommaBtn}>
+                        <ThemedText style={styles.keyboardAccessoryCommaText} lightColor="#ffffff" darkColor="#ffffff">
+                          ,
+                        </ThemedText>
+                      </TouchableOpacity>
+                    ) : (
+                      <View style={styles.keyboardAccessoryCommaSpacer} />
+                    )}
+                    <TouchableOpacity
+                      onPress={() => Keyboard.dismiss()}
+                      activeOpacity={0.7}
+                      hitSlop={{ top: 12, bottom: 12, left: 16, right: 16 }}
+                      style={styles.keyboardAccessoryBtn}>
+                      <ThemedText style={styles.keyboardAccessoryBtnText} lightColor="#ffffff" darkColor="#ffffff">
+                        {t('assetEntry.keyboardDone')}
+                      </ThemedText>
+                    </TouchableOpacity>
+                  </View>
+                </View>
+              ) : null}
             </KeyboardAvoidingView>
         </View>
       </Modal>
@@ -2112,7 +2151,7 @@ export default function AssetEntryScreen() {
         </InputAccessoryView>
       ) : null}
 
-      {Platform.OS === 'android' && keyboardHeight > 0 && numericAccessoryOpen ? (
+      {Platform.OS === 'android' && keyboardHeight > 0 && numericAccessoryOpen && !transactionOpen ? (
         <View
           style={[styles.keyboardAccessoryAndroidWrap, { bottom: keyboardHeight }]}
           pointerEvents="box-none">
@@ -2680,6 +2719,13 @@ const styles = StyleSheet.create({
       android: { includeFontPadding: false, textAlignVertical: 'center' },
       default: {},
     }),
+  },
+  txnModalKeyboardAccessory: {
+    position: 'absolute',
+    left: 0,
+    right: 0,
+    zIndex: 1000,
+    elevation: 12,
   },
   txnFormQtyWhole: {
     minWidth: 48,
