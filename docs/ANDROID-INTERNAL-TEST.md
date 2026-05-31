@@ -96,4 +96,4 @@ Yeni link veya aynı internal grup güncellemesi (Expo arayüzüne göre değiş
 ## Profil özeti (`eas.json`)
 
 - **`preview`**: `distribution: internal` → dahili test linki.
-- İleride mağaza için: `--profile production` ile **AAB** ve Play Console adımları (`docs/` içinde ayrı anlatılabilir).
+- İleride mağaza için: **`docs/ANDROID-PLAY-STORE.md`** — production **AAB**, FCM, Play Console adımları.

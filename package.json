@@ -13,6 +13,8 @@
     "ios:testflight:build": "node ./scripts/eas-with-vcs.mjs build --platform ios --profile testflight",
     "ios:testflight:submit": "node ./scripts/eas-with-vcs.mjs submit --platform ios --profile testflight",
     "android:preview:build": "node ./scripts/eas-with-vcs.mjs build --platform android --profile preview",
+    "android:production:build": "node ./scripts/eas-with-vcs.mjs build --platform android --profile production",
+    "verify:supabase": "node ./scripts/verify-supabase-production.js",
     "reset-project": "node ./scripts/reset-project.js",
     "sync-crypto": "node ./scripts/sync-crypto-prices.js",
     "repair-kripto-usd": "node ./scripts/repair-kripto-usd.js",
