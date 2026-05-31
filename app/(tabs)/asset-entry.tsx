@@ -21,8 +21,8 @@ import {
 } from 'react-native';
 import Svg, { Circle, Defs, LinearGradient, Path, Stop } from 'react-native-svg';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import DateTimePicker, { type DateTimePickerEvent } from '@react-native-community/datetimepicker';
 
+import { LocalizedDatePickerSheet } from '@/components/localized-date-picker-sheet';
 import { ScreenWithFooter } from '@/components/screen-with-footer';
 import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
@@ -31,7 +31,12 @@ import { kriptoStoredUnitToUsd, legacyCryptoStoredUnitToUsd } from '@/lib/crypto
 import { isUsdNativeCategory } from '@/lib/portfolio-currency';
 import { formatCostDateText, parseCostDateText, sanitizeCostDateText } from '@/lib/cost-date-input';
 import { displayCurrencyPrefix } from '@/lib/display-currency';
-import { parseTrDecimal, sanitizeTrDecimalInput } from '@/lib/tr-decimal-input';
+import {
+  appendTrDecimalComma,
+  parseTrDecimal,
+  sanitizeTrDecimalInput,
+  trDecimalKeyboardType,
+} from '@/lib/tr-decimal-input';
 import { resolveBistDisplayName } from '@/lib/bist-display-name';
 import { toTitleCaseWords } from '@/lib/display-title-case';
 import { effectiveChange24hPctForDisplay } from '@/lib/effective-change-24h';
@@ -100,6 +105,7 @@ const TIMEFRAMES = ['1D', '1W', '1M', '1Y', '5Y'] as const;
 
 /** Ekleme/azaltma sayısal alanları: iOS klavye üstü / Android klavye üstü çubuk. */
 const NUMERIC_KEYBOARD_ACCESSORY_ID = 'assetEntryNumericKeyboardDone';
+const DECIMAL_KEYBOARD_ACCESSORY_ID = 'assetEntryDecimalKeyboard';
 type Timeframe = (typeof TIMEFRAMES)[number];
 
 function timeframeMs(tf: Timeframe): number {
@@ -408,20 +414,63 @@ export default function AssetEntryScreen() {
   const [holdingRefreshSeq, setHoldingRefreshSeq] = useState(0);
   /** Klavye yüksekliği: içerik alt boşluğu + Android “Bitti” çubuğu konumu (iOS’ta da dinlenir). */
   const [keyboardHeight, setKeyboardHeight] = useState(0);
-  /** Adet alanı: klavye aşağı kaydırma yeterli; Android üst “Bitti” çubuğunu gösterme. */
-  const [suppressAndroidNumericAccessory, setSuppressAndroidNumericAccessory] = useState(false);
+  /** Adet / maliyet: virgül aksesuarı; tarih: yalnızca Bitti. */
+  const [decimalFieldFocus, setDecimalFieldFocus] = useState<'qty' | 'cost' | null>(null);
+  const [numericAccessoryOpen, setNumericAccessoryOpen] = useState(false);
+
+  const insertDecimalComma = useCallback(() => {
+    if (decimalFieldFocus === 'qty') {
+      setInputQtyStr((prev) => appendTrDecimalComma(prev));
+    } else if (decimalFieldFocus === 'cost') {
+      setInputCost((prev) => appendTrDecimalComma(prev, 8));
+    }
+  }, [decimalFieldFocus]);
+
+  const handleDecimalKeyPress = useCallback(
+    (field: 'qty' | 'cost') =>
+      ({ nativeEvent }: { nativeEvent: { key: string } }) => {
+        const key = nativeEvent.key;
+        if (key === ',' || key === 'Comma') {
+          if (field === 'qty') {
+            setInputQtyStr((prev) => appendTrDecimalComma(prev));
+          } else {
+            setInputCost((prev) => appendTrDecimalComma(prev, 8));
+          }
+        }
+      },
+    [],
+  );
 
   const onQtyKeyboardFieldFocus = useCallback(() => {
     if (androidQtyBlurTimerRef.current) {
       clearTimeout(androidQtyBlurTimerRef.current);
       androidQtyBlurTimerRef.current = null;
     }
-    setSuppressAndroidNumericAccessory(true);
+    setDecimalFieldFocus('qty');
+    setNumericAccessoryOpen(true);
   }, []);
 
   const onQtyKeyboardFieldBlur = useCallback(() => {
     androidQtyBlurTimerRef.current = setTimeout(() => {
-      setSuppressAndroidNumericAccessory(false);
+      setDecimalFieldFocus(null);
+      setNumericAccessoryOpen(false);
+      androidQtyBlurTimerRef.current = null;
+    }, 160);
+  }, []);
+
+  const onCostFieldFocus = useCallback(() => {
+    if (androidQtyBlurTimerRef.current) {
+      clearTimeout(androidQtyBlurTimerRef.current);
+      androidQtyBlurTimerRef.current = null;
+    }
+    setDecimalFieldFocus('cost');
+    setNumericAccessoryOpen(true);
+  }, []);
+
+  const onCostFieldBlur = useCallback(() => {
+    androidQtyBlurTimerRef.current = setTimeout(() => {
+      setDecimalFieldFocus(null);
+      setNumericAccessoryOpen(false);
       androidQtyBlurTimerRef.current = null;
     }, 160);
   }, []);
@@ -431,7 +480,15 @@ export default function AssetEntryScreen() {
       clearTimeout(androidQtyBlurTimerRef.current);
       androidQtyBlurTimerRef.current = null;
     }
-    setSuppressAndroidNumericAccessory(false);
+    setDecimalFieldFocus(null);
+    setNumericAccessoryOpen(true);
+  }, []);
+
+  const onNonQtyNumericFieldBlur = useCallback(() => {
+    androidQtyBlurTimerRef.current = setTimeout(() => {
+      setNumericAccessoryOpen(false);
+      androidQtyBlurTimerRef.current = null;
+    }, 160);
   }, []);
 
   const openTransactionSheet = useCallback(() => {
@@ -510,7 +567,8 @@ export default function AssetEntryScreen() {
         clearTimeout(androidQtyBlurTimerRef.current);
         androidQtyBlurTimerRef.current = null;
       }
-      setSuppressAndroidNumericAccessory(false);
+      setNumericAccessoryOpen(false);
+      setDecimalFieldFocus(null);
       setFormMode('add');
       setInputQtyStr('');
       setInputCost('');
@@ -969,19 +1027,14 @@ export default function AssetEntryScreen() {
     Keyboard.dismiss();
   }, [costDateText]);
 
-  const onCostDatePickerChange = useCallback((event: DateTimePickerEvent, date?: Date) => {
-    if (Platform.OS === 'android') {
-      setCostDatePickerVisible(false);
-      if (event.type === 'set' && date) {
-        setCostDateText(formatCostDateText(date));
-      }
-      return;
-    }
-    if (date) setCostDatePickerValue(date);
+  const onCostDatePickerChange = useCallback((date: Date) => {
+    setCostDatePickerValue(date);
   }, []);
 
-  const confirmCostDatePicker = useCallback(() => {
-    setCostDateText(formatCostDateText(costDatePickerValue));
+  const confirmCostDatePicker = useCallback((picked?: Date) => {
+    const d = picked ?? costDatePickerValue;
+    setCostDatePickerValue(d);
+    setCostDateText(formatCostDateText(d));
     setCostDatePickerVisible(false);
   }, [costDatePickerValue]);
 
@@ -1895,13 +1948,15 @@ export default function AssetEntryScreen() {
                       <View style={styles.txnFormInputRow}>
                         <TextInput
                           style={styles.txnFormInput}
-                          keyboardType="decimal-pad"
+                          keyboardType={trDecimalKeyboardType()}
                           placeholder="0"
                           placeholderTextColor="rgba(255,255,255,0.28)"
                           value={inputQtyStr}
                           onChangeText={onInputQtyChange}
+                          onKeyPress={handleDecimalKeyPress('qty')}
                           onFocus={onQtyKeyboardFieldFocus}
                           onBlur={onQtyKeyboardFieldBlur}
+                          inputAccessoryViewID={DECIMAL_KEYBOARD_ACCESSORY_ID}
                         />
                         <ThemedText style={styles.txnFormUnitChip}>{amountUnitLabel}</ThemedText>
                       </View>
@@ -1919,13 +1974,15 @@ export default function AssetEntryScreen() {
                           <ThemedText style={styles.txnFormCurrencyPrefix}>{curr}</ThemedText>
                           <TextInput
                             style={styles.txnFormInput}
-                            keyboardType="decimal-pad"
+                            keyboardType={trDecimalKeyboardType()}
                             placeholder="0,00"
                             placeholderTextColor="rgba(255,255,255,0.28)"
                             value={inputCost}
                             onChangeText={onInputCostChange}
-                            onFocus={onNonQtyNumericFieldFocus}
-                            inputAccessoryViewID={NUMERIC_KEYBOARD_ACCESSORY_ID}
+                            onKeyPress={handleDecimalKeyPress('cost')}
+                            onFocus={onCostFieldFocus}
+                            onBlur={onCostFieldBlur}
+                            inputAccessoryViewID={DECIMAL_KEYBOARD_ACCESSORY_ID}
                           />
                         </View>
                       </View>
@@ -1950,6 +2007,7 @@ export default function AssetEntryScreen() {
                             maxLength={10}
                             returnKeyType="done"
                             onFocus={onNonQtyNumericFieldFocus}
+                            onBlur={onNonQtyNumericFieldBlur}
                             inputAccessoryViewID={NUMERIC_KEYBOARD_ACCESSORY_ID}
                           />
                           <TouchableOpacity
@@ -2004,41 +2062,38 @@ export default function AssetEntryScreen() {
         </View>
       </Modal>
 
-      {costDatePickerVisible && Platform.OS === 'android' ? (
-        <DateTimePicker
-          value={costDatePickerValue}
-          mode="date"
-          display="default"
-          maximumDate={new Date()}
-          onChange={onCostDatePickerChange}
-        />
-      ) : null}
+      <LocalizedDatePickerSheet
+        visible={costDatePickerVisible}
+        value={costDatePickerValue}
+        maximumDate={new Date()}
+        onClose={() => setCostDatePickerVisible(false)}
+        onConfirm={confirmCostDatePicker}
+        onChange={onCostDatePickerChange}
+      />
 
-      {costDatePickerVisible && Platform.OS === 'ios' ? (
-        <Modal transparent animationType="slide" onRequestClose={() => setCostDatePickerVisible(false)}>
-          <Pressable style={styles.datePickerBackdrop} onPress={() => setCostDatePickerVisible(false)}>
-            <Pressable style={styles.datePickerSheet} onPress={(e) => e.stopPropagation()}>
-              <View style={styles.datePickerHeader}>
-                <TouchableOpacity onPress={() => setCostDatePickerVisible(false)} hitSlop={12}>
-                  <ThemedText style={styles.datePickerHeaderBtn}>{t('portfolio.cancel')}</ThemedText>
-                </TouchableOpacity>
-                <TouchableOpacity onPress={confirmCostDatePicker} hitSlop={12}>
-                  <ThemedText style={[styles.datePickerHeaderBtn, styles.datePickerHeaderBtnDone]}>
-                    {t('assetEntry.keyboardDone')}
-                  </ThemedText>
-                </TouchableOpacity>
-              </View>
-              <DateTimePicker
-                value={costDatePickerValue}
-                mode="date"
-                display="spinner"
-                locale={numberLocale}
-                maximumDate={new Date()}
-                onChange={onCostDatePickerChange}
-              />
-            </Pressable>
-          </Pressable>
-        </Modal>
+      {Platform.OS === 'ios' ? (
+        <InputAccessoryView nativeID={DECIMAL_KEYBOARD_ACCESSORY_ID}>
+          <View style={styles.keyboardAccessoryToolbar}>
+            <TouchableOpacity
+              onPress={insertDecimalComma}
+              activeOpacity={0.7}
+              hitSlop={{ top: 12, bottom: 12, left: 16, right: 16 }}
+              style={styles.keyboardAccessoryCommaBtn}>
+              <ThemedText style={styles.keyboardAccessoryCommaText} lightColor="#ffffff" darkColor="#ffffff">
+                ,
+              </ThemedText>
+            </TouchableOpacity>
+            <TouchableOpacity
+              onPress={() => Keyboard.dismiss()}
+              activeOpacity={0.7}
+              hitSlop={{ top: 12, bottom: 12, left: 16, right: 16 }}
+              style={styles.keyboardAccessoryBtn}>
+              <ThemedText style={styles.keyboardAccessoryBtnText} lightColor="#ffffff" darkColor="#ffffff">
+                {t('assetEntry.keyboardDone')}
+              </ThemedText>
+            </TouchableOpacity>
+          </View>
+        </InputAccessoryView>
       ) : null}
 
       {Platform.OS === 'ios' ? (
@@ -2057,13 +2112,24 @@ export default function AssetEntryScreen() {
         </InputAccessoryView>
       ) : null}
 
-      {Platform.OS === 'android' &&
-      keyboardHeight > 0 &&
-      !suppressAndroidNumericAccessory ? (
+      {Platform.OS === 'android' && keyboardHeight > 0 && numericAccessoryOpen ? (
         <View
           style={[styles.keyboardAccessoryAndroidWrap, { bottom: keyboardHeight }]}
           pointerEvents="box-none">
           <View style={styles.keyboardAccessoryToolbar}>
+            {decimalFieldFocus ? (
+              <TouchableOpacity
+                onPress={insertDecimalComma}
+                activeOpacity={0.7}
+                hitSlop={{ top: 12, bottom: 12, left: 16, right: 16 }}
+                style={styles.keyboardAccessoryCommaBtn}>
+                <ThemedText style={styles.keyboardAccessoryCommaText} lightColor="#ffffff" darkColor="#ffffff">
+                  ,
+                </ThemedText>
+              </TouchableOpacity>
+            ) : (
+              <View style={styles.keyboardAccessoryCommaSpacer} />
+            )}
             <TouchableOpacity
               onPress={() => Keyboard.dismiss()}
               activeOpacity={0.7}
@@ -2869,13 +2935,28 @@ const styles = StyleSheet.create({
   keyboardAccessoryToolbar: {
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'flex-end',
+    justifyContent: 'space-between',
     backgroundColor: SURFACE_HIGH,
     borderTopWidth: StyleSheet.hairlineWidth,
     borderTopColor: 'rgba(255,255,255,0.14)',
     paddingVertical: 10,
     paddingHorizontal: 12,
     minHeight: 48,
+  },
+  keyboardAccessoryCommaBtn: {
+    minWidth: 44,
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  keyboardAccessoryCommaText: {
+    fontSize: 22,
+    fontWeight: '700',
+    color: '#ffffff',
+  },
+  keyboardAccessoryCommaSpacer: {
+    width: 44,
   },
   keyboardAccessoryBtn: {
     paddingVertical: 6,

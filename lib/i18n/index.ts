@@ -5,6 +5,7 @@ import { initReactI18next } from 'react-i18next';
 
 import en from '@/locales/en';
 import tr from '@/locales/tr';
+import { syncNativeAppLocale } from '@/lib/sync-native-app-locale';
 
 export const LANG_STORAGE_KEY = '@omnifolio_lang';
 
@@ -35,9 +36,11 @@ void i18n.use(initReactI18next).init({
 
 /** Expo web SSR / Node: window yok; AsyncStorage burada patlar. */
 if (typeof window !== 'undefined') {
+  void syncNativeAppLocale(initialLng);
   void AsyncStorage.getItem(LANG_STORAGE_KEY).then((stored) => {
     if (stored === 'en' || stored === 'tr') {
       void i18n.changeLanguage(stored);
+      void syncNativeAppLocale(stored);
     }
   });
 }
@@ -47,6 +50,7 @@ export async function setAppLanguage(lng: 'tr' | 'en'): Promise<void> {
     await AsyncStorage.setItem(LANG_STORAGE_KEY, lng);
   }
   await i18n.changeLanguage(lng);
+  await syncNativeAppLocale(lng);
 }
 
 export default i18n;

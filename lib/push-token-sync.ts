@@ -9,8 +9,15 @@ import { supabase } from '@/lib/supabase';
 
 let handlerSet = false;
 
+/** Expo Go Android: push kaldırıldı (SDK 53+). Yalnızca dev/production build. */
+export function isPushNotificationsRuntimeSupported(): boolean {
+  if (Platform.OS === 'web') return false;
+  if (Platform.OS === 'android' && Constants.appOwnership === 'expo') return false;
+  return true;
+}
+
 function ensureForegroundHandler() {
-  if (handlerSet) return;
+  if (handlerSet || !isPushNotificationsRuntimeSupported()) return;
   Notifications.setNotificationHandler({
     handleNotification: async () => ({
       shouldShowAlert: true,
@@ -48,7 +55,7 @@ function resolveDeviceTimeZone(): string {
 }
 
 export async function syncPushTokenForUser(userId: string): Promise<void> {
-  if (!userId || Platform.OS === 'web') return;
+  if (!userId || !isPushNotificationsRuntimeSupported()) return;
   ensureForegroundHandler();
 
   const notificationsEnabled = await getNotificationsEnabledPreference();

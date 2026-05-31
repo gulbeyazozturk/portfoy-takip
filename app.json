@@ -51,6 +51,22 @@
       "expo-notifications",
       "expo-router",
       [
+        "expo-localization",
+        {
+          "supportedLocales": {
+            "ios": ["tr", "en"],
+            "android": ["tr", "en"]
+          },
+          "allowDynamicLocaleChangesAndroid": true
+        }
+      ],
+      [
+        "react-native-localization-settings",
+        {
+          "languages": ["tr", "en"]
+        }
+      ],
+      [
         "expo-splash-screen",
         {
           "image": "./assets/images/icon.png",
@@ -62,7 +78,6 @@
           }
         }
       ],
-      "expo-localization",
       [
         "expo-local-authentication",
         {
