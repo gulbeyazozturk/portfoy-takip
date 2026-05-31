@@ -1,4 +1,4 @@
-import { useBottomTabBarHeight } from '@react-navigation/bottom-tabs';
+import { BottomTabBarHeightContext } from '@react-navigation/bottom-tabs';
 import React from 'react';
 import {
   Keyboard,
@@ -71,7 +71,8 @@ export function ScreenWithFooter({
   dismissKeyboardOnPress = false,
 }: ScreenWithFooterProps) {
   const insets = useSafeAreaInsets();
-  const tabBarHeight = useBottomTabBarHeight();
+  /** Tab dışı ekranlarda (auth vb.) hook hata fırlatır; context yoksa 0. */
+  const tabBarHeight = React.useContext(BottomTabBarHeightContext) ?? 0;
   const footerBg = footerBackgroundColor ?? backgroundColor;
   const bottomPad = Math.max(insets.bottom, MIN_FOOTER_BOTTOM_PAD);
 
