@@ -29,6 +29,12 @@ import { MIN_VALID_USD_TRY_RATE } from '@/lib/usdtry-cache';
 import { isHoldingMarketPriceReady } from '@/lib/portfolio-holdings';
 import { isUsdNativeCategory } from '@/lib/portfolio-currency';
 import {
+  formatDisplayMoney,
+  formatDisplayMoneyCeil,
+  formatDisplayMoneyFlexible,
+  type DisplayCurrency,
+} from '@/lib/display-currency';
+import {
   computePortfolioPerformanceValues,
   type PortfolioPerformanceValues,
 } from '@/lib/portfolio-performance';
@@ -50,22 +56,8 @@ const TREND_CATEGORY_ORDER = ['yurtdisi', 'bist', 'doviz', 'emtia', 'fon', 'krip
 
 const CHART_W = 400;
 
-function fmtPortfolioAxis(
-  v: number,
-  currency: 'TL' | 'USD',
-  numberLocale: string,
-): string {
-  const abs = Math.abs(v);
-  let maxDec = 2;
-  if (abs > 0 && abs < 0.01) maxDec = 10;
-  else if (abs >= 0.01 && abs < 1) maxDec = 6;
-  else if (abs >= 1 && abs < 10) maxDec = 4;
-  const loc = currency === 'USD' ? 'en-US' : numberLocale;
-  const formatted = abs.toLocaleString(loc, { minimumFractionDigits: 2, maximumFractionDigits: maxDec });
-  const trimmed = formatted.replace(/0+$/, '').replace(/[,.]$/, '');
-  const core = v < 0 ? `-${trimmed}` : trimmed;
-  if (currency === 'USD') return `$${core}`;
-  return `${core} TL`;
+function fmtPortfolioAxis(v: number, currency: DisplayCurrency, numberLocale: string): string {
+  return formatDisplayMoneyFlexible(v, currency, numberLocale);
 }
 
 /** Varlık girişi (asset-entry) PriceChart ile aynı dokunma davranışı: sürükleyince nokta, bırakınca seçim kalkar. */
@@ -440,12 +432,10 @@ export default function TrendScreen() {
                 <View>
                   <Text style={styles.totalLabel}>{t('portfolio.totalValueLabel')}</Text>
                   <Text style={[styles.totalValue, { fontSize: layout.trendTotalValueFontSize }]}>
-                    {(perfCurrency === 'TL' ? performanceValues.totalValueTL : performanceValues.totalValueUSD).toLocaleString(
-                      perfCurrency === 'USD' ? 'en-US' : numberLocale,
-                      {
-                        minimumFractionDigits: 0,
-                        maximumFractionDigits: perfCurrency === 'USD' ? 2 : 0,
-                      },
+                    {formatDisplayMoneyCeil(
+                      perfCurrency === 'TL' ? performanceValues.totalValueTL : performanceValues.totalValueUSD,
+                      perfCurrency,
+                      numberLocale,
                     )}
                   </Text>
                   <View style={styles.currencyPill}>
@@ -492,8 +482,10 @@ export default function TrendScreen() {
                     return (
                       <View style={styles.trendRow}>
                         <Text style={amt >= 0 ? styles.trendPositive : styles.trendNegative}>
-                          {amt >= 0 ? '+' : ''}
-                          {amt.toLocaleString(numberLocale, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                          {formatDisplayMoney(amt, perfCurrency, numberLocale, {
+                            minimumFractionDigits: 2,
+                            maximumFractionDigits: 2,
+                          })}
                         </Text>
                         <View style={[styles.trendBadge, amt >= 0 && styles.trendBadgePositive]}>
                           <Text style={[styles.trendBadgeText, amt >= 0 && styles.trendBadgeTextPositive]}>

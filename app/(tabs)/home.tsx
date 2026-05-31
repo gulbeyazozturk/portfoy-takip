@@ -26,6 +26,10 @@ import type { AllocationBreakdownRow } from '@/hooks/use-portfolio-core-data';
 import { usePortfolioCoreData } from '@/hooks/use-portfolio-core-data';
 import { useScreenLayout } from '@/hooks/use-screen-layout';
 import { CATEGORY_CHART_COLORS } from '@/lib/category-chart-colors';
+import {
+  formatDisplayMoneyCeil,
+  formatDisplaySignedMoney,
+} from '@/lib/display-currency';
 
 const BG = '#000000';
 const SURFACE_LOW = '#131313';
@@ -79,6 +83,11 @@ export default function HomeScreen() {
     layout.donutSizeMin,
     Math.min(layout.donutSizeMax, donutMaxCanvas - 2 * layout.donutLabelMargin),
   );
+  const donutInnerRadius = Math.max(4, donutSize / 2 - layout.donutStrokeWidth);
+  const donutCenterFontSize = Math.min(
+    layout.donutTitleFontSize,
+    Math.max(13, Math.round((donutInnerRadius * 2 - 16) / 7)),
+  );
 
   const {
     allocationData,
@@ -94,6 +103,13 @@ export default function HomeScreen() {
   } = usePortfolioCoreData();
 
   const lastGridTapRef = useRef<{ at: number; categoryId: string } | null>(null);
+
+  const donutCenterTitle = useMemo(() => {
+    const name = (currentPortfolioName || t('portfolio.headerTitle')).trim();
+    const words = name.split(/\s+/).filter(Boolean);
+    if (words.length === 2 && name.length <= 24) return words.join('\n');
+    return name;
+  }, [currentPortfolioName, t]);
 
   /** Başka sekme / sayfadan dönünce: hiçbir kategori kartı seçili kalmasın (varsayılan görünüm). */
   useFocusEffect(
@@ -143,30 +159,16 @@ export default function HomeScreen() {
         : portfolioMetrics.totalChangeAmtUSD;
   const pctPositive = heroPct >= 0;
 
-  const fmtMoney = (n: number) =>
-    valueCurrency === 'USD'
-      ? `$${n.toLocaleString('en-US', { minimumFractionDigits: 0, maximumFractionDigits: 0 })}`
-      : `${n.toLocaleString(numberLocale, { minimumFractionDigits: 0, maximumFractionDigits: 0 })} ${t('home.currencyTL')}`;
+  const fmtMoney = (n: number) => formatDisplayMoneyCeil(n, valueCurrency, numberLocale);
 
   const fmtRowMoney = (tl: number, usd: number) =>
-    valueCurrency === 'USD'
-      ? `$${usd.toLocaleString('en-US', { minimumFractionDigits: 0, maximumFractionDigits: 0 })}`
-      : `${tl.toLocaleString(numberLocale, { minimumFractionDigits: 0, maximumFractionDigits: 0 })} ${t('home.currencyTL')}`;
+    formatDisplayMoneyCeil(valueCurrency === 'USD' ? usd : tl, valueCurrency, numberLocale);
 
   const pctStr = `${pctPositive ? '+' : ''}${heroPct.toLocaleString(numberLocale, {
     minimumFractionDigits: 1,
     maximumFractionDigits: 2,
   })}%`;
-  const heroAmtStr =
-    valueCurrency === 'USD'
-      ? `${heroAmt >= 0 ? '+' : '-'}$${Math.abs(heroAmt).toLocaleString('en-US', {
-          minimumFractionDigits: 0,
-          maximumFractionDigits: 0,
-        })}`
-      : `${heroAmt >= 0 ? '+' : '-'}${Math.abs(heroAmt).toLocaleString(numberLocale, {
-          minimumFractionDigits: 0,
-          maximumFractionDigits: 0,
-        })} ${t('home.currencyTL')}`;
+  const heroAmtStr = formatDisplaySignedMoney(heroAmt, valueCurrency, numberLocale);
 
   const handleGridCategoryPress = (row: AllocationBreakdownRow) => {
     const now = Date.now();
@@ -228,9 +230,7 @@ export default function HomeScreen() {
                       {maskIfHidden(
                         mainTotal > 0
                           ? fmtMoney(mainTotal)
-                          : valueCurrency === 'USD'
-                            ? '$0'
-                            : `0 ${t('home.currencyTL')}`,
+                          : formatDisplayMoneyCeil(0, valueCurrency, numberLocale),
                       )}
                     </Text>
                   </View>
@@ -360,10 +360,16 @@ export default function HomeScreen() {
                       <Text
                         style={[
                           styles.donutPortfolioTitle,
-                          { fontFamily: fontHead800, fontSize: layout.donutTitleFontSize, lineHeight: layout.donutTitleFontSize + 4 },
+                          {
+                            fontFamily: fontHead800,
+                            fontSize: donutCenterFontSize,
+                            lineHeight: donutCenterFontSize + 3,
+                          },
                         ]}
-                        numberOfLines={3}>
-                        {currentPortfolioName || t('portfolio.headerTitle')}
+                        numberOfLines={3}
+                        adjustsFontSizeToFit={Platform.OS === 'ios'}
+                        minimumFontScale={0.72}>
+                        {donutCenterTitle}
                       </Text>
                     </Pressable>
                   }
@@ -405,16 +411,7 @@ export default function HomeScreen() {
                     minimumFractionDigits: 2,
                     maximumFractionDigits: 2,
                   })}%`;
-                  const dayAmtStr =
-                    valueCurrency === 'USD'
-                      ? `${rowAmt >= 0 ? '+' : '-'}${Math.abs(rowAmt).toLocaleString('en-US', {
-                          minimumFractionDigits: 0,
-                          maximumFractionDigits: 0,
-                        })}`
-                      : `${rowAmt >= 0 ? '+' : ''}${rowAmt.toLocaleString(numberLocale, {
-                          minimumFractionDigits: 0,
-                          maximumFractionDigits: 0,
-                        })}`;
+                  const dayAmtStr = formatDisplaySignedMoney(rowAmt, valueCurrency, numberLocale);
                   const iconName = CATEGORY_ICONS[row.categoryId] ?? 'pricetag-outline';
                   return (
                     <Pressable
@@ -455,9 +452,7 @@ export default function HomeScreen() {
                               dayPos ? styles.gridDayPositive : styles.gridDayNegative,
                             ]}
                             numberOfLines={1}>
-                            {maskIfHidden(
-                              `${dayAmtStr}${valueCurrency === 'TL' ? ` ${t('home.currencyTL')}` : ' USD'}`,
-                            )}
+                            {maskIfHidden(dayAmtStr)}
                           </Text>
                         </View>
                       </View>
@@ -608,20 +603,20 @@ const styles = StyleSheet.create({
     overflow: 'visible',
   },
   centerPicker: {
+    width: '100%',
     alignItems: 'center',
     justifyContent: 'center',
-    paddingVertical: 8,
-    paddingHorizontal: 10,
-    maxWidth: 220,
+    paddingVertical: 4,
+    paddingHorizontal: 2,
   },
   /** Portföy sekmesi `headerPortfolioTitle` ile aynı ölçü/renk. */
   donutPortfolioTitle: {
+    width: '100%',
     fontSize: 22,
     fontWeight: '800',
     color: PRIMARY,
     letterSpacing: -0.5,
     textAlign: 'center',
-    lineHeight: 26,
   },
 
   grid: {

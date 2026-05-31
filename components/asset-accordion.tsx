@@ -11,6 +11,8 @@ import {
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 
+import { formatDisplayMoney } from '@/lib/display-currency';
+
 if (Platform.OS === 'android' && UIManager.setLayoutAnimationEnabledExperimental) {
   UIManager.setLayoutAnimationEnabledExperimental(true);
 }
@@ -45,11 +47,7 @@ export const AssetAccordion: React.FC<Props> = ({ title, totalBalance, items }) 
         <View style={styles.leftCol}>
           <Text style={styles.symbol}>{item.symbol}</Text>
           <Text style={styles.unitPrice}>
-            {item.unitPrice.toLocaleString('tr-TR', {
-              minimumFractionDigits: 2,
-              maximumFractionDigits: 2,
-            })}{' '}
-            TL
+            {formatDisplayMoney(item.unitPrice, 'TL', 'tr-TR')}
           </Text>
         </View>
 
@@ -78,11 +76,7 @@ export const AssetAccordion: React.FC<Props> = ({ title, totalBalance, items }) 
         </View>
         <View style={styles.headerRight}>
           <Text style={styles.total}>
-            {totalBalance.toLocaleString('tr-TR', {
-              minimumFractionDigits: 2,
-              maximumFractionDigits: 2,
-            })}{' '}
-            TL
+            {formatDisplayMoney(totalBalance, 'TL', 'tr-TR')}
           </Text>
           <Ionicons
             name={expanded ? 'chevron-up-outline' : 'chevron-down-outline'}

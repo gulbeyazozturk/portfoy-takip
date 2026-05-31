@@ -6,7 +6,9 @@ import {
   ActivityIndicator,
   Alert,
   InputAccessoryView,
+  Image,
   Keyboard,
+  KeyboardAvoidingView,
   Modal,
   Platform,
   Pressable,
@@ -17,9 +19,9 @@ import {
   TouchableOpacity,
   View,
 } from 'react-native';
-import { Image } from 'expo-image';
 import Svg, { Circle, Defs, LinearGradient, Path, Stop } from 'react-native-svg';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import DateTimePicker, { type DateTimePickerEvent } from '@react-native-community/datetimepicker';
 
 import { ScreenWithFooter } from '@/components/screen-with-footer';
 import { ThemedText } from '@/components/themed-text';
@@ -27,13 +29,19 @@ import { ThemedView } from '@/components/themed-view';
 import { usePortfolio } from '@/context/portfolio';
 import { kriptoStoredUnitToUsd, legacyCryptoStoredUnitToUsd } from '@/lib/crypto-price-usd';
 import { isUsdNativeCategory } from '@/lib/portfolio-currency';
+import { formatCostDateText, parseCostDateText, sanitizeCostDateText } from '@/lib/cost-date-input';
+import { displayCurrencyPrefix } from '@/lib/display-currency';
+import { parseTrDecimal, sanitizeTrDecimalInput } from '@/lib/tr-decimal-input';
 import { resolveBistDisplayName } from '@/lib/bist-display-name';
+import { toTitleCaseWords } from '@/lib/display-title-case';
 import { effectiveChange24hPctForDisplay } from '@/lib/effective-change-24h';
+import { dailyPrevValueFromChangePct } from '@/lib/fon-price-guards';
 import { extractCostDateFromNotes, upsertCostDateInNotes } from '@/lib/holding-notes-cost-date';
 import { fetchInstantUnitPrice } from '@/lib/instant-price';
 import { getUsdTryRateForDate } from '@/lib/usdtry-rate-for-date';
 import { supabase } from '@/lib/supabase';
 import { Brand } from '@/constants/brand';
+import { assetAvatarBg } from '@/lib/asset-avatar';
 import { useTranslation } from 'react-i18next';
 
 /** Portföy sekmesi (`portfolio.tsx`). */
@@ -71,31 +79,18 @@ function parseHoldingQtyString(raw: string | undefined): number {
   return Number.isFinite(n) ? n : 0;
 }
 
-function parseCostDate(day: string, month: string, year: string): Date | null {
-  if (!day && !month && !year) return null;
-  if (!(day && month && year)) return null;
-  const d = Number(day);
-  const m = Number(month);
-  const y = Number(year);
-  if (!Number.isFinite(d) || !Number.isFinite(m) || !Number.isFinite(y)) return null;
-  if (y < 1900 || y > 2100) return null;
-  const dt = new Date(Date.UTC(y, m - 1, d));
-  if (
-    dt.getUTCFullYear() !== y ||
-    dt.getUTCMonth() !== m - 1 ||
-    dt.getUTCDate() !== d
-  ) {
-    return null;
-  }
-  return dt;
-}
-
 const CHART_W = 300;
 const CHART_H = 165;
 /** Obsidian-style palette (HTML referans) */
 const PRIMARY = '#89acff';
 const CHART_GREEN = Brand.chartPositive;
 const CHART_RED = Brand.chartNegative;
+const TXN_GREEN = '#22c55e';
+const TXN_GREEN_BG = 'rgba(34,197,94,0.14)';
+const TXN_ORANGE = '#fb923c';
+const TXN_ORANGE_BG = 'rgba(251,146,60,0.18)';
+const TXN_RED = '#ef4444';
+const TXN_RED_BG = 'rgba(239,68,68,0.14)';
 const SURFACE = '#0e0e0e';
 const SURFACE_LOW = '#131313';
 const SURFACE_HIGH = '#1f1f1f';
@@ -297,7 +292,11 @@ export default function AssetEntryScreen() {
     spotCurrency?: string;
     quantity?: string;
     avgPrice?: string;
+    /** Varlık listesinden doğrudan işlem sheet (ekle modu). */
+    openTransaction?: string;
   }>();
+
+  const openTransactionOnEntry = firstParam(params.openTransaction) === '1';
 
   const routeHoldingId = useMemo(() => firstParam(params.holdingId), [params.holdingId]);
 
@@ -310,6 +309,10 @@ export default function AssetEntryScreen() {
     if (categoryId === 'bist') return resolveBistDisplayName(symbol, raw);
     return raw;
   }, [params.name, categoryId, symbol, t]);
+  const heroDisplayName = useMemo(
+    () => (categoryId === 'bist' ? name : toTitleCaseWords(name)),
+    [categoryId, name],
+  );
   const returnTo = params.returnTo as string | undefined;
   const returnCategoryId = params.returnCategoryId as string | undefined;
   const returnLabel = params.returnLabel as string | undefined;
@@ -319,7 +322,7 @@ export default function AssetEntryScreen() {
   const [spotCurrency, setSpotCurrency] = useState<string | null>(() => routeSpotCurrency || null);
   /** Liste/parametre seed; ekranda DB’den güncellenir (yurtdışı/kripto senkron sonrası doğru fiyat ve %). */
   const [livePrice, setLivePrice] = useState(0);
-  const [assetIconUrl, setAssetIconUrl] = useState<string | null>(null);
+  const [iconUrl, setIconUrl] = useState<string | null>(null);
   const priceRaw = livePrice > 0 ? livePrice : routePrice;
 
   useEffect(() => {
@@ -387,19 +390,15 @@ export default function AssetEntryScreen() {
 
   type FormMode = 'add' | 'reduce' | 'delete';
   const [formMode, setFormMode] = useState<FormMode>('add');
-  const [inputWhole, setInputWhole] = useState('');
-  const [inputDecimal, setInputDecimal] = useState('');
+  const [inputQtyStr, setInputQtyStr] = useState('');
   const [inputCost, setInputCost] = useState('');
-  const [costDateDay, setCostDateDay] = useState('');
-  const [costDateMonth, setCostDateMonth] = useState('');
-  const [costDateYear, setCostDateYear] = useState('');
+  const [costDateText, setCostDateText] = useState('');
+  const [costDatePickerVisible, setCostDatePickerVisible] = useState(false);
+  const [costDatePickerValue, setCostDatePickerValue] = useState(() => new Date());
   const [showDeleteModal, setShowDeleteModal] = useState(false);
+  const [transactionOpen, setTransactionOpen] = useState(false);
   const [actionToast, setActionToast] = useState<'add' | 'reduce' | null>(null);
   const actionToastTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const qtyDecimalInputRef = useRef<TextInput>(null);
-  const costDateDayRef = useRef<TextInput>(null);
-  const costDateMonthRef = useRef<TextInput>(null);
-  const costDateYearRef = useRef<TextInput>(null);
   const scrollViewRef = useRef<ScrollView>(null);
   const keyboardHeightRef = useRef(0);
   const scrollViewLayoutHRef = useRef(0);
@@ -435,6 +434,22 @@ export default function AssetEntryScreen() {
     setSuppressAndroidNumericAccessory(false);
   }, []);
 
+  const openTransactionSheet = useCallback(() => {
+    setFormMode('add');
+    setInputQtyStr('');
+    setInputCost('');
+    setCostDateText('');
+    setTransactionOpen(true);
+  }, []);
+
+  const closeTransactionSheet = useCallback(() => {
+    Keyboard.dismiss();
+    setTransactionOpen(false);
+    if (openTransactionOnEntry) {
+      handleBack();
+    }
+  }, [openTransactionOnEntry, handleBack]);
+
   const showActionToast = useCallback((kind: 'add' | 'reduce') => {
     if (actionToastTimerRef.current) {
       clearTimeout(actionToastTimerRef.current);
@@ -444,7 +459,7 @@ export default function AssetEntryScreen() {
     actionToastTimerRef.current = setTimeout(() => {
       setActionToast(null);
       actionToastTimerRef.current = null;
-    }, 1000);
+    }, 3000);
   }, []);
 
   const scrollFormFieldsIntoView = useCallback(() => {
@@ -497,14 +512,16 @@ export default function AssetEntryScreen() {
       }
       setSuppressAndroidNumericAccessory(false);
       setFormMode('add');
-      setInputWhole('');
-      setInputDecimal('');
+      setInputQtyStr('');
       setInputCost('');
-      setCostDateDay('');
-      setCostDateMonth('');
-      setCostDateYear('');
+      setCostDateText('');
       setHoldingRefreshSeq((s) => s + 1);
-    }, [assetId, portfolioId, routeHoldingId]),
+      if (openTransactionOnEntry) {
+        setTransactionOpen(true);
+      } else {
+        setTransactionOpen(false);
+      }
+    }, [assetId, portfolioId, routeHoldingId, openTransactionOnEntry]),
   );
 
   useEffect(() => {
@@ -570,12 +587,6 @@ export default function AssetEntryScreen() {
     if (qty > 0 && currentPrice > 0) return currentPrice;
     return 0;
   }, [avgCostUsd, qty, currentPrice]);
-
-  const dayChangeAmt = useMemo(() => {
-    if (change24hPct == null || !Number.isFinite(change24hPct) || currentPrice <= 0) return null;
-    const prev = currentPrice / (1 + change24hPct / 100);
-    return currentPrice - prev;
-  }, [change24hPct, currentPrice]);
 
   /** Route params ile miktarı ezme: holdingId ile açıldıysa sunucudan gelen değer geçerli. */
   useEffect(() => {
@@ -670,6 +681,8 @@ export default function AssetEntryScreen() {
     if (data?.currency != null && String(data.currency).trim() !== '') {
       setSpotCurrency(String(data.currency).trim());
     }
+    const nextIcon = data?.icon_url != null && String(data.icon_url).trim() !== '' ? String(data.icon_url) : null;
+    setIconUrl(nextIcon);
     let hasValidDbPrice = false;
     if (data?.current_price != null) {
       const p = Number(data.current_price);
@@ -699,12 +712,11 @@ export default function AssetEntryScreen() {
       new Date(),
     );
     setChange24hPct(eff != null && Number.isFinite(eff) ? eff : null);
-    const url = data?.icon_url;
-    setAssetIconUrl(typeof url === 'string' && url.length > 0 ? url : null);
   }, [assetId, categoryId, symbol]);
 
   useEffect(() => {
     setLivePrice(0);
+    setIconUrl(null);
   }, [assetId]);
 
   useEffect(() => {
@@ -735,7 +747,7 @@ export default function AssetEntryScreen() {
       setUsdTryAtCostDate(null);
       return;
     }
-    const typed = parseCostDate(costDateDay, costDateMonth, costDateYear);
+    const typed = parseCostDateText(costDateText);
     const selected =
       typed ??
       (storedCostDateIso ? new Date(`${storedCostDateIso}T00:00:00.000Z`) : null);
@@ -765,7 +777,7 @@ export default function AssetEntryScreen() {
     return () => {
       cancelled = true;
     };
-  }, [categoryId, costDateDay, costDateMonth, costDateYear, storedCostDateIso]);
+  }, [categoryId, costDateText, storedCostDateIso]);
 
   useEffect(() => {
     if (!holdingId) {
@@ -936,35 +948,53 @@ export default function AssetEntryScreen() {
     spotCurrency,
   ]);
 
-  const inputQty = useMemo(() => {
-    const w = parseInt(inputWhole || '0', 10) || 0;
-    const d = inputDecimal ? parseFloat(`0.${inputDecimal}`) : 0;
-    return w + d;
-  }, [inputWhole, inputDecimal]);
+  const inputQty = useMemo(() => parseTrDecimal(inputQtyStr), [inputQtyStr]);
 
-  /**
-   * Sol kutu: sistem decimal-pad (TR’de çoğunlukla virgül, iOS’ta bazen nokta).
-   * Ayırıcı girilince tam kısım / ondalık bölünür ve odak sağa geçer.
-   */
-  const onQtyWholeChange = useCallback((txt: string) => {
-    const t = txt.replace(/,/g, '.');
-    const dot = t.indexOf('.');
-    if (dot >= 0) {
-      const w = t.slice(0, dot).replace(/[^0-9]/g, '');
-      const d = t.slice(dot + 1).replace(/[^0-9]/g, '').slice(0, 10);
-      setInputWhole(w);
-      setInputDecimal(d);
-      requestAnimationFrame(() => qtyDecimalInputRef.current?.focus());
-      return;
-    }
-    setInputWhole(t.replace(/[^0-9]/g, '').slice(0, 14));
+  const onInputQtyChange = useCallback((txt: string) => {
+    setInputQtyStr(sanitizeTrDecimalInput(txt));
   }, []);
 
-  const navigateBack = () => {
+  const onInputCostChange = useCallback((txt: string) => {
+    setInputCost(sanitizeTrDecimalInput(txt, 8));
+  }, []);
+
+  const onCostDateTextChange = useCallback((txt: string) => {
+    setCostDateText(sanitizeCostDateText(txt));
+  }, []);
+
+  const openCostDatePicker = useCallback(() => {
+    const parsed = parseCostDateText(costDateText);
+    setCostDatePickerValue(parsed ?? new Date());
+    setCostDatePickerVisible(true);
+    Keyboard.dismiss();
+  }, [costDateText]);
+
+  const onCostDatePickerChange = useCallback((event: DateTimePickerEvent, date?: Date) => {
+    if (Platform.OS === 'android') {
+      setCostDatePickerVisible(false);
+      if (event.type === 'set' && date) {
+        setCostDateText(formatCostDateText(date));
+      }
+      return;
+    }
+    if (date) setCostDatePickerValue(date);
+  }, []);
+
+  const confirmCostDatePicker = useCallback(() => {
+    setCostDateText(formatCostDateText(costDatePickerValue));
+    setCostDatePickerVisible(false);
+  }, [costDatePickerValue]);
+
+  const navigateBack = (options?: { txnToast?: 'add' | 'reduce' }) => {
     if (returnTo === '/(tabs)/asset-list' && returnCategoryId != null) {
       router.replace({
         pathname: '/(tabs)/asset-list',
-        params: { categoryId: returnCategoryId, label: returnLabel ?? '', _t: Date.now().toString() },
+        params: {
+          categoryId: returnCategoryId,
+          label: returnLabel ?? '',
+          _t: Date.now().toString(),
+          ...(options?.txnToast ? { txnToast: options.txnToast } : {}),
+        },
       });
     } else if (isReturnToPortfolioTab(returnTo)) {
       router.replace(PORTFOLIO_TAB_HREF);
@@ -983,10 +1013,10 @@ export default function AssetEntryScreen() {
       return;
     }
     const isUsdNative = isUsdNativeCategory(categoryId);
-    const hasAnyDatePart = Boolean(costDateDay || costDateMonth || costDateYear);
-    const parsedCostDate = parseCostDate(costDateDay, costDateMonth, costDateYear);
+    const hasAnyDatePart = Boolean(costDateText.trim());
+    const parsedCostDate = parseCostDateText(costDateText);
     if (!isUsdNative && categoryId !== 'mevduat' && hasAnyDatePart && !parsedCostDate) {
-      Alert.alert(t('assetEntry.errorTitle'), 'Satın alma tarihi geçersiz. GG-AA-YYYY formatında girin.');
+      Alert.alert(t('assetEntry.errorTitle'), t('assetEntry.invalidCostDate'));
       return;
     }
     const pid = portfolioId ?? (await refreshPortfolios());
@@ -1000,8 +1030,8 @@ export default function AssetEntryScreen() {
     const nextNotes = upsertCostDateInNotes(holdingNotes, costDateIso);
     let cost = isMevduat
       ? null
-      : inputCost
-        ? parseFloat(inputCost.replace(',', '.'))
+      : inputCost.trim()
+        ? parseTrDecimal(inputCost)
         : null;
     let instantUnitPrice: number | null = null;
     if (!isMevduat) {
@@ -1103,16 +1133,18 @@ export default function AssetEntryScreen() {
           .eq('id', assetId);
         }
       }
-      setInputWhole('');
-      setInputDecimal('');
+      setInputQtyStr('');
       setInputCost('');
-      setCostDateDay('');
-      setCostDateMonth('');
-      setCostDateYear('');
+      setCostDateText('');
       requestAnimationFrame(() => {
         scrollViewRef.current?.scrollTo({ y: 0, animated: true });
       });
-      showActionToast('add');
+      if (openTransactionOnEntry) {
+        navigateBack({ txnToast: 'add' });
+      } else {
+        setTransactionOpen(false);
+        showActionToast('add');
+      }
     } catch (e: any) {
       Alert.alert(t('assetEntry.errorTitle'), e?.message ?? String(e));
     } finally {
@@ -1174,11 +1206,11 @@ export default function AssetEntryScreen() {
         return;
       }
       setAmount(String(updated.quantity ?? newQty));
-      setInputWhole('');
-      setInputDecimal('');
+      setInputQtyStr('');
       requestAnimationFrame(() => {
         scrollViewRef.current?.scrollTo({ y: 0, animated: true });
       });
+      setTransactionOpen(false);
       showActionToast('reduce');
     }
   };
@@ -1224,23 +1256,22 @@ export default function AssetEntryScreen() {
   };
 
   const isUSD = isUsdNativeCategory(categoryId);
-  const curr = isUSD ? '$' : '';
-  const currSuffix = isUSD ? '' : ` ${t('home.currencyTL')}`;
+  const curr = displayCurrencyPrefix(isUSD ? 'USD' : 'TL');
   const hasActiveHolding = Boolean(holdingId && qty > 0);
   const marketValue = qty * currentPrice;
   const totalCost = qty * effectiveAvgCostUsd;
   const totalGainLoss = qty > 0 && currentPrice > 0 ? marketValue - totalCost : 0;
   const isPositive = totalGainLoss >= 0;
 
-  const hasValidCostDate = Boolean(parseCostDate(costDateDay, costDateMonth, costDateYear));
-  const hasAnyCostDatePart = Boolean(costDateDay || costDateMonth || costDateYear);
+  const hasValidCostDate = Boolean(parseCostDateText(costDateText));
+  const hasAnyCostDatePart = Boolean(costDateText.trim());
   const hasStoredCostDate = Boolean(storedCostDateIso);
   const canConvertToUsd = isUSD || usdTry > 0;
   const usdTryForCost =
     hasValidCostDate || hasAnyCostDatePart || hasStoredCostDate
       ? (usdTryAtCostDate && usdTryAtCostDate > 0 ? usdTryAtCostDate : 0)
       : usdTry;
-  const inputCostNum = inputCost ? parseFloat(inputCost.replace(',', '.')) || 0 : 0;
+  const inputCostNum = inputCost.trim() ? parseTrDecimal(inputCost) : 0;
 
   const addTimePriceDisplay = useMemo(() => {
     if (addTimePriceRaw == null || addTimePriceRaw <= 0) return null;
@@ -1320,6 +1351,12 @@ export default function AssetEntryScreen() {
     return v < 0 ? `-${trimmed}` : trimmed;
   };
 
+  /** Hero spot fiyat: her zaman 2 ondalık (ör. ₺126,20). */
+  const fmtHeroSpotPrice = (v: number) => {
+    if (!Number.isFinite(v) || v <= 0) return '—';
+    return v.toLocaleString(numberLocale, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  };
+
   /** Pozisyonum kartı tutarları: kuruş yok, yukarı yuvarlı tam sayı. `locale` USD sütunu için `en-US`. */
   const fmtPositionMoneyCeil = (v: number, locale: string = numberLocale) => {
     if (!Number.isFinite(v)) {
@@ -1377,7 +1414,7 @@ export default function AssetEntryScreen() {
     return currentPrice;
   }, [selectedIdx, priceHistory, currentPrice]);
 
-  const bigPriceText = `${curr}${fmtVal(displayPrice)}${currSuffix}`;
+  const bigPriceText = `${curr}${fmtVal(displayPrice)}`;
 
   const chartChange = useMemo(() => {
     const refClose =
@@ -1442,65 +1479,128 @@ export default function AssetEntryScreen() {
   const positionGainPct =
     hasExplicitAvgCost && totalCost > 0 ? (totalGainLoss / totalCost) * 100 : null;
 
+  const positionDailyReturn = useMemo(() => {
+    if (qty <= 0 || marketValue <= 0 || change24hPct == null || !Number.isFinite(change24hPct)) {
+      return null;
+    }
+    const { dailyDelta } = dailyPrevValueFromChangePct(marketValue, change24hPct);
+    return { amt: dailyDelta, pct: change24hPct };
+  }, [qty, marketValue, change24hPct]);
+
+  const formatPositionMoney = (v: number) => `${curr}${fmtPositionTotalValue(v)}`;
+
+  const formatReturnLine = (amt: number, pct: number) => {
+    const money =
+      amt >= 0
+        ? `${curr}${fmtPositionTotalValue(amt)}`
+        : `-${curr}${fmtPositionTotalValue(Math.abs(amt))}`;
+    const pctSign = pct >= 0 ? '+' : '-';
+    return `${money} (${pctSign}${Math.abs(pct).toLocaleString(numberLocale, {
+      minimumFractionDigits: 2,
+      maximumFractionDigits: 2,
+    })}%)`;
+  };
+
+  /** Alım tarihi + o günkü USD/TRY kuru ile birim maliyet (USD); yalnızca TL varlıklarda. */
+  const avgCostUsdAtPurchaseDate = useMemo(() => {
+    if (isUSD || categoryId === 'mevduat') return null;
+    const hasCostDate = hasValidCostDate || hasStoredCostDate;
+    if (!hasCostDate || !(usdTryAtCostDate != null && usdTryAtCostDate > 0)) return null;
+    if (!hasExplicitAvgCost || avgCostUsd <= 0) return null;
+    const usd = avgCostUsd / usdTryAtCostDate;
+    return Number.isFinite(usd) && usd > 0 ? usd : null;
+  }, [
+    isUSD,
+    categoryId,
+    hasValidCostDate,
+    hasStoredCostDate,
+    usdTryAtCostDate,
+    hasExplicitAvgCost,
+    avgCostUsd,
+  ]);
+
+  const formatAvgCostUsd = (v: number) =>
+    `$${v.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+
+  /** Alım günü USD maliyetine göre bugünkü toplam getiri (USD). Ort. fiyat USD satırıyla aynı koşulda. */
+  const positionTotalReturnUsd = useMemo(() => {
+    if (avgCostUsdAtPurchaseDate == null || qty <= 0 || currentPrice <= 0 || !(usdTry > 0)) return null;
+    const investedUsd = qty * avgCostUsdAtPurchaseDate;
+    const marketUsd = marketValue / usdTry;
+    const amt = marketUsd - investedUsd;
+    if (!Number.isFinite(amt) || !(investedUsd > 0)) return null;
+    const pct = (amt / investedUsd) * 100;
+    return Number.isFinite(pct) ? { amt, pct } : null;
+  }, [avgCostUsdAtPurchaseDate, qty, currentPrice, marketValue, usdTry]);
+
+  const formatUsdMoneySigned = (v: number) => {
+    const body = Math.abs(v).toLocaleString('en-US', {
+      minimumFractionDigits: 2,
+      maximumFractionDigits: 2,
+    });
+    return v >= 0 ? `$${body}` : `-$${body}`;
+  };
+
+  const formatUsdReturnLine = (amt: number, pct: number) => {
+    const pctSign = pct >= 0 ? '+' : '-';
+    return `${formatUsdMoneySigned(amt)} (${pctSign}${Math.abs(pct).toLocaleString(numberLocale, {
+      minimumFractionDigits: 2,
+      maximumFractionDigits: 2,
+    })}%)`;
+  };
+
+  const assetIconBg = useMemo(
+    () => assetAvatarBg(symbol, categoryId ?? 'default'),
+    [symbol, categoryId],
+  );
+
   const formFooter = useMemo(() => {
+    const ctaBase = [styles.transactionSheetCta, saving && styles.actionBtnDisabled];
+    const ctaTextWhite = [styles.transactionSheetCtaText, { color: '#ffffff' }];
+
     if (formMode === 'add') {
       return (
-        <View style={styles.footerPad}>
-          <TouchableOpacity
-            style={[
-              styles.confirmCta,
-              styles.confirmCtaAdd,
-              saving && styles.actionBtnDisabled,
-              categoryId === 'mevduat' && { marginTop: 0 },
-            ]}
-            activeOpacity={0.9}
-            onPress={handleAdd}
-            disabled={saving}>
-            {saving ? (
-              <ActivityIndicator size="small" color={ON_PRIMARY_FIXED} />
-            ) : (
-              <ThemedText style={styles.confirmCtaText}>{t('assetEntry.btnAdd')}</ThemedText>
-            )}
-          </TouchableOpacity>
-        </View>
+        <TouchableOpacity
+          style={[...ctaBase, styles.transactionSheetCtaAdd]}
+          activeOpacity={0.9}
+          onPress={handleAdd}
+          disabled={saving}>
+          {saving ? (
+            <ActivityIndicator size="small" color="#ffffff" />
+          ) : (
+            <ThemedText style={ctaTextWhite}>{t('assetEntry.btnSubmitTransaction')}</ThemedText>
+          )}
+        </TouchableOpacity>
       );
     }
     if (formMode === 'reduce') {
       return (
-        <View style={styles.footerPad}>
-          <TouchableOpacity
-            style={[styles.confirmCta, styles.confirmCtaAmber, saving && styles.actionBtnDisabled]}
-            activeOpacity={0.9}
-            onPress={handleReduce}
-            disabled={saving}>
-            {saving ? (
-              <ActivityIndicator size="small" color="#fff" />
-            ) : (
-              <ThemedText style={[styles.confirmCtaText, { color: '#fff' }]}>
-                {t('assetEntry.btnReduce')}
-              </ThemedText>
-            )}
-          </TouchableOpacity>
-        </View>
+        <TouchableOpacity
+          style={[...ctaBase, styles.transactionSheetCtaReduce]}
+          activeOpacity={0.9}
+          onPress={handleReduce}
+          disabled={saving}>
+          {saving ? (
+            <ActivityIndicator size="small" color="#ffffff" />
+          ) : (
+            <ThemedText style={ctaTextWhite}>{t('assetEntry.btnSubmitTransaction')}</ThemedText>
+          )}
+        </TouchableOpacity>
       );
     }
     if (formMode === 'delete' && holdingId) {
       return (
-        <View style={styles.footerPad}>
-          <TouchableOpacity
-            style={[styles.confirmCta, styles.confirmCtaDanger, saving && styles.actionBtnDisabled]}
-            activeOpacity={0.9}
-            onPress={handleDeleteConfirm}
-            disabled={saving}>
-            {saving ? (
-              <ActivityIndicator size="small" color="#fff" />
-            ) : (
-              <ThemedText style={[styles.confirmCtaText, { color: '#fff' }]}>
-                {t('assetEntry.btnDelete')}
-              </ThemedText>
-            )}
-          </TouchableOpacity>
-        </View>
+        <TouchableOpacity
+          style={[...ctaBase, styles.transactionSheetCtaDelete]}
+          activeOpacity={0.9}
+          onPress={handleDeleteConfirm}
+          disabled={saving}>
+          {saving ? (
+            <ActivityIndicator size="small" color="#ffffff" />
+          ) : (
+            <ThemedText style={ctaTextWhite}>{t('assetEntry.btnDelete')}</ThemedText>
+          )}
+        </TouchableOpacity>
       );
     }
     return null;
@@ -1508,7 +1608,6 @@ export default function AssetEntryScreen() {
     formMode,
     saving,
     holdingId,
-    categoryId,
     handleAdd,
     handleReduce,
     handleDeleteConfirm,
@@ -1529,388 +1628,418 @@ export default function AssetEntryScreen() {
             <View style={styles.obsHeaderSpacer} />
           </View>
         }
-        footer={formFooter}
-        contentContainerStyle={{
-          paddingBottom: 16 + (Platform.OS === 'android' ? keyboardHeight : 0),
-        }}
+        contentContainerStyle={{ paddingBottom: 16 }}
         scrollProps={{
           onLayout: (e) => {
             scrollViewLayoutHRef.current = e.nativeEvent.layout.height;
           },
-        }}
-        footerStyle={styles.footerShell}>
+        }}>
           <View style={styles.heroBlock}>
             <View style={styles.heroIdentity}>
-              <View style={styles.heroIconBox}>
-                {assetIconUrl ? (
-                  <Image source={{ uri: assetIconUrl }} style={styles.heroIconImg} contentFit="contain" />
-                ) : (
-                  <Ionicons name="cube-outline" size={26} color={PRIMARY} />
-                )}
-              </View>
               <ThemedText style={styles.heroSymbolSmall}>{(symbol || '—').toUpperCase()}</ThemedText>
               <ThemedText style={styles.heroNameLarge} numberOfLines={3}>
-                {name}
+                {heroDisplayName}
               </ThemedText>
             </View>
             {showPriceSection && (
               <View style={styles.heroQuote}>
-                <ThemedText style={styles.heroSpotPrice}>
-                  {curr}
-                  {fmtVal(currentPrice)}
-                  {currSuffix}
-                </ThemedText>
-                {dayChangeAmt != null && change24hPct != null && Number.isFinite(change24hPct) ? (
-                  <View style={styles.heroDayChangeRow}>
-                    <Ionicons
-                      name={change24hPct >= 0 ? 'caret-up' : 'caret-down'}
-                      size={16}
-                      color={change24hPct >= 0 ? CHART_GREEN : CHART_RED}
-                    />
-                    <ThemedText
-                      style={[
-                        styles.heroDayChangeText,
-                        { color: change24hPct >= 0 ? CHART_GREEN : CHART_RED },
-                      ]}>
-                      {change24hPct >= 0 ? '+' : ''}
-                      {curr}
-                      {fmtVal(Math.abs(dayChangeAmt))}
-                      {currSuffix} (
-                      {change24hPct >= 0 ? '+' : ''}
-                      {change24hPct.toLocaleString(numberLocale, { maximumFractionDigits: 2 })}%){' '}
-                      {t('assetEntry.today')}
-                    </ThemedText>
-                    <TouchableOpacity
-                      onPress={openChartScreen}
-                      activeOpacity={0.8}
-                      hitSlop={10}
-                      style={styles.chartOpenBtn}
-                    >
-                      <Ionicons
-                        name="analytics-outline"
-                        size={17}
-                        color={change24hPct >= 0 ? CHART_GREEN : CHART_RED}
-                      />
-                    </TouchableOpacity>
-                  </View>
-                ) : null}
-              </View>
-            )}
-          </View>
-
-          <ThemedText style={styles.sectionKicker}>{t('assetEntry.myPosition')}</ThemedText>
-          <View style={styles.positionCard}>
-            <View style={styles.positionCardTop}>
-              <View style={{ flex: 1 }}>
-                <ThemedText style={styles.positionCardLabel}>{t('assetEntry.positionTotalValue')}</ThemedText>
-                <ThemedText style={styles.positionCardBig}>
-                  {qty > 0 ? `${curr}${fmtPositionTotalValue(marketValue)}${currSuffix}` : '—'}
-                </ThemedText>
-              </View>
-              <View style={styles.positionPlBlock}>
-                <ThemedText style={styles.positionCardLabelSm}>{t('assetEntry.profitLoss')}</ThemedText>
-                <ThemedText
-                  style={[
-                    styles.positionPlAmt,
-                    hasExplicitAvgCost && (isPositive ? { color: CHART_GREEN } : { color: CHART_RED }),
-                    !hasExplicitAvgCost && { color: ON_SURFACE_MUTED },
-                  ]}>
-                  {qty > 0 && currentPrice > 0
-                    ? `${totalGainLoss >= 0 ? '+' : ''}${curr}${fmtPositionMoneyCeil(totalGainLoss)}${currSuffix}`
-                    : '—'}
-                </ThemedText>
-                {positionGainPct != null && Number.isFinite(positionGainPct) ? (
-                  <ThemedText
-                    style={[
-                      styles.positionPlPct,
-                      isPositive ? { color: CHART_GREEN } : { color: CHART_RED },
-                    ]}>
-                    ({isPositive ? '+' : ''}
-                    {positionGainPct.toLocaleString(numberLocale, { maximumFractionDigits: 2 })}%)
+                <View style={styles.heroPriceRow}>
+                  <ThemedText style={styles.heroSpotPrice}>
+                    {curr}
+                    {fmtHeroSpotPrice(currentPrice)}
                   </ThemedText>
-                ) : null}
-              </View>
-            </View>
-            <View style={styles.positionGridTopBorder}>
-              <View style={styles.positionGridCell}>
-                <ThemedText style={styles.positionCardLabelSm}>{t('assetEntry.holdings')}</ThemedText>
-                <ThemedText style={styles.positionGridValue}>
-                  {qty > 0 ? (
+                  {change24hPct != null && Number.isFinite(change24hPct) ? (
                     <>
-                      {qty.toLocaleString(numberLocale, { minimumFractionDigits: 0, maximumFractionDigits: 10 })}{' '}
-                      <ThemedText style={styles.positionGridSym}>{symbol || '—'}</ThemedText>
+                      <ThemedText
+                        style={[
+                          styles.heroDayPct,
+                          { color: change24hPct >= 0 ? CHART_GREEN : CHART_RED },
+                        ]}>
+                        ({change24hPct >= 0 ? '+' : ''}
+                        {change24hPct.toLocaleString(numberLocale, {
+                          minimumFractionDigits: 2,
+                          maximumFractionDigits: 2,
+                        })}
+                        %)
+                      </ThemedText>
+                      <TouchableOpacity
+                        onPress={openChartScreen}
+                        activeOpacity={0.8}
+                        hitSlop={10}
+                        style={styles.chartOpenBtn}>
+                        <Ionicons
+                          name="analytics-outline"
+                          size={20}
+                          color={change24hPct >= 0 ? CHART_GREEN : CHART_RED}
+                        />
+                      </TouchableOpacity>
                     </>
-                  ) : (
-                    '—'
-                  )}
-                </ThemedText>
+                  ) : null}
+                </View>
               </View>
-              <View style={styles.positionGridCell}>
-                <ThemedText style={styles.positionCardLabelSm}>{t('assetEntry.averageCost')}</ThemedText>
-                <ThemedText style={styles.positionGridValue}>
-                  {effectiveAvgCostUsd > 0 ? `${curr}${fmtMoneyCeil3(effectiveAvgCostUsd)}${currSuffix}` : '—'}
-                </ThemedText>
-              </View>
-              <View style={[styles.positionGridCell, styles.positionGridCellLast]}>
-                <ThemedText style={styles.positionCardLabelSm}>{t('assetEntry.invested')}</ThemedText>
-                <ThemedText style={styles.positionGridValue}>
-                  {effectiveAvgCostUsd > 0 && qty > 0
-                    ? `${curr}${fmtPositionMoneyCeil(totalCost)}${currSuffix}`
-                    : '—'}
-                </ThemedText>
-              </View>
-            </View>
-            <View style={styles.positionGridUsdRow}>
-              <View style={styles.positionGridCell}>
-                <ThemedText style={styles.positionCardLabelSm} numberOfLines={2}>
-                  {t('assetEntry.usdValue')}
-                </ThemedText>
-                <ThemedText style={styles.positionGridValueUsd}>
-                  {spotUnitUsd != null ? `$${fmtUsdCeil4(spotUnitUsd)}` : '—'}
-                </ThemedText>
-              </View>
-              <View style={styles.positionGridCell}>
-                <ThemedText
-                  style={styles.positionCardLabelSm}
-                  numberOfLines={1}
-                  adjustsFontSizeToFit
-                  minimumFontScale={0.68}>
-                  {t('assetEntry.averageCostUsd')}
-                </ThemedText>
-                <ThemedText style={styles.positionGridValueUsd}>
-                  {leftColUsdAvgOrEntry != null ? `$${fmtUsdCeil4(leftColUsdAvgOrEntry)}` : '—'}
-                </ThemedText>
-              </View>
-              <View style={[styles.positionGridCell, styles.positionGridCellLast]}>
-                <ThemedText style={styles.positionCardLabelSm} numberOfLines={2}>
-                  {t('assetEntry.profitLossUsd')}
-                </ThemedText>
-                <ThemedText
-                  style={[
-                    styles.positionGridValueUsd,
-                    gainLossUsd != null &&
-                      (gainLossUsdPositive ? { color: CHART_GREEN } : { color: CHART_RED }),
-                    gainLossUsd == null && { color: ON_SURFACE_MUTED },
-                  ]}>
-                  {gainLossUsd != null
-                    ? `${gainLossUsdPositive ? '+' : ''}$${fmtPositionMoneyCeil(gainLossUsd, 'en-US')}`
-                    : '—'}
-                </ThemedText>
-              </View>
-            </View>
+            )}
           </View>
 
-          <View
-            style={styles.transactionSection}
-            onLayout={(e) => {
-              transactionSectionTopRef.current = e.nativeEvent.layout.y;
-              transactionSectionHeightRef.current = e.nativeEvent.layout.height;
-            }}>
-            <View style={styles.modeRowObsidian}>
-            {(['add', 'reduce', 'delete'] as FormMode[]).map((m) => {
-              const label =
-                m === 'add'
-                  ? t('assetEntry.modeAddCaps')
-                  : m === 'reduce'
-                    ? t('assetEntry.modeReduceCaps')
-                    : t('assetEntry.modeDeleteCaps');
-              const active = formMode === m;
-              return (
-                <TouchableOpacity
-                  key={m}
-                  style={[styles.modePill, active && styles.modePillActive]}
-                  activeOpacity={0.85}
-                  onPress={() => {
-                    setFormMode(m);
-                    setInputWhole('');
-                    setInputDecimal('');
-                    setInputCost('');
-                  }}>
-                  <ThemedText
-                    numberOfLines={1}
-                    adjustsFontSizeToFit
-                    minimumFontScale={0.75}
-                    style={[
-                      styles.modePillText,
-                      active && styles.modePillTextActive,
-                      !active && m === 'delete' && styles.modePillTextDeleteIdle,
-                    ]}>
-                    {label}
-                  </ThemedText>
-                </TouchableOpacity>
-              );
-            })}
+          <View style={styles.positionCard}>
+            <ThemedText style={styles.positionCardTitle}>{t('assetEntry.myPosition')}</ThemedText>
+
+            <View style={styles.positionGrid2}>
+              <View style={styles.positionGridHalf}>
+                <ThemedText style={styles.positionMetricLabel}>{t('assetEntry.quantity')}</ThemedText>
+                <ThemedText style={styles.positionMetricValue}>
+                  {qty > 0
+                    ? qty.toLocaleString(numberLocale, { minimumFractionDigits: 0, maximumFractionDigits: 10 })
+                    : '—'}
+                </ThemedText>
+              </View>
+              <View style={styles.positionGridHalf}>
+                <ThemedText style={styles.positionMetricLabel}>{t('assetEntry.positionTotalValue')}</ThemedText>
+                <ThemedText style={styles.positionMetricValue}>
+                  {qty > 0 ? formatPositionMoney(marketValue) : '—'}
+                </ThemedText>
+              </View>
             </View>
 
-            <View style={styles.formInner}>
-            {(formMode === 'add' || formMode === 'reduce') && (
-              <>
-                <ThemedText style={styles.fieldLabelCaps}>
-                  {formMode === 'add' ? t('assetEntry.labelQtyAddCaps') : t('assetEntry.labelQtyReduceCaps')}
+            <View style={styles.positionGrid2}>
+              <View style={styles.positionGridHalf}>
+                <ThemedText style={styles.positionMetricLabel}>{t('assetEntry.avgPriceShort')}</ThemedText>
+                <ThemedText style={styles.positionMetricValue}>
+                  {effectiveAvgCostUsd > 0 ? formatPositionMoney(effectiveAvgCostUsd) : '—'}
                 </ThemedText>
-                <View style={styles.qtyInputShell}>
-                  <View style={{ flex: 1, minWidth: 0 }}>
-                    <View style={styles.splitRow}>
-                      <TextInput
-                        style={styles.splitInputObs}
-                        keyboardType="decimal-pad"
-                        placeholder="0"
-                        placeholderTextColor={ON_SURFACE_MUTED}
-                        value={inputWhole}
-                        onChangeText={onQtyWholeChange}
-                        maxLength={20}
-                        onFocus={() => {
-                          onQtyKeyboardFieldFocus();
-                          scrollQtyFormAboveKeyboard();
-                        }}
-                        onBlur={onQtyKeyboardFieldBlur}
-                      />
-                      <ThemedText style={styles.splitComma}>,</ThemedText>
-                      <TextInput
-                        ref={qtyDecimalInputRef}
-                        style={styles.splitInputObs}
-                        keyboardType="number-pad"
-                        placeholder="00"
-                        placeholderTextColor={ON_SURFACE_MUTED}
-                        maxLength={10}
-                        value={inputDecimal}
-                        onChangeText={(txt) => setInputDecimal(txt.replace(/[^0-9]/g, '').slice(0, 10))}
-                        onFocus={() => {
-                          onQtyKeyboardFieldFocus();
-                          scrollQtyFormAboveKeyboard();
-                        }}
-                        onBlur={onQtyKeyboardFieldBlur}
-                      />
-                    </View>
-                  </View>
-                  <ThemedText style={styles.qtyInputSuffixInline}>{amountUnitLabel}</ThemedText>
+              </View>
+              {avgCostUsdAtPurchaseDate != null ? (
+                <View style={styles.positionGridHalf}>
+                  <ThemedText style={styles.positionMetricLabel}>{t('assetEntry.avgPriceShortUsd')}</ThemedText>
+                  <ThemedText style={styles.positionMetricValueUsd}>
+                    {formatAvgCostUsd(avgCostUsdAtPurchaseDate)}
+                  </ThemedText>
                 </View>
-              </>
-            )}
+              ) : null}
+            </View>
 
-            {formMode === 'add' && (
-              <>
-                {categoryId !== 'mevduat' ? (
-                  <>
-                    <ThemedText style={[styles.fieldLabelCaps, { marginTop: 14 }]}>
-                      {t('assetEntry.labelUnitCostCaps')}
-                    </ThemedText>
-                    <TextInput
-                      style={styles.singleInputObs}
-                      keyboardType="numeric"
-                      placeholder="0"
-                      placeholderTextColor={ON_SURFACE_MUTED}
-                      value={inputCost}
-                      onChangeText={setInputCost}
-                      onFocus={() => {
-                        onNonQtyNumericFieldFocus();
-                        scrollFormFieldsIntoView();
-                      }}
-                      inputAccessoryViewID={NUMERIC_KEYBOARD_ACCESSORY_ID}
-                    />
-                    {!isUsdNativeCategory(categoryId) ? (
-                      <>
-                        <ThemedText style={[styles.fieldLabelCaps, { marginTop: 10 }]}>
-                          Satın Alma Tarihi (Opsiyonel)
+            <View style={styles.positionReturnRow}>
+              <ThemedText style={styles.positionMetricLabel}>{t('assetEntry.dailyReturn')}</ThemedText>
+              {positionDailyReturn ? (
+                <ThemedText
+                  style={[
+                    styles.positionReturnValue,
+                    { color: positionDailyReturn.amt >= 0 ? CHART_GREEN : CHART_RED },
+                  ]}>
+                  {formatReturnLine(positionDailyReturn.amt, positionDailyReturn.pct)}
+                </ThemedText>
+              ) : (
+                <ThemedText style={styles.positionReturnValueMuted}>—</ThemedText>
+              )}
+            </View>
+
+            <View style={styles.positionReturnRow}>
+              <ThemedText style={styles.positionMetricLabel}>{t('assetEntry.totalReturn')}</ThemedText>
+              {qty > 0 && currentPrice > 0 && positionGainPct != null && Number.isFinite(positionGainPct) ? (
+                <ThemedText
+                  style={[
+                    styles.positionReturnValue,
+                    { color: totalGainLoss >= 0 ? CHART_GREEN : CHART_RED },
+                  ]}>
+                  {formatReturnLine(totalGainLoss, positionGainPct)}
+                </ThemedText>
+              ) : (
+                <ThemedText style={styles.positionReturnValueMuted}>—</ThemedText>
+              )}
+            </View>
+
+            {positionTotalReturnUsd != null ? (
+              <View style={styles.positionReturnRow}>
+                <ThemedText style={styles.positionMetricLabel}>{t('assetEntry.totalReturnUsd')}</ThemedText>
+                <ThemedText
+                  style={[
+                    styles.positionReturnValue,
+                    { color: positionTotalReturnUsd.amt >= 0 ? CHART_GREEN : CHART_RED },
+                  ]}>
+                  {formatUsdReturnLine(positionTotalReturnUsd.amt, positionTotalReturnUsd.pct)}
+                </ThemedText>
+              </View>
+            ) : null}
+          </View>
+
+          <Pressable
+            style={styles.newTransactionRow}
+            onPress={openTransactionSheet}
+            accessibilityRole="button"
+            accessibilityLabel={t('assetEntry.newTransaction')}>
+            <View style={styles.newTransactionBtn}>
+              <View style={styles.newTransactionIconRing}>
+                <View style={styles.newTransactionIconFill}>
+                  <Ionicons name="add" size={22} color="#000000" />
+                </View>
+              </View>
+              <ThemedText style={styles.newTransactionLabel}>{t('assetEntry.newTransaction')}</ThemedText>
+            </View>
+          </Pressable>
+      </ScreenWithFooter>
+
+      <Modal
+        visible={transactionOpen}
+        animationType="slide"
+        presentationStyle="fullScreen"
+        onRequestClose={closeTransactionSheet}>
+        <View style={styles.transactionSheetPage}>
+          <KeyboardAvoidingView
+            style={styles.transactionSheetAvoidFull}
+            behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+            keyboardVerticalOffset={Platform.OS === 'ios' ? insets.top : 0}>
+            <View style={[styles.transactionSheetTopBar, { paddingTop: Math.max(insets.top, 14) }]}>
+                <TouchableOpacity
+                  onPress={closeTransactionSheet}
+                  hitSlop={12}
+                  activeOpacity={0.8}
+                  style={styles.transactionSheetCloseBtn}
+                  accessibilityRole="button"
+                  accessibilityLabel={t('settings.cancel')}>
+                  <Ionicons name="close" size={26} color="#ffffff" />
+                </TouchableOpacity>
+              </View>
+
+              <View style={styles.transactionSheetAssetHeader}>
+                <View style={styles.transactionSheetSymbolRow}>
+                  <View
+                    style={[
+                      styles.transactionSheetIconCircle,
+                      { backgroundColor: iconUrl ? '#ffffff' : assetIconBg },
+                    ]}>
+                    {iconUrl ? (
+                      <Image
+                        source={{ uri: iconUrl }}
+                        style={styles.transactionSheetIconImage}
+                        resizeMode="contain"
+                      />
+                    ) : (
+                      <ThemedText style={styles.transactionSheetIconLetter}>
+                        {(symbol || '?').charAt(0).toUpperCase()}
+                      </ThemedText>
+                    )}
+                  </View>
+                  <ThemedText style={styles.transactionSheetSymbol}>
+                    {(symbol || '—').toUpperCase()}
+                  </ThemedText>
+                </View>
+                <ThemedText style={styles.transactionSheetAssetName} numberOfLines={2}>
+                  {heroDisplayName}
+                </ThemedText>
+              </View>
+
+              <View style={styles.txnModeRow}>
+                {(['add', 'reduce', 'delete'] as FormMode[]).map((m) => {
+                  const label =
+                    m === 'add'
+                      ? t('assetEntry.btnAdd')
+                      : m === 'reduce'
+                        ? t('assetEntry.btnReduce')
+                        : t('assetEntry.btnDelete');
+                  const active = formMode === m;
+                  const tabStyle =
+                    m === 'add'
+                      ? active
+                        ? styles.txnModeTabActiveAdd
+                        : styles.txnModeTabIdle
+                      : m === 'reduce'
+                        ? active
+                          ? styles.txnModeTabActiveReduce
+                          : styles.txnModeTabIdle
+                        : active
+                          ? styles.txnModeTabActiveDelete
+                          : styles.txnModeTabIdle;
+                  const textStyle =
+                    m === 'delete' && !active
+                      ? styles.txnModeTabTextDeleteIdle
+                      : active
+                        ? styles.txnModeTabTextActive
+                        : styles.txnModeTabTextIdle;
+                  return (
+                    <TouchableOpacity
+                      key={m}
+                      style={[styles.txnModeTab, tabStyle]}
+                      activeOpacity={0.85}
+                      onPress={() => {
+                        setFormMode(m);
+                        setInputQtyStr('');
+                        setInputCost('');
+                        setCostDateText('');
+                      }}>
+                      <ThemedText
+                        numberOfLines={1}
+                        adjustsFontSizeToFit
+                        minimumFontScale={0.75}
+                        style={textStyle}>
+                        {label}
+                      </ThemedText>
+                    </TouchableOpacity>
+                  );
+                })}
+              </View>
+
+              <ScrollView
+                style={styles.transactionSheetScrollView}
+                keyboardShouldPersistTaps="handled"
+                contentContainerStyle={[
+                  styles.transactionSheetScroll,
+                  { paddingBottom: 12 + (Platform.OS === 'android' ? keyboardHeight : 0) },
+                ]}>
+                <View style={styles.txnFormCard}>
+                  {(formMode === 'add' || formMode === 'reduce') && (
+                    <View style={styles.txnFormRow}>
+                      <ThemedText style={styles.txnFormLabel}>
+                        {formMode === 'add'
+                          ? t('assetEntry.labelQtyAdd')
+                          : t('assetEntry.labelQtyReduce')}
+                      </ThemedText>
+                      <View style={styles.txnFormInputRow}>
+                        <TextInput
+                          style={styles.txnFormInput}
+                          keyboardType="decimal-pad"
+                          placeholder="0"
+                          placeholderTextColor="rgba(255,255,255,0.28)"
+                          value={inputQtyStr}
+                          onChangeText={onInputQtyChange}
+                          onFocus={onQtyKeyboardFieldFocus}
+                          onBlur={onQtyKeyboardFieldBlur}
+                        />
+                        <ThemedText style={styles.txnFormUnitChip}>{amountUnitLabel}</ThemedText>
+                      </View>
+                    </View>
+                  )}
+
+                  {formMode === 'add' && categoryId !== 'mevduat' && (
+                    <>
+                      <View style={styles.txnFormDivider} />
+                      <View style={styles.txnFormRow}>
+                        <ThemedText style={styles.txnFormLabel}>
+                          {t('assetEntry.labelUnitCost')}
                         </ThemedText>
-                        <View style={styles.dateRow}>
+                        <View style={styles.txnFormInputRow}>
+                          <ThemedText style={styles.txnFormCurrencyPrefix}>{curr}</ThemedText>
                           <TextInput
-                            ref={costDateDayRef}
-                            style={styles.dateInput}
-                            keyboardType="number-pad"
-                            placeholder="GG"
-                            placeholderTextColor={ON_SURFACE_MUTED}
-                            value={costDateDay}
-                            onChangeText={(v) => {
-                              const cleaned = v.replace(/[^0-9]/g, '').slice(0, 2);
-                              setCostDateDay(cleaned);
-                              if (cleaned.length === 2) {
-                                requestAnimationFrame(() => costDateMonthRef.current?.focus());
-                              }
-                            }}
-                            maxLength={2}
-                            returnKeyType="next"
-                            blurOnSubmit={false}
-                            onFocus={() => {
-                              onNonQtyNumericFieldFocus();
-                              scrollFormFieldsIntoView();
-                            }}
-                            inputAccessoryViewID={NUMERIC_KEYBOARD_ACCESSORY_ID}
-                          />
-                          <TextInput
-                            ref={costDateMonthRef}
-                            style={styles.dateInput}
-                            keyboardType="number-pad"
-                            placeholder="AA"
-                            placeholderTextColor={ON_SURFACE_MUTED}
-                            value={costDateMonth}
-                            onChangeText={(v) => {
-                              const cleaned = v.replace(/[^0-9]/g, '').slice(0, 2);
-                              setCostDateMonth(cleaned);
-                              if (cleaned.length === 2) {
-                                requestAnimationFrame(() => costDateYearRef.current?.focus());
-                              }
-                            }}
-                            maxLength={2}
-                            returnKeyType="next"
-                            blurOnSubmit={false}
-                            onFocus={() => {
-                              onNonQtyNumericFieldFocus();
-                              scrollFormFieldsIntoView();
-                            }}
-                            inputAccessoryViewID={NUMERIC_KEYBOARD_ACCESSORY_ID}
-                          />
-                          <TextInput
-                            ref={costDateYearRef}
-                            style={[styles.dateInput, styles.dateInputYear]}
-                            keyboardType="number-pad"
-                            placeholder="YYYY"
-                            placeholderTextColor={ON_SURFACE_MUTED}
-                            value={costDateYear}
-                            onChangeText={(v) =>
-                              setCostDateYear(v.replace(/[^0-9]/g, '').slice(0, 4))
-                            }
-                            maxLength={4}
-                            returnKeyType="done"
-                            onFocus={() => {
-                              onNonQtyNumericFieldFocus();
-                              scrollFormFieldsIntoView();
-                            }}
+                            style={styles.txnFormInput}
+                            keyboardType="decimal-pad"
+                            placeholder="0,00"
+                            placeholderTextColor="rgba(255,255,255,0.28)"
+                            value={inputCost}
+                            onChangeText={onInputCostChange}
+                            onFocus={onNonQtyNumericFieldFocus}
                             inputAccessoryViewID={NUMERIC_KEYBOARD_ACCESSORY_ID}
                           />
                         </View>
-                      </>
-                    ) : null}
-                  </>
-                ) : null}
-              </>
-            )}
+                      </View>
+                    </>
+                  )}
 
-            {formMode === 'delete' && holdingId && (
-              <View style={styles.deleteSection}>
-                <ThemedText style={styles.deleteWarning}>{t('assetEntry.deleteWarn')}</ThemedText>
-                <ThemedText style={styles.deleteInfo}>
-                  {t('assetEntry.deleteCurrent', {
-                    qty: qty.toLocaleString(numberLocale, { maximumFractionDigits: 10 }),
-                  })}
-                </ThemedText>
-                <ThemedText style={styles.deleteInfo}>
-                  {t('assetEntry.deleteValue', {
-                    value: `${curr}${(qty * currentPrice).toLocaleString(numberLocale, {
-                      minimumFractionDigits: 2,
-                      maximumFractionDigits: 2,
-                    })}${currSuffix}`,
-                  })}
-                </ThemedText>
+                  {formMode === 'add' && categoryId !== 'mevduat' && !isUsdNativeCategory(categoryId) && (
+                    <>
+                      <View style={styles.txnFormDivider} />
+                      <View style={styles.txnFormRow}>
+                        <ThemedText style={styles.txnFormLabel}>
+                          {t('assetEntry.labelPurchaseDateOptional')}
+                        </ThemedText>
+                        <View style={styles.txnFormDateRow}>
+                          <TextInput
+                            style={styles.txnFormDateInput}
+                            keyboardType="numbers-and-punctuation"
+                            placeholder={t('assetEntry.costDatePlaceholder')}
+                            placeholderTextColor="rgba(255,255,255,0.28)"
+                            value={costDateText}
+                            onChangeText={onCostDateTextChange}
+                            maxLength={10}
+                            returnKeyType="done"
+                            onFocus={onNonQtyNumericFieldFocus}
+                            inputAccessoryViewID={NUMERIC_KEYBOARD_ACCESSORY_ID}
+                          />
+                          <TouchableOpacity
+                            style={styles.txnFormCalendarBtn}
+                            activeOpacity={0.85}
+                            onPress={openCostDatePicker}
+                            accessibilityRole="button"
+                            accessibilityLabel={t('assetEntry.openCostDatePicker')}>
+                            <Ionicons name="calendar-outline" size={22} color={PRIMARY} />
+                          </TouchableOpacity>
+                        </View>
+                      </View>
+                    </>
+                  )}
+
+                  {formMode === 'delete' && holdingId && (
+                    <View style={styles.txnDeleteBlock}>
+                      <View style={styles.txnDeleteIconWrap}>
+                        <Ionicons name="trash-outline" size={22} color={TXN_RED} />
+                      </View>
+                      <ThemedText style={styles.txnDeleteTitle}>{t('assetEntry.deleteWarn')}</ThemedText>
+                      <ThemedText style={styles.txnDeleteMeta}>
+                        {t('assetEntry.deleteCurrent', {
+                          qty: qty.toLocaleString(numberLocale, { maximumFractionDigits: 10 }),
+                        })}
+                      </ThemedText>
+                      <ThemedText style={styles.txnDeleteMeta}>
+                        {t('assetEntry.deleteValue', {
+                          value: `${curr}${(qty * currentPrice).toLocaleString(numberLocale, {
+                            minimumFractionDigits: 2,
+                            maximumFractionDigits: 2,
+                          })}`,
+                        })}
+                      </ThemedText>
+                    </View>
+                  )}
+
+                  {formMode === 'delete' && !holdingId && (
+                    <View style={styles.txnDeleteBlock}>
+                      <ThemedText style={styles.txnDeleteTitle}>{t('assetEntry.notInPortfolio')}</ThemedText>
+                    </View>
+                  )}
+                </View>
+              </ScrollView>
+
+              {formFooter ? (
+                <View style={[styles.transactionSheetFooter, { paddingBottom: Math.max(insets.bottom, 16) }]}>
+                  {formFooter}
+                </View>
+              ) : null}
+            </KeyboardAvoidingView>
+        </View>
+      </Modal>
+
+      {costDatePickerVisible && Platform.OS === 'android' ? (
+        <DateTimePicker
+          value={costDatePickerValue}
+          mode="date"
+          display="default"
+          maximumDate={new Date()}
+          onChange={onCostDatePickerChange}
+        />
+      ) : null}
+
+      {costDatePickerVisible && Platform.OS === 'ios' ? (
+        <Modal transparent animationType="slide" onRequestClose={() => setCostDatePickerVisible(false)}>
+          <Pressable style={styles.datePickerBackdrop} onPress={() => setCostDatePickerVisible(false)}>
+            <Pressable style={styles.datePickerSheet} onPress={(e) => e.stopPropagation()}>
+              <View style={styles.datePickerHeader}>
+                <TouchableOpacity onPress={() => setCostDatePickerVisible(false)} hitSlop={12}>
+                  <ThemedText style={styles.datePickerHeaderBtn}>{t('portfolio.cancel')}</ThemedText>
+                </TouchableOpacity>
+                <TouchableOpacity onPress={confirmCostDatePicker} hitSlop={12}>
+                  <ThemedText style={[styles.datePickerHeaderBtn, styles.datePickerHeaderBtnDone]}>
+                    {t('assetEntry.keyboardDone')}
+                  </ThemedText>
+                </TouchableOpacity>
               </View>
-            )}
-
-            {formMode === 'delete' && !holdingId && (
-              <ThemedText style={styles.deleteWarning}>{t('assetEntry.notInPortfolio')}</ThemedText>
-            )}
-            </View>
-          </View>
-      </ScreenWithFooter>
+              <DateTimePicker
+                value={costDatePickerValue}
+                mode="date"
+                display="spinner"
+                locale={numberLocale}
+                maximumDate={new Date()}
+                onChange={onCostDatePickerChange}
+              />
+            </Pressable>
+          </Pressable>
+        </Modal>
+      ) : null}
 
       {Platform.OS === 'ios' ? (
         <InputAccessoryView nativeID={NUMERIC_KEYBOARD_ACCESSORY_ID}>
@@ -2063,64 +2192,48 @@ const styles = StyleSheet.create({
     width: '100%',
     paddingTop: 4,
   },
-  heroIconBox: {
-    width: 48,
-    height: 48,
-    borderRadius: 16,
-    backgroundColor: SURFACE_HIGH,
-    alignItems: 'center',
-    justifyContent: 'center',
-    overflow: 'hidden',
-  },
-  heroIconImg: {
-    width: 40,
-    height: 40,
-  },
   heroSymbolSmall: {
-    fontSize: 12,
-    fontWeight: '600',
-    color: ON_SURFACE_MUTED,
-    letterSpacing: 1.2,
-    textTransform: 'uppercase',
-    textAlign: 'center',
-    marginTop: 10,
-  },
-  heroNameLarge: {
-    fontSize: 22,
-    lineHeight: 28,
+    fontSize: 30,
+    lineHeight: 34,
     fontWeight: '800',
     color: '#ffffff',
-    letterSpacing: -0.6,
-    marginTop: 4,
+    letterSpacing: 0.8,
+    textTransform: 'uppercase',
+    textAlign: 'center',
+  },
+  heroNameLarge: {
+    fontSize: 20,
+    lineHeight: 26,
+    fontWeight: '400',
+    color: ON_SURFACE_MUTED,
+    letterSpacing: -0.1,
+    marginTop: 6,
     marginBottom: 2,
     textAlign: 'center',
   },
   heroSpotPrice: {
-    fontSize: 28,
-    lineHeight: 34,
+    fontSize: 25,
+    lineHeight: 30,
     fontWeight: '800',
     color: '#ffffff',
     letterSpacing: -1,
-    textAlign: 'center',
-    marginTop: 2,
+    flexShrink: 0,
   },
-  heroDayChangeRow: {
+  heroPriceRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 4,
-    marginTop: 8,
-    flexWrap: 'wrap',
     justifyContent: 'center',
-    paddingHorizontal: 8,
+    flexWrap: 'wrap',
+    gap: 10,
+    width: '100%',
+    paddingHorizontal: 12,
   },
-  heroDayChangeText: {
-    fontSize: 13,
-    fontWeight: '600',
-    flexShrink: 1,
-    textAlign: 'center',
+  heroDayPct: {
+    fontSize: 17,
+    fontWeight: '700',
+    letterSpacing: -0.2,
   },
   chartOpenBtn: {
-    marginLeft: 4,
     paddingHorizontal: 2,
     paddingVertical: 2,
   },
@@ -2192,105 +2305,451 @@ const styles = StyleSheet.create({
   },
   positionCard: {
     marginHorizontal: 16,
+    marginTop: 28,
     marginBottom: 20,
-    padding: 22,
+    padding: 20,
     borderRadius: 28,
     backgroundColor: SURFACE_LOW,
     borderWidth: 1,
     borderColor: 'rgba(255,255,255,0.06)',
   },
-  positionCardTop: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'flex-start',
-    gap: 16,
-  },
-  positionCardLabel: {
-    fontSize: 14,
-    fontWeight: '500',
-    color: ON_SURFACE_MUTED,
-    marginBottom: 6,
-  },
-  positionCardLabelSm: {
-    fontSize: 10,
-    fontWeight: '600',
-    color: ON_SURFACE_MUTED,
-    letterSpacing: 1,
-    textTransform: 'uppercase',
-    marginBottom: 6,
-  },
-  positionCardBig: {
-    fontSize: 34,
-    lineHeight: 42,
-    fontWeight: '800',
-    color: '#ffffff',
-    letterSpacing: -1,
-    marginTop: 2,
-    ...Platform.select({
-      android: { includeFontPadding: false },
-      default: {},
-    }),
-  },
-  positionPlBlock: {
-    alignItems: 'flex-end',
-  },
-  positionPlAmt: {
-    fontSize: 22,
-    lineHeight: 30,
+  positionCardTitle: {
+    fontSize: 18,
     fontWeight: '700',
-    color: ON_SURFACE_MUTED,
-    ...Platform.select({
-      android: { includeFontPadding: false },
-      default: {},
-    }),
+    color: '#ffffff',
+    marginBottom: 18,
   },
-  positionPlPct: {
-    fontSize: 14,
-    fontWeight: '600',
-    marginTop: 2,
-  },
-  positionGridTopBorder: {
+  positionGrid2: {
     flexDirection: 'row',
-    marginTop: 22,
-    paddingTop: 18,
-    borderTopWidth: 1,
-    borderTopColor: 'rgba(255,255,255,0.1)',
-    gap: 8,
+    gap: 16,
+    marginBottom: 18,
   },
-  positionGridUsdRow: {
-    flexDirection: 'row',
-    marginTop: 14,
-    paddingTop: 16,
-    borderTopWidth: 1,
-    borderTopColor: 'rgba(255,255,255,0.08)',
-    gap: 6,
-  },
-  positionGridCell: {
+  positionGridHalf: {
     flex: 1,
     minWidth: 0,
   },
-  positionGridCellLast: {
-    alignItems: 'flex-end',
+  positionMetricLabel: {
+    fontSize: 14,
+    fontWeight: '500',
+    color: ON_SURFACE_MUTED,
+    marginBottom: 4,
   },
-  positionGridValue: {
+  positionMetricValue: {
+    fontSize: 20,
+    lineHeight: 26,
+    fontWeight: '700',
+    color: '#ffffff',
+    ...Platform.select({
+      android: { includeFontPadding: false },
+      default: {},
+    }),
+  },
+  positionMetricValueUsd: {
+    fontSize: 20,
+    lineHeight: 26,
+    fontWeight: '700',
+    color: '#c7d7ff',
+    ...Platform.select({
+      android: { includeFontPadding: false },
+      default: {},
+    }),
+  },
+  positionReturnRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 12,
+    marginTop: 14,
+  },
+  positionReturnValue: {
     fontSize: 16,
+    fontWeight: '700',
+    textAlign: 'right',
+    flexShrink: 1,
+  },
+  positionReturnValueMuted: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: ON_SURFACE_MUTED,
+  },
+  newTransactionRow: {
+    flexDirection: 'row',
+    justifyContent: 'center',
+    alignItems: 'center',
+    paddingVertical: 28,
+    paddingHorizontal: 16,
+    marginTop: 4,
+  },
+  newTransactionBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 14,
+  },
+  newTransactionIconRing: {
+    width: 48,
+    height: 48,
+    borderRadius: 24,
+    borderWidth: 3,
+    borderColor: '#5c5c5e',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  newTransactionIconFill: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    backgroundColor: '#e8e8ea',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  newTransactionLabel: {
+    fontSize: 22,
+    fontWeight: '700',
+    color: '#ffffff',
+    ...Platform.select({
+      android: { includeFontPadding: false },
+      default: {},
+    }),
+  },
+  transactionSheetPage: {
+    flex: 1,
+    backgroundColor: '#000000',
+  },
+  transactionSheetAvoidFull: {
+    flex: 1,
+  },
+  transactionSheetBackdrop: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.55)',
+    justifyContent: 'flex-end',
+  },
+  transactionSheetCard: {
+    backgroundColor: '#000000',
+    borderTopLeftRadius: 28,
+    borderTopRightRadius: 28,
+    maxHeight: '92%',
+    overflow: 'hidden',
+  },
+  transactionSheetAvoid: {
+    maxHeight: '100%',
+  },
+  transactionSheetTopBar: {
+    flexDirection: 'row',
+    justifyContent: 'flex-end',
+    paddingHorizontal: 16,
+    paddingTop: 14,
+  },
+  transactionSheetCloseBtn: {
+    padding: 4,
+  },
+  transactionSheetAssetHeader: {
+    alignItems: 'center',
+    paddingHorizontal: 24,
+    paddingBottom: 20,
+  },
+  transactionSheetSymbolRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    marginBottom: 6,
+  },
+  transactionSheetIconCircle: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    alignItems: 'center',
+    justifyContent: 'center',
+    overflow: 'hidden',
+  },
+  transactionSheetIconImage: {
+    width: 28,
+    height: 28,
+    borderRadius: 14,
+  },
+  transactionSheetIconLetter: {
+    fontSize: 15,
     fontWeight: '700',
     color: '#ffffff',
   },
-  positionGridSym: {
+  transactionSheetSymbol: {
+    fontSize: 22,
+    fontWeight: '700',
+    color: '#ffffff',
+    ...Platform.select({
+      android: { includeFontPadding: false },
+      default: {},
+    }),
+  },
+  transactionSheetAssetName: {
+    fontSize: 14,
+    fontWeight: '500',
+    color: ON_SURFACE_MUTED,
+    textAlign: 'center',
+    lineHeight: 20,
+  },
+  txnModeRow: {
+    flexDirection: 'row',
+    gap: 10,
+    paddingHorizontal: 20,
+    marginBottom: 8,
+  },
+  txnModeTab: {
+    flex: 1,
+    minWidth: 0,
+    paddingVertical: 14,
+    paddingHorizontal: 6,
+    borderRadius: 14,
+    borderWidth: 1.5,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  txnModeTabIdle: {
+    borderColor: 'rgba(255,255,255,0.18)',
+    backgroundColor: 'transparent',
+  },
+  txnModeTabActiveAdd: {
+    borderColor: TXN_GREEN,
+    backgroundColor: TXN_GREEN_BG,
+  },
+  txnModeTabActiveReduce: {
+    borderColor: TXN_ORANGE,
+    backgroundColor: TXN_ORANGE_BG,
+  },
+  txnModeTabActiveDelete: {
+    borderColor: TXN_RED,
+    backgroundColor: TXN_RED_BG,
+  },
+  txnModeTabTextIdle: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: ON_SURFACE_MUTED,
+    letterSpacing: 0.4,
+    textAlign: 'center',
+  },
+  txnModeTabTextActive: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: '#ffffff',
+    letterSpacing: 0.4,
+    textAlign: 'center',
+  },
+  txnModeTabTextDeleteIdle: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: TXN_RED,
+    letterSpacing: 0.4,
+    textAlign: 'center',
+  },
+  transactionSheetScroll: {
+    paddingHorizontal: 20,
+    paddingTop: 8,
+    flexGrow: 1,
+  },
+  transactionSheetScrollView: {
+    flex: 1,
+  },
+  transactionSheetFooter: {
+    paddingHorizontal: 20,
+    paddingTop: 8,
+    backgroundColor: '#000000',
+  },
+  transactionSheetCta: {
+    width: '100%',
+    borderRadius: 14,
+    paddingVertical: 18,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  transactionSheetCtaAdd: {
+    backgroundColor: TXN_GREEN,
+  },
+  transactionSheetCtaReduce: {
+    backgroundColor: TXN_ORANGE,
+  },
+  transactionSheetCtaDelete: {
+    backgroundColor: TXN_RED,
+  },
+  transactionSheetCtaText: {
+    fontSize: 17,
+    fontWeight: '700',
+    letterSpacing: 0.2,
+  },
+  txnFormCard: {
+    borderRadius: 20,
+    backgroundColor: SURFACE_HIGH,
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.08)',
+    overflow: 'hidden',
+    marginTop: 6,
+  },
+  txnFormRow: {
+    paddingHorizontal: 18,
+    paddingVertical: 18,
+  },
+  txnFormDivider: {
+    height: StyleSheet.hairlineWidth,
+    backgroundColor: 'rgba(255,255,255,0.1)',
+  },
+  txnFormLabel: {
     fontSize: 13,
     fontWeight: '500',
     color: ON_SURFACE_MUTED,
+    marginBottom: 12,
+    lineHeight: 18,
   },
-  positionGridValueUsd: {
+  txnFormInputRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    minHeight: 32,
+  },
+  txnFormInput: {
+    flex: 1,
+    fontSize: 22,
+    fontWeight: '600',
+    color: '#ffffff',
+    paddingVertical: 0,
+    paddingHorizontal: 0,
+    backgroundColor: 'transparent',
+    ...Platform.select({
+      android: { includeFontPadding: false, textAlignVertical: 'center' },
+      default: {},
+    }),
+  },
+  txnFormQtyWhole: {
+    minWidth: 48,
+    fontSize: 22,
+    fontWeight: '600',
+    color: '#ffffff',
+    paddingVertical: 0,
+    paddingHorizontal: 0,
+    backgroundColor: 'transparent',
+    ...Platform.select({
+      android: { includeFontPadding: false, textAlignVertical: 'center' },
+      default: {},
+    }),
+  },
+  txnFormQtyDec: {
+    width: 56,
+    fontSize: 22,
+    fontWeight: '600',
+    color: '#ffffff',
+    paddingVertical: 0,
+    paddingHorizontal: 0,
+    backgroundColor: 'transparent',
+    ...Platform.select({
+      android: { includeFontPadding: false, textAlignVertical: 'center' },
+      default: {},
+    }),
+  },
+  txnFormQtySep: {
+    fontSize: 22,
+    fontWeight: '500',
+    color: 'rgba(255,255,255,0.35)',
+    marginHorizontal: 2,
+  },
+  txnFormUnitChip: {
+    marginLeft: 'auto',
+    paddingLeft: 12,
     fontSize: 14,
     fontWeight: '700',
-    color: '#c7d7ff',
+    color: PRIMARY,
+    letterSpacing: 0.4,
+  },
+  txnFormCurrencyPrefix: {
+    fontSize: 22,
+    fontWeight: '600',
+    color: 'rgba(255,255,255,0.45)',
+    marginRight: 4,
+  },
+  txnFormDateRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  txnFormDateInput: {
+    flex: 1,
+    fontSize: 22,
+    fontWeight: '600',
+    color: '#ffffff',
+    paddingVertical: 0,
+    paddingHorizontal: 0,
+    backgroundColor: 'transparent',
+    ...Platform.select({
+      android: { includeFontPadding: false, textAlignVertical: 'center' },
+      default: {},
+    }),
+  },
+  txnFormCalendarBtn: {
+    marginLeft: 12,
+    width: 44,
+    height: 44,
+    borderRadius: 12,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: 'rgba(255,255,255,0.06)',
+  },
+  datePickerBackdrop: {
+    flex: 1,
+    justifyContent: 'flex-end',
+    backgroundColor: 'rgba(0,0,0,0.45)',
+  },
+  datePickerSheet: {
+    backgroundColor: '#1c1c1e',
+    borderTopLeftRadius: 16,
+    borderTopRightRadius: 16,
+    paddingBottom: 24,
+  },
+  datePickerHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: 20,
+    paddingVertical: 14,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: 'rgba(255,255,255,0.12)',
+  },
+  datePickerHeaderBtn: {
+    fontSize: 17,
+    fontWeight: '500',
+    color: 'rgba(255,255,255,0.72)',
+  },
+  datePickerHeaderBtnDone: {
+    color: PRIMARY,
+    fontWeight: '700',
+  },
+  txnDeleteBlock: {
+    paddingHorizontal: 20,
+    paddingVertical: 22,
+    alignItems: 'center',
+  },
+  txnDeleteIconWrap: {
+    width: 48,
+    height: 48,
+    borderRadius: 24,
+    backgroundColor: TXN_RED_BG,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: 14,
+  },
+  txnDeleteTitle: {
+    fontSize: 15,
+    fontWeight: '600',
+    color: '#ffffff',
+    textAlign: 'center',
+    lineHeight: 22,
+    marginBottom: 10,
+  },
+  txnDeleteMeta: {
+    fontSize: 14,
+    fontWeight: '500',
+    color: ON_SURFACE_MUTED,
+    textAlign: 'center',
+    lineHeight: 20,
+    marginTop: 4,
   },
   transactionSection: {
-    marginHorizontal: 16,
-    marginTop: 8,
-    marginBottom: 8,
+    marginHorizontal: 0,
+    marginTop: 0,
+    marginBottom: 0,
     borderRadius: 28,
     backgroundColor: SURFACE_HIGH,
     borderWidth: 1,
@@ -2332,8 +2791,8 @@ const styles = StyleSheet.create({
     color: CHART_RED,
   },
   formInner: {
-    paddingHorizontal: 20,
-    paddingTop: 16,
+    paddingHorizontal: 0,
+    paddingTop: 8,
     paddingBottom: 8,
   },
   fieldLabelCaps: {

@@ -15,6 +15,7 @@ import {
   View,
   type TextStyle,
 } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { ScreenWithFooter } from '@/components/screen-with-footer';
 import { Brand } from '@/constants/brand';
@@ -33,6 +34,12 @@ const ADD_TAB_HREF = '/(tabs)/add' as const;
 const PAGE_SIZE = 500;
 /** Aynı satırda iki dokunuş “Detaya git” ile aynı navigasyonu tetikler */
 const DOUBLE_TAP_MS = 380;
+const TXN_TOAST_MS = 3000;
+
+function firstParam(v: string | string[] | undefined): string | undefined {
+  if (v == null) return undefined;
+  return Array.isArray(v) ? v[0] : v;
+}
 
 type AssetItem = {
   id: string;
@@ -54,18 +61,46 @@ function Radio({ selected }: { selected: boolean }) {
 export default function AssetListScreen() {
   const { t } = useTranslation();
   const router = useRouter();
-  const params = useLocalSearchParams<{ categoryId?: string; label?: string; _t?: string }>();
+  const insets = useSafeAreaInsets();
+  const params = useLocalSearchParams<{
+    categoryId?: string;
+    label?: string;
+    _t?: string;
+    txnToast?: string;
+  }>();
 
   const categoryId = params.categoryId ?? 'default';
   const label = params.label ?? t('assetList.defaultLabel');
+  const txnToastParam = firstParam(params.txnToast);
 
   const [query, setQuery] = useState('');
   const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [txnToastVisible, setTxnToastVisible] = useState(false);
+  const txnToastTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
     setQuery('');
     setSelectedId(null);
   }, [params._t]);
+
+  useEffect(() => {
+    if (txnToastParam !== 'add') return;
+    setTxnToastVisible(true);
+    if (txnToastTimerRef.current) {
+      clearTimeout(txnToastTimerRef.current);
+      txnToastTimerRef.current = null;
+    }
+    txnToastTimerRef.current = setTimeout(() => {
+      setTxnToastVisible(false);
+      txnToastTimerRef.current = null;
+    }, TXN_TOAST_MS);
+    return () => {
+      if (txnToastTimerRef.current) {
+        clearTimeout(txnToastTimerRef.current);
+        txnToastTimerRef.current = null;
+      }
+    };
+  }, [params._t, txnToastParam]);
 
   useFocusEffect(
     useCallback(() => {
@@ -205,7 +240,7 @@ export default function AssetListScreen() {
 
   const selectedAsset = selectedId ? assets.find((a) => a.id === selectedId) : null;
 
-  const openAssetDetail = useCallback(
+  const openAssetTransaction = useCallback(
     (asset: AssetItem) => {
       router.push({
         pathname: '/(tabs)/asset-entry',
@@ -219,6 +254,7 @@ export default function AssetListScreen() {
           categoryId,
           price: asset.price != null ? String(asset.price) : '',
           spotCurrency: asset.spotCurrency ?? '',
+          openTransaction: '1',
         },
       });
     },
@@ -227,14 +263,14 @@ export default function AssetListScreen() {
 
   const handleAdd = () => {
     if (!selectedAsset) return;
-    openAssetDetail(selectedAsset);
+    openAssetTransaction(selectedAsset);
   };
 
   const onRowPress = (item: AssetItem) => {
     const now = Date.now();
     if (lastRowTapRef.current.id === item.id && now - lastRowTapRef.current.t < DOUBLE_TAP_MS) {
       setSelectedId(item.id);
-      openAssetDetail(item);
+      openAssetTransaction(item);
       lastRowTapRef.current = { t: 0, id: '' };
       return;
     }
@@ -383,6 +419,16 @@ export default function AssetListScreen() {
             />
           )}
       </ScreenWithFooter>
+
+      {txnToastVisible ? (
+        <View
+          pointerEvents="none"
+          style={[styles.txnToastWrap, { paddingBottom: Math.max(insets.bottom, 16) + 72 }]}>
+          <View style={styles.txnToastCard}>
+            <Text style={styles.txnToastText}>{t('assetList.toastTransactionAdded')}</Text>
+          </View>
+        </View>
+      ) : null}
     </View>
   );
 }
@@ -529,5 +575,31 @@ const styles = StyleSheet.create({
   footerText: {
     fontSize: 13,
     color: SLATE,
+  },
+  txnToastWrap: {
+    ...StyleSheet.absoluteFillObject,
+    justifyContent: 'flex-end',
+    alignItems: 'center',
+    zIndex: 20,
+  },
+  txnToastCard: {
+    backgroundColor: SURFACE,
+    paddingVertical: 14,
+    paddingHorizontal: 22,
+    borderRadius: 14,
+    maxWidth: '88%',
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: 'rgba(255,255,255,0.12)',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.35,
+    shadowRadius: 8,
+    elevation: 6,
+  },
+  txnToastText: {
+    fontSize: 15,
+    fontWeight: '600',
+    color: WHITE,
+    textAlign: 'center',
   },
 });

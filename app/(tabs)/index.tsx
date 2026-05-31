@@ -41,6 +41,12 @@ import { effectiveChange24hPctForDisplay } from '@/lib/effective-change-24h';
 import { dailyPrevValueFromChangePct, fonUnitNativeTry } from '@/lib/fon-price-guards';
 import { isHoldingMarketPriceReady } from '@/lib/portfolio-holdings';
 import { isUsdNativeCategory } from '@/lib/portfolio-currency';
+import {
+  formatDisplayMoney,
+  formatDisplayMoneyCeil,
+  formatDisplayPlLine,
+  type DisplayCurrency,
+} from '@/lib/display-currency';
 import { MIN_VALID_USD_TRY_RATE } from '@/lib/usdtry-cache';
 import { useTranslation } from 'react-i18next';
 
@@ -59,9 +65,8 @@ const MUTED_PCT = 'rgba(255,255,255,0.45)';
 const CATEGORY_ORDER = ['yurtdisi', 'bist', 'doviz', 'emtia', 'fon', 'kripto', 'mevduat'] as const;
 
 /** Tutarlar: kuruş yok, yukarı yuvarlı tam TL/USD. */
-function formatPortfolioMoneyCeil(value: number, locale: string): string {
-  if (!Number.isFinite(value)) return (0).toLocaleString(locale, { maximumFractionDigits: 0 });
-  return Math.ceil(value).toLocaleString(locale, { maximumFractionDigits: 0, minimumFractionDigits: 0 });
+function formatPortfolioMoneyCeil(value: number, currency: DisplayCurrency, locale: string): string {
+  return formatDisplayMoneyCeil(value, currency, locale);
 }
 
 /**
@@ -106,28 +111,21 @@ type PortfolioSummaryData = {
 };
 
 /** Liste satırı: birim fiyat / tutar (2 ondalık). */
-function formatRowMoney(value: number, currency: 'TL' | 'USD', locale: string): string {
-  if (!Number.isFinite(value)) value = 0;
-  const n = value.toLocaleString(locale, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-  return currency === 'USD' ? `$${n}` : `${n} TL`;
+function formatRowMoney(value: number, currency: DisplayCurrency, locale: string): string {
+  return formatDisplayMoney(value, currency, locale, {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  });
 }
 
-/** P/L satırı: $486,60 (%2,99) */
+/** P/L satırı */
 function formatRowPlLine(
   amount: number,
   pct: number,
-  currency: 'TL' | 'USD',
+  currency: DisplayCurrency,
   locale: string,
 ): { text: string; neutral: boolean; up: boolean } {
-  const neutral = Math.abs(pct) < 0.005 && Math.abs(amount) < 0.005;
-  const up = amount >= 0;
-  const pctAbs = Math.abs(pct).toLocaleString(locale, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-  const amtAbs = Math.abs(amount);
-  const amtCore = amtAbs.toLocaleString(locale, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-  const amtStr = currency === 'USD' ? `$${amtCore}` : `${amtCore} TL`;
-  const signedAmt = neutral || up ? amtStr : `-${amtStr}`;
-  const signedPct = pct >= 0 ? pctAbs : `-${pctAbs}`;
-  return { text: `${signedAmt} (%${signedPct})`, neutral, up };
+  return formatDisplayPlLine(amount, pct, currency, locale);
 }
 
 export function PortfolioScreen() {
@@ -510,11 +508,7 @@ export function PortfolioScreen() {
                 ? summaryData.mergedTotalPctTL
                 : summaryData.mergedTotalPctUSD;
             const plLine = formatRowPlLine(changeAmt, changePct, summaryDisplayCurrency, numberLocale);
-            const amountStr =
-              summaryDisplayCurrency === 'USD'
-                ? formatPortfolioMoneyCeil(mainTotal, 'en-US')
-                : formatPortfolioMoneyCeil(mainTotal, numberLocale);
-            const suffix = summaryDisplayCurrency === 'USD' ? ' USD' : ` ${t('home.currencyTL')}`;
+            const amountStr = formatPortfolioMoneyCeil(mainTotal, summaryDisplayCurrency, numberLocale);
             return (
               <View style={[styles.hero, { marginBottom: layout.heroMarginBottomPortfolio }]}>
                 <Text style={[styles.heroKicker, { fontFamily: fontBodySemi }]}>{t('portfolio.totalBalance')}</Text>
@@ -527,13 +521,6 @@ export function PortfolioScreen() {
                     numberOfLines={1}
                     adjustsFontSizeToFit>
                     {amountStr}
-                  </Text>
-                  <Text
-                    style={[
-                      styles.heroSuffix,
-                      { fontFamily: fontHead700, fontSize: layout.heroSuffixFontSize },
-                    ]}>
-                    {suffix}
                   </Text>
                 </View>
                 <View style={styles.heroPctRow}>

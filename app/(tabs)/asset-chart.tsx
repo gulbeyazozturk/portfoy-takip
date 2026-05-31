@@ -12,6 +12,8 @@ import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
 import { Brand } from '@/constants/brand';
 import { kriptoStoredUnitToUsd } from '@/lib/crypto-price-usd';
+import { formatDisplayMoney, formatDisplayMoneyFlexible, type DisplayCurrency } from '@/lib/display-currency';
+import { isUsdNativeCategory } from '@/lib/portfolio-currency';
 import { supabase } from '@/lib/supabase';
 
 const CHART_W = 300;
@@ -44,12 +46,14 @@ function PriceChart({
   selectedIdx,
   onSelect,
   numberLocale,
+  currency,
 }: {
   series: number[];
   isPositive: boolean;
   selectedIdx: number | null;
   onSelect: (idx: number | null) => void;
   numberLocale: string;
+  currency: DisplayCurrency;
 }) {
   const [chartWidth, setChartWidth] = useState(0);
   if (series.length < 2) return null;
@@ -75,16 +79,7 @@ function PriceChart({
   const midVal = (minVal + maxVal) / 2;
   const gridVals = [maxVal, midVal, minVal];
 
-  const fmtLabel = (v: number) => {
-    const abs = Math.abs(v);
-    let maxDec = 2;
-    if (abs > 0 && abs < 0.01) maxDec = 10;
-    else if (abs >= 0.01 && abs < 1) maxDec = 6;
-    else if (abs >= 1 && abs < 10) maxDec = 4;
-    const formatted = abs.toLocaleString(numberLocale, { minimumFractionDigits: 2, maximumFractionDigits: maxDec });
-    const trimmed = formatted.replace(/0+$/, '').replace(/[,.]$/, '');
-    return `${v < 0 ? '-' : ''}${trimmed}`;
-  };
+  const fmtLabel = (v: number) => formatDisplayMoneyFlexible(v, currency, numberLocale);
 
   const handleTouch = (e: any) => {
     if (chartWidth <= 0 || vals.length < 2) return;
@@ -302,6 +297,7 @@ export default function AssetChartScreen() {
   const chartLast = selectedIdx != null && priceHistory[selectedIdx] != null ? priceHistory[selectedIdx] : currentPrice;
   const isPositive = chartLast >= chartFirst;
   const pct = chartFirst > 0 ? ((chartLast - chartFirst) / chartFirst) * 100 : 0;
+  const displayCurrency: DisplayCurrency = isUsdNativeCategory(categoryId) ? 'USD' : 'TL';
 
   return (
     <SafeAreaView style={styles.safeArea} edges={['top', 'left', 'right']}>
@@ -319,7 +315,12 @@ export default function AssetChartScreen() {
           <ThemedText style={styles.symbol}>{(symbol || '—').toUpperCase()}</ThemedText>
           <ThemedText style={styles.name} numberOfLines={2}>{name}</ThemedText>
           <ThemedText style={styles.price}>
-            {currentPrice > 0 ? currentPrice.toLocaleString(numberLocale, { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : '—'}
+            {currentPrice > 0
+              ? formatDisplayMoney(currentPrice, displayCurrency, numberLocale, {
+                  minimumFractionDigits: 2,
+                  maximumFractionDigits: 2,
+                })
+              : '—'}
           </ThemedText>
           <ThemedText style={[styles.pct, { color: pct >= 0 ? CHART_GREEN : CHART_RED }]}>
             {pct >= 0 ? '+' : ''}{pct.toLocaleString(numberLocale, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}%
@@ -335,6 +336,7 @@ export default function AssetChartScreen() {
             selectedIdx={selectedIdx}
             onSelect={setSelectedIdx}
             numberLocale={numberLocale}
+            currency={displayCurrency}
           />
         )}
 

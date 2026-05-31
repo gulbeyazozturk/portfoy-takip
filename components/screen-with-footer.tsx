@@ -1,12 +1,10 @@
 import { BottomTabBarHeightContext } from '@react-navigation/bottom-tabs';
 import React from 'react';
 import {
-  Keyboard,
   KeyboardAvoidingView,
   Platform,
   ScrollView,
   StyleSheet,
-  TouchableWithoutFeedback,
   View,
   type ScrollViewProps,
   type StyleProp,
@@ -78,21 +76,9 @@ export function ScreenWithFooter({
 
   const scrollContentStyles = [
     footer != null ? styles.scrollContentWithFooter : styles.scrollContent,
-    dismissKeyboardOnPress ? styles.scrollContentDismissTap : null,
     { paddingBottom: SCROLL_BOTTOM_GAP },
     contentContainerStyle,
   ];
-
-  const bodyChildren =
-    dismissKeyboardOnPress && scroll ? (
-      <TouchableWithoutFeedback onPress={Keyboard.dismiss} accessible={false}>
-        <View style={styles.dismissTapFill} collapsable={false}>
-          {children}
-        </View>
-      </TouchableWithoutFeedback>
-    ) : (
-      children
-    );
 
   const scrollBody = scroll ? (
     <ScrollView
@@ -100,11 +86,11 @@ export function ScreenWithFooter({
       style={[styles.flex, bodyStyle]}
       contentContainerStyle={scrollContentStyles}
       showsVerticalScrollIndicator={false}
-      keyboardShouldPersistTaps={dismissKeyboardOnPress ? 'handled' : 'always'}
-      keyboardDismissMode="on-drag"
+      keyboardShouldPersistTaps="handled"
+      keyboardDismissMode={dismissKeyboardOnPress ? 'on-drag' : 'interactive'}
       removeClippedSubviews={false}
       {...scrollProps}>
-      {bodyChildren}
+      {children}
     </ScrollView>
   ) : (
     <View style={[styles.flex, bodyStyle]}>{children}</View>
@@ -178,8 +164,6 @@ const styles = StyleSheet.create({
   },
   /** Footer varken flexGrow kapalı — iOS’ta ScrollView’un alt CTA ile çakışmasını azaltır. */
   scrollContentWithFooter: {},
-  scrollContentDismissTap: { flexGrow: 1 },
-  dismissTapFill: { flexGrow: 1 },
   footer: {
     paddingTop: 8,
     flexShrink: 0,

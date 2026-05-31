@@ -600,7 +600,9 @@ export const UltraDarkDonutChart: React.FC<UltraDarkDonutChartProps> = ({
 
         <View style={styles.centerIconWrap} pointerEvents={centerContent != null ? 'box-none' : 'none'}>
           {centerContent != null ? (
-            <View style={[styles.centerSlot, { maxWidth: rInner * 2 - 8 }]} pointerEvents="box-none">
+            <View
+              style={[styles.centerSlot, { width: Math.max(48, rInner * 2 - 12) }]}
+              pointerEvents="box-none">
               {centerContent}
             </View>
           ) : (
@@ -636,6 +638,7 @@ const styles = StyleSheet.create({
   centerSlot: {
     alignItems: 'center',
     justifyContent: 'center',
-    paddingHorizontal: 4,
+    paddingHorizontal: 2,
+    overflow: 'visible',
   },
 });

@@ -68,7 +68,8 @@
         {
           "faceIDPermission": "Omnifolio portföy verilerinize yalnızca sizin erişebilmeniz için Face ID kullanılır."
         }
-      ]
+      ],
+      "@react-native-community/datetimepicker"
     ],
     "experiments": {
       "typedRoutes": true,

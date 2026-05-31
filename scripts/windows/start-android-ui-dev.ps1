@@ -18,5 +18,5 @@ if (-not $devices) {
   exit 1
 }
 
-Write-Host "Emulator hazir. Expo baslatiliyor (Expo Go ile acilacak)..." -ForegroundColor Cyan
-npm run start:android
+Write-Host "Emulator hazir. Expo Go ile baslatiliyor..." -ForegroundColor Cyan
+npx expo start --android --go --port 8081

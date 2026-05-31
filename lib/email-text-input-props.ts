@@ -7,18 +7,28 @@ export function useTabletLike(): boolean {
 }
 
 /**
- * iPad’de keyboardType="email-address" bazen yalnızca küçük aksesuar çubuğu gösterir (tam klavye yok).
- * Tablet benzeri ekranda default klavye + e-posta autofill kullanılır.
+ * iPad simülatörde keyboardType="email-address" bazen yalnızca aksesuar çubuğu açar;
+ * orada default daha güvenilir. Android'de email-address (@ tuşu) şart.
  */
 export function emailTextInputProps(tabletLike: boolean): Pick<
   TextInputProps,
-  'keyboardType' | 'textContentType' | 'autoComplete' | 'autoCapitalize' | 'autoCorrect'
+  | 'keyboardType'
+  | 'inputMode'
+  | 'textContentType'
+  | 'autoComplete'
+  | 'autoCapitalize'
+  | 'autoCorrect'
+  | 'showSoftInputOnFocus'
+  | 'importantForAutofill'
 > {
   return {
     keyboardType: tabletLike ? 'default' : 'email-address',
+    inputMode: 'email',
     textContentType: 'emailAddress',
     autoComplete: 'email',
     autoCapitalize: 'none',
     autoCorrect: false,
+    showSoftInputOnFocus: true,
+    importantForAutofill: 'yes',
   };
 }
