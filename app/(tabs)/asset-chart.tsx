@@ -1,8 +1,12 @@
 import { Ionicons } from '@expo/vector-icons';
+import { useFocusEffect } from '@react-navigation/native';
 import { useLocalSearchParams, useRouter } from 'expo-router';
-import React, { useEffect, useMemo, useState } from 'react';
-import { ActivityIndicator, Pressable, SafeAreaView, StyleSheet, View } from 'react-native';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import { ActivityIndicator, BackHandler, Pressable, StyleSheet, View } from 'react-native';
 import Svg, { Defs, LinearGradient, Path, Stop } from 'react-native-svg';
+import { SafeAreaView } from 'react-native-safe-area-context';
+
+import { TabScreenRoot } from '@/components/tab-screen-root';
 
 import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
@@ -164,6 +168,12 @@ export default function AssetChartScreen() {
     price?: string;
     spotCurrency?: string;
     holdingId?: string;
+    returnTo?: string;
+    entryReturnTo?: string;
+    entryReturnCategoryId?: string;
+    entryReturnLabel?: string;
+    entryQuantity?: string;
+    entryAvgPrice?: string;
   }>();
   const assetId = firstParam(params.assetId) ?? '';
   const categoryId = firstParam(params.categoryId) ?? '';
@@ -180,6 +190,40 @@ export default function AssetChartScreen() {
   const [spotCurrency, setSpotCurrency] = useState<string | null>(routeSpotCurrency);
   const [usdTry, setUsdTry] = useState(1);
   const [holdingCreatedAt, setHoldingCreatedAt] = useState<string | null>(null);
+
+  const handleBack = useCallback(() => {
+    if (firstParam(params.returnTo) === '/(tabs)/asset-entry') {
+      router.replace({
+        pathname: '/(tabs)/asset-entry',
+        params: {
+          returnTo: firstParam(params.entryReturnTo) ?? '',
+          returnCategoryId: firstParam(params.entryReturnCategoryId) ?? '',
+          returnLabel: firstParam(params.entryReturnLabel) ?? '',
+          holdingId: firstParam(params.holdingId) ?? '',
+          assetId: firstParam(params.assetId) ?? '',
+          name: firstParam(params.name) ?? '',
+          symbol: firstParam(params.symbol) ?? '',
+          categoryId: firstParam(params.categoryId) ?? '',
+          price: firstParam(params.price) ?? '',
+          spotCurrency: firstParam(params.spotCurrency) ?? '',
+          quantity: firstParam(params.entryQuantity) ?? '',
+          avgPrice: firstParam(params.entryAvgPrice) ?? '',
+        },
+      });
+      return;
+    }
+    router.back();
+  }, [params, router]);
+
+  useFocusEffect(
+    useCallback(() => {
+      const sub = BackHandler.addEventListener('hardwareBackPress', () => {
+        handleBack();
+        return true;
+      });
+      return () => sub.remove();
+    }, [handleBack]),
+  );
 
   const numberLocale = 'tr-TR';
   const currentPrice = useMemo(() => {
@@ -260,15 +304,16 @@ export default function AssetChartScreen() {
   const pct = chartFirst > 0 ? ((chartLast - chartFirst) / chartFirst) * 100 : 0;
 
   return (
-    <SafeAreaView style={styles.safeArea}>
-      <ThemedView style={styles.container} lightColor="#000000" darkColor="#000000">
-        <View style={styles.header}>
-          <Pressable onPress={() => router.back()} style={styles.headerBtn}>
-            <Ionicons name="chevron-back" size={22} color={PRIMARY} />
-          </Pressable>
-          <ThemedText style={styles.headerTitle}>Grafik</ThemedText>
-          <View style={styles.headerSpacer} />
-        </View>
+    <SafeAreaView style={styles.safeArea} edges={['top', 'left', 'right']}>
+      <TabScreenRoot style={styles.flex}>
+        <ThemedView style={styles.container} lightColor="#000000" darkColor="#000000">
+          <View style={styles.header}>
+            <Pressable onPress={handleBack} hitSlop={12} style={styles.headerBtn}>
+              <Ionicons name="chevron-back" size={22} color={PRIMARY} />
+            </Pressable>
+            <ThemedText style={styles.headerTitle}>Grafik</ThemedText>
+            <View style={styles.headerSpacer} />
+          </View>
 
         <View style={styles.hero}>
           <ThemedText style={styles.symbol}>{(symbol || '—').toUpperCase()}</ThemedText>
@@ -300,24 +345,32 @@ export default function AssetChartScreen() {
             </Pressable>
           ))}
         </View>
-      </ThemedView>
+        </ThemedView>
+      </TabScreenRoot>
     </SafeAreaView>
   );
 }
 
 const styles = StyleSheet.create({
   safeArea: { flex: 1, backgroundColor: '#000' },
+  flex: { flex: 1 },
   container: { flex: 1 },
   header: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    paddingHorizontal: 12,
-    paddingVertical: 10,
+    paddingHorizontal: 16,
+    paddingBottom: 10,
   },
-  headerBtn: { width: 34, height: 34, alignItems: 'center', justifyContent: 'center' },
-  headerTitle: { color: '#fff', fontSize: 18, fontWeight: '700' },
-  headerSpacer: { width: 34, height: 34 },
+  headerBtn: {
+    minWidth: 44,
+    minHeight: 44,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderRadius: 999,
+  },
+  headerTitle: { color: '#fff', fontSize: 17, fontWeight: '700', letterSpacing: -0.3 },
+  headerSpacer: { width: 44, height: 44 },
   hero: { alignItems: 'center', paddingHorizontal: 16, paddingTop: 4, paddingBottom: 6 },
   symbol: { color: '#fff', fontSize: 18, fontWeight: '700' },
   name: { color: ON_SURFACE_MUTED, fontSize: 13, textAlign: 'center', marginTop: 2 },

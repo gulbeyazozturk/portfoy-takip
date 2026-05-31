@@ -353,6 +353,12 @@ export default function AssetEntryScreen() {
         price: String(currentPrice || 0),
         spotCurrency: spotCurrency ?? '',
         holdingId: holdingId ?? '',
+        returnTo: '/(tabs)/asset-entry',
+        entryReturnTo: returnTo ?? '',
+        entryReturnCategoryId: returnCategoryId ?? '',
+        entryReturnLabel: returnLabel ?? '',
+        entryQuantity: amount,
+        entryAvgPrice: unitPrice,
       },
     });
   };
@@ -1721,6 +1727,9 @@ export default function AssetEntryScreen() {
                     setInputCost('');
                   }}>
                   <ThemedText
+                    numberOfLines={1}
+                    adjustsFontSizeToFit
+                    minimumFontScale={0.75}
                     style={[
                       styles.modePillText,
                       active && styles.modePillTextActive,
@@ -2299,7 +2308,9 @@ const styles = StyleSheet.create({
   },
   modePill: {
     flex: 1,
+    minWidth: 0,
     paddingVertical: 12,
+    paddingHorizontal: 4,
     borderRadius: 14,
     alignItems: 'center',
   },
@@ -2307,10 +2318,12 @@ const styles = StyleSheet.create({
     backgroundColor: PRIMARY,
   },
   modePillText: {
+    width: '100%',
     fontSize: 11,
     fontWeight: '700',
     color: ON_SURFACE_MUTED,
-    letterSpacing: 0.6,
+    letterSpacing: Platform.OS === 'android' ? 0.2 : 0.6,
+    textAlign: 'center',
   },
   modePillTextActive: {
     color: ON_PRIMARY_FIXED,

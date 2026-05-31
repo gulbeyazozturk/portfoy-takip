@@ -5,6 +5,7 @@
   "scripts": {
     "postinstall": "patch-package",
     "start": "expo start",
+    "start:android": "expo start --android",
     "start:tunnel": "expo start --tunnel --port 8083",
     "eas:login": "npx eas-cli login",
     "eas:init": "npx eas-cli init",
