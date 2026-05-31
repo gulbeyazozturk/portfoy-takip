@@ -9,6 +9,7 @@ import { OmnifolioBrand } from '@/components/omnifolio-brand';
 import { ScreenWithFooter } from '@/components/screen-with-footer';
 import { ThemedText } from '@/components/themed-text';
 import { useAuth } from '@/context/auth';
+import { emailTextInputProps, useTabletLike } from '@/lib/email-text-input-props';
 
 const AUTH_THREE_LINES = 20 * 3;
 
@@ -22,6 +23,7 @@ export default function ForgotPasswordScreen() {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [info, setInfo] = useState<string | null>(null);
+  const tabletLike = useTabletLike();
 
   const isEmailValid = useMemo(() => email.trim().includes('@') && email.trim().includes('.'), [email]);
   const canSend = useMemo(() => isEmailValid && !busy, [isEmailValid, busy]);
@@ -90,8 +92,7 @@ export default function ForgotPasswordScreen() {
       <View style={styles.card}>
         <ThemedText style={styles.label}>{t('auth.email')}</ThemedText>
         <TextInput
-          autoCapitalize="none"
-          keyboardType="email-address"
+          {...emailTextInputProps(tabletLike)}
           placeholder={t('auth.emailPlaceholder')}
           placeholderTextColor="#6b7280"
           value={email}

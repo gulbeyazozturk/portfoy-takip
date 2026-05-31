@@ -9,6 +9,7 @@ import { OmnifolioBrand } from '@/components/omnifolio-brand';
 import { ScreenWithFooter } from '@/components/screen-with-footer';
 import { ThemedText } from '@/components/themed-text';
 import { useAuth } from '@/context/auth';
+import { emailTextInputProps, useTabletLike } from '@/lib/email-text-input-props';
 import { waitForSignedInAfterOAuth } from '@/lib/oauth-session-wait';
 import { supabase } from '@/lib/supabase';
 import { useTranslation } from 'react-i18next';
@@ -28,6 +29,7 @@ export default function AuthScreen() {
   const [error, setError] = useState<string | null>(null);
   const [info, setInfo] = useState<string | null>(null);
   const showAppleButton = Platform.OS === 'ios';
+  const tabletLike = useTabletLike();
 
   const isEmailValid = useMemo(() => email.trim().includes('@') && email.trim().includes('.'), [email]);
   const isPasswordValid = useMemo(() => password.trim().length >= 6, [password]);
@@ -134,7 +136,7 @@ export default function AuthScreen() {
       contentContainerStyle={styles.scrollContent}
       footer={
         <View style={styles.footer}>
-          <ThemedText style={styles.orText}>{t('auth.or')}</ThemedText>
+          {showAppleButton ? <ThemedText style={styles.orText}>{t('auth.or')}</ThemedText> : null}
 
           <Pressable
             style={({ pressed }) => [styles.socialBtn, pressed && styles.socialBtnPressed]}
@@ -178,8 +180,7 @@ export default function AuthScreen() {
       <View style={styles.card}>
         <ThemedText style={styles.label}>{t('auth.email')}</ThemedText>
         <TextInput
-          autoCapitalize="none"
-          keyboardType="email-address"
+          {...emailTextInputProps(tabletLike)}
           placeholder={t('auth.emailPlaceholder')}
           placeholderTextColor="#6b7280"
           value={email}
