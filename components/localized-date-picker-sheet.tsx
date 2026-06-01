@@ -3,7 +3,8 @@ import DateTimePicker, {
   type DateTimePickerEvent,
 } from '@react-native-community/datetimepicker';
 import React, { useEffect, useRef } from 'react';
-import { Modal, Platform, Pressable, StyleSheet, TouchableOpacity, View } from 'react-native';
+import { Modal, Platform, StyleSheet, View } from 'react-native';
+import { Pressable } from 'react-native-gesture-handler';
 import { useTranslation } from 'react-i18next';
 
 import { ThemedText } from '@/components/themed-text';
@@ -15,6 +16,8 @@ type Props = {
   visible: boolean;
   value: Date;
   maximumDate?: Date;
+  /** Tam ekran Modal yerine üst ekran içinde overlay (iç içe Modal sorununu önler). */
+  embedded?: boolean;
   onClose: () => void;
   onConfirm: (date: Date) => void;
   onChange: (date: Date) => void;
@@ -24,6 +27,7 @@ export function LocalizedDatePickerSheet({
   visible,
   value,
   maximumDate,
+  embedded = false,
   onClose,
   onConfirm,
   onChange,
@@ -80,40 +84,62 @@ export function LocalizedDatePickerSheet({
     if (date) onChange(date);
   };
 
-  return (
-    <Modal visible={visible} transparent animationType="slide" onRequestClose={onClose}>
-      <Pressable style={styles.backdrop} onPress={onClose}>
-        <Pressable style={styles.sheet} onPress={(e) => e.stopPropagation()}>
-          <View style={styles.header}>
-            <TouchableOpacity onPress={onClose} hitSlop={12}>
-              <ThemedText style={styles.headerBtn}>{t('settings.cancel')}</ThemedText>
-            </TouchableOpacity>
-            <TouchableOpacity onPress={() => onConfirm(value)} hitSlop={12}>
-              <ThemedText style={[styles.headerBtn, styles.headerBtnDone]}>
-                {t('assetEntry.keyboardDone')}
-              </ThemedText>
-            </TouchableOpacity>
-          </View>
-          <ThemedText style={styles.preview}>{preview}</ThemedText>
-          <DateTimePicker
-            key={numberLocale}
-            value={value}
-            mode="date"
-            display="spinner"
-            locale={numberLocale}
-            maximumDate={maximumDate}
-            onChange={handleChange}
-          />
+  if (!visible) {
+    return null;
+  }
+
+  const sheet = (
+    <Pressable style={styles.sheet} onPress={(e) => e.stopPropagation()}>
+      <View style={styles.header}>
+        <Pressable onPress={onClose} hitSlop={12}>
+          <ThemedText style={styles.headerBtn}>{t('settings.cancel')}</ThemedText>
         </Pressable>
+        <Pressable onPress={() => onConfirm(value)} hitSlop={12}>
+          <ThemedText style={[styles.headerBtn, styles.headerBtnDone]}>
+            {t('assetEntry.keyboardDone')}
+          </ThemedText>
+        </Pressable>
+      </View>
+      <ThemedText style={styles.preview}>{preview}</ThemedText>
+      <DateTimePicker
+        key={numberLocale}
+        value={value}
+        mode="date"
+        display="spinner"
+        locale={numberLocale}
+        maximumDate={maximumDate}
+        onChange={handleChange}
+      />
+    </Pressable>
+  );
+
+  if (embedded) {
+    return (
+      <View style={styles.embeddedRoot} pointerEvents="box-none">
+        <Pressable style={styles.backdrop} onPress={onClose} />
+        {sheet}
+      </View>
+    );
+  }
+
+  return (
+    <Modal visible transparent animationType="slide" onRequestClose={onClose}>
+      <Pressable style={styles.backdrop} onPress={onClose}>
+        {sheet}
       </Pressable>
     </Modal>
   );
 }
 
 const styles = StyleSheet.create({
-  backdrop: {
-    flex: 1,
+  embeddedRoot: {
+    ...StyleSheet.absoluteFillObject,
     justifyContent: 'flex-end',
+    zIndex: 100,
+    elevation: 100,
+  },
+  backdrop: {
+    ...StyleSheet.absoluteFillObject,
     backgroundColor: 'rgba(0,0,0,0.45)',
   },
   sheet: {
@@ -121,6 +147,8 @@ const styles = StyleSheet.create({
     borderTopLeftRadius: 16,
     borderTopRightRadius: 16,
     paddingBottom: 24,
+    zIndex: 2,
+    elevation: 2,
   },
   header: {
     flexDirection: 'row',

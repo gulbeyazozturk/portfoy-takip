@@ -11,7 +11,6 @@ import {
   KeyboardAvoidingView,
   Modal,
   Platform,
-  Pressable,
   ScrollView,
   StyleSheet,
   Text,
@@ -19,6 +18,7 @@ import {
   TouchableOpacity,
   View,
 } from 'react-native';
+import { Pressable } from 'react-native-gesture-handler';
 import Svg, { Circle, Defs, LinearGradient, Path, Stop } from 'react-native-svg';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
@@ -501,6 +501,7 @@ export default function AssetEntryScreen() {
 
   const closeTransactionSheet = useCallback(() => {
     Keyboard.dismiss();
+    setCostDatePickerVisible(false);
     setTransactionOpen(false);
     if (openTransactionOnEntry) {
       handleBack();
@@ -1932,7 +1933,7 @@ export default function AssetEntryScreen() {
 
               <ScrollView
                 style={styles.transactionSheetScrollView}
-                keyboardShouldPersistTaps="handled"
+                keyboardShouldPersistTaps="always"
                 contentContainerStyle={[
                   styles.transactionSheetScroll,
                   { paddingBottom: 12 + (Platform.OS === 'android' ? keyboardHeight : 0) },
@@ -2018,14 +2019,19 @@ export default function AssetEntryScreen() {
                             onBlur={onNonQtyNumericFieldBlur}
                             inputAccessoryViewID={NUMERIC_KEYBOARD_ACCESSORY_ID}
                           />
-                          <TouchableOpacity
-                            style={styles.txnFormCalendarBtn}
-                            activeOpacity={0.85}
+                          <Pressable
+                            style={({ pressed }) => [
+                              styles.txnFormCalendarBtn,
+                              pressed && styles.txnFormCalendarBtnPressed,
+                            ]}
                             onPress={openCostDatePicker}
+                            hitSlop={8}
                             accessibilityRole="button"
                             accessibilityLabel={t('assetEntry.openCostDatePicker')}>
-                            <Ionicons name="calendar-outline" size={22} color={PRIMARY} />
-                          </TouchableOpacity>
+                            <View pointerEvents="none">
+                              <Ionicons name="calendar-outline" size={22} color={PRIMARY} />
+                            </View>
+                          </Pressable>
                         </View>
                       </View>
                     </>
@@ -2097,18 +2103,19 @@ export default function AssetEntryScreen() {
                   </View>
                 </View>
               ) : null}
+
+              <LocalizedDatePickerSheet
+                embedded
+                visible={costDatePickerVisible}
+                value={costDatePickerValue}
+                maximumDate={new Date()}
+                onClose={() => setCostDatePickerVisible(false)}
+                onConfirm={confirmCostDatePicker}
+                onChange={onCostDatePickerChange}
+              />
             </KeyboardAvoidingView>
         </View>
       </Modal>
-
-      <LocalizedDatePickerSheet
-        visible={costDatePickerVisible}
-        value={costDatePickerValue}
-        maximumDate={new Date()}
-        onClose={() => setCostDatePickerVisible(false)}
-        onConfirm={confirmCostDatePicker}
-        onChange={onCostDatePickerChange}
-      />
 
       {Platform.OS === 'ios' ? (
         <InputAccessoryView nativeID={DECIMAL_KEYBOARD_ACCESSORY_ID}>
@@ -2798,6 +2805,11 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     backgroundColor: 'rgba(255,255,255,0.06)',
+    zIndex: 2,
+  },
+  txnFormCalendarBtnPressed: {
+    opacity: 0.85,
+    backgroundColor: 'rgba(255,255,255,0.12)',
   },
   datePickerBackdrop: {
     flex: 1,
