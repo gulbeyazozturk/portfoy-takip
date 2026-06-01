@@ -3,6 +3,7 @@ import { useRouter } from 'expo-router';
 import React, { useMemo, useState } from 'react';
 import { ActivityIndicator, Platform, StyleSheet, TextInput, TouchableOpacity, View } from 'react-native';
 import { Pressable } from 'react-native-gesture-handler';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { LanguageToggle } from '@/components/language-toggle';
 import { OmnifolioBrand } from '@/components/omnifolio-brand';
@@ -18,8 +19,17 @@ type Mode = 'signin' | 'signup';
 
 const AUTH_THREE_LINES = 20 * 3;
 
+function SocialIcon({ name }: { name: 'logo-google' | 'logo-apple' }) {
+  return (
+    <View pointerEvents="none">
+      <Ionicons name={name} size={18} color="#e5e7eb" />
+    </View>
+  );
+}
+
 export default function AuthScreen() {
   const { t } = useTranslation();
+  const insets = useSafeAreaInsets();
   const router = useRouter();
   const { signInWithEmail, signUpWithEmail, signInWithGoogle, signInWithApple } = useAuth();
   const [mode, setMode] = useState<Mode>('signin');
@@ -128,38 +138,14 @@ export default function AuthScreen() {
     }
   };
 
+  const scrollBottomPad = Math.max(insets.bottom, 12) + 20;
+
   return (
     <ScreenWithFooter
       keyboardAvoid
       dismissKeyboardOnPress
       headerOverlay={<LanguageToggle />}
-      contentContainerStyle={styles.scrollContent}
-      footer={
-        <View style={styles.footer}>
-          {showAppleButton ? <ThemedText style={styles.orText}>{t('auth.or')}</ThemedText> : null}
-
-          <Pressable
-            style={({ pressed }) => [styles.socialBtn, pressed && styles.socialBtnPressed]}
-            onPress={() => social('google')}
-            disabled={busy}>
-            <Ionicons name="logo-google" size={18} color="#e5e7eb" pointerEvents="none" />
-            <ThemedText style={styles.socialText}>{t('auth.googleContinue')}</ThemedText>
-          </Pressable>
-
-          {showAppleButton ? (
-            <Pressable
-              style={({ pressed }) => [styles.socialBtn, pressed && styles.socialBtnPressed]}
-              onPress={() => social('apple')}
-              disabled={busy}>
-              <Ionicons name="logo-apple" size={18} color="#e5e7eb" pointerEvents="none" />
-              <ThemedText style={styles.socialText}>{t('auth.appleContinue')}</ThemedText>
-            </Pressable>
-          ) : null}
-
-          {error ? <ThemedText style={styles.errorText}>{error}</ThemedText> : null}
-          {info ? <ThemedText style={styles.infoText}>{info}</ThemedText> : null}
-        </View>
-      }>
+      contentContainerStyle={[styles.scrollContent, { paddingBottom: scrollBottomPad }]}>
       <OmnifolioBrand />
 
       <View style={styles.modeRow}>
@@ -220,17 +206,50 @@ export default function AuthScreen() {
           )}
         </TouchableOpacity>
       </View>
+
+      <View style={styles.socialSection}>
+        {showAppleButton ? <ThemedText style={styles.orText}>{t('auth.or')}</ThemedText> : null}
+
+        <Pressable
+          style={({ pressed }) => [styles.socialBtn, pressed && styles.socialBtnPressed]}
+          onPress={() => social('google')}
+          disabled={busy}
+          hitSlop={8}
+          accessibilityRole="button"
+          accessibilityLabel={t('auth.googleContinue')}>
+          <SocialIcon name="logo-google" />
+          <ThemedText style={styles.socialText}>{t('auth.googleContinue')}</ThemedText>
+        </Pressable>
+
+        {showAppleButton ? (
+          <Pressable
+            style={({ pressed }) => [styles.socialBtn, pressed && styles.socialBtnPressed]}
+            onPress={() => social('apple')}
+            disabled={busy}
+            hitSlop={8}
+            accessibilityRole="button"
+            accessibilityLabel={t('auth.appleContinue')}>
+            <SocialIcon name="logo-apple" />
+            <ThemedText style={styles.socialText}>{t('auth.appleContinue')}</ThemedText>
+          </Pressable>
+        ) : null}
+
+        {error ? <ThemedText style={styles.errorText}>{error}</ThemedText> : null}
+        {info ? <ThemedText style={styles.infoText}>{info}</ThemedText> : null}
+      </View>
     </ScreenWithFooter>
   );
 }
 
 const styles = StyleSheet.create({
   scrollContent: {
+    flexGrow: 0,
     paddingHorizontal: 20,
     paddingTop: 24 + AUTH_THREE_LINES,
   },
-  footer: {
-    paddingHorizontal: 20,
+  socialSection: {
+    marginTop: 20,
+    paddingHorizontal: 0,
   },
   modeRow: { flexDirection: 'row', gap: 8, marginTop: 12, marginBottom: 12 },
   modeBtn: {
@@ -273,7 +292,7 @@ const styles = StyleSheet.create({
   },
   disabledBtn: { opacity: 0.5 },
   primaryBtnText: { color: '#fff', fontWeight: '700' },
-  orText: { textAlign: 'center', color: '#6b7280', marginBottom: 14 },
+  orText: { textAlign: 'center', color: '#6b7280', marginBottom: 12 },
   socialBtn: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -282,6 +301,7 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: '#2c2c2e',
     borderRadius: 10,
+    minHeight: 48,
     paddingVertical: 12,
     marginBottom: 10,
     backgroundColor: '#111827',
