@@ -20,6 +20,7 @@
         "usesNonExemptEncryption": false
       },
       "infoPlist": {
+        "CFBundleDevelopmentRegion": "en",
         "ITSAppUsesNonExemptEncryption": false,
         "NSFaceIDUsageDescription": "Omnifolio portföy verilerinize yalnızca sizin erişebilmeniz için Face ID kullanılır.",
         "UIStatusBarStyle": "UIStatusBarStyleLightContent"
@@ -54,18 +55,13 @@
         "expo-localization",
         {
           "supportedLocales": {
-            "ios": ["tr", "en"],
+            "ios": ["en", "tr"],
             "android": ["tr", "en"]
           },
           "allowDynamicLocaleChangesAndroid": true
         }
       ],
-      [
-        "react-native-localization-settings",
-        {
-          "languages": ["tr", "en"]
-        }
-      ],
+      "./plugins/with-ios-bcp47-known-regions.js",
       [
         "expo-splash-screen",
         {
