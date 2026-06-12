@@ -3,14 +3,26 @@ import DateTimePicker, {
   type DateTimePickerEvent,
 } from '@react-native-community/datetimepicker';
 import React, { useEffect, useRef } from 'react';
-import { Modal, Platform, StyleSheet, View } from 'react-native';
+import { Modal, Platform, StyleSheet, UIManager, View } from 'react-native';
 import { Pressable } from 'react-native-gesture-handler';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useTranslation } from 'react-i18next';
 
+import { JsDatePickerWheels } from '@/components/js-date-picker-wheels';
 import { ThemedText } from '@/components/themed-text';
 import { getAppNumberLocale, getDatePickerFirstDayOfWeek } from '@/lib/app-number-locale';
 
+function isNativeDateTimePickerAvailable(): boolean {
+  if (Platform.OS !== 'ios') return true;
+  return (
+    typeof UIManager.hasViewManagerConfig === 'function' &&
+    UIManager.hasViewManagerConfig('RNDateTimePicker')
+  );
+}
+
 const PRIMARY = '#89acff';
+/** iOS UIDatePicker spinner yüksekliği — belirtilmezse sheet içinde 0px kalıp görünmez. */
+const IOS_SPINNER_HEIGHT = 216;
 
 type Props = {
   visible: boolean;
@@ -33,6 +45,7 @@ export function LocalizedDatePickerSheet({
   onChange,
 }: Props) {
   const { t, i18n } = useTranslation();
+  const insets = useSafeAreaInsets();
   const numberLocale = getAppNumberLocale(i18n.language);
   const androidOpenedRef = useRef(false);
 
@@ -88,8 +101,11 @@ export function LocalizedDatePickerSheet({
     return null;
   }
 
+  const sheetBottomPad = Math.max(insets.bottom, 12);
+  const useNativePicker = isNativeDateTimePickerAvailable();
+
   const sheet = (
-    <Pressable style={styles.sheet} onPress={(e) => e.stopPropagation()}>
+    <View style={[styles.sheet, { paddingBottom: sheetBottomPad }]}>
       <View style={styles.header}>
         <Pressable onPress={onClose} hitSlop={12}>
           <ThemedText style={styles.headerBtn}>{t('settings.cancel')}</ThemedText>
@@ -101,37 +117,54 @@ export function LocalizedDatePickerSheet({
         </Pressable>
       </View>
       <ThemedText style={styles.preview}>{preview}</ThemedText>
-      <DateTimePicker
-        key={numberLocale}
-        value={value}
-        mode="date"
-        display="spinner"
-        locale={numberLocale}
-        maximumDate={maximumDate}
-        onChange={handleChange}
-      />
-    </Pressable>
+      <View style={[styles.pickerWrap, !useNativePicker && styles.pickerWrapJs]}>
+        {useNativePicker ? (
+          <DateTimePicker
+            key={numberLocale}
+            value={value}
+            mode="date"
+            display="spinner"
+            locale={numberLocale}
+            maximumDate={maximumDate}
+            themeVariant="dark"
+            style={styles.picker}
+            onChange={handleChange}
+          />
+        ) : (
+          <JsDatePickerWheels
+            value={value}
+            maximumDate={maximumDate}
+            locale={numberLocale}
+            onChange={onChange}
+          />
+        )}
+      </View>
+    </View>
+  );
+
+  const overlay = (
+    <View style={embedded ? styles.embeddedRoot : styles.modalRoot} pointerEvents="box-none">
+      <Pressable style={styles.backdrop} onPress={onClose} />
+      {sheet}
+    </View>
   );
 
   if (embedded) {
-    return (
-      <View style={styles.embeddedRoot} pointerEvents="box-none">
-        <Pressable style={styles.backdrop} onPress={onClose} />
-        {sheet}
-      </View>
-    );
+    return overlay;
   }
 
   return (
     <Modal visible transparent animationType="slide" onRequestClose={onClose}>
-      <Pressable style={styles.backdrop} onPress={onClose}>
-        {sheet}
-      </Pressable>
+      {overlay}
     </Modal>
   );
 }
 
 const styles = StyleSheet.create({
+  modalRoot: {
+    flex: 1,
+    justifyContent: 'flex-end',
+  },
   embeddedRoot: {
     ...StyleSheet.absoluteFillObject,
     justifyContent: 'flex-end',
@@ -146,9 +179,9 @@ const styles = StyleSheet.create({
     backgroundColor: '#1c1c1e',
     borderTopLeftRadius: 16,
     borderTopRightRadius: 16,
-    paddingBottom: 24,
     zIndex: 2,
     elevation: 2,
+    overflow: 'hidden',
   },
   header: {
     flexDirection: 'row',
@@ -174,7 +207,20 @@ const styles = StyleSheet.create({
     color: '#ffffff',
     textAlign: 'center',
     paddingHorizontal: 20,
-    paddingTop: 16,
+    paddingTop: 12,
     paddingBottom: 4,
+  },
+  pickerWrap: {
+    height: IOS_SPINNER_HEIGHT,
+    width: '100%',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  pickerWrapJs: {
+    height: 200,
+  },
+  picker: {
+    height: IOS_SPINNER_HEIGHT,
+    width: '100%',
   },
 });

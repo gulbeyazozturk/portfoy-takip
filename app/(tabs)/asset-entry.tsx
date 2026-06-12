@@ -52,6 +52,8 @@ import { useTranslation } from 'react-i18next';
 /** Portföy sekmesi (`portfolio.tsx`). */
 const PORTFOLIO_TAB_HREF = '/portfolio' as Href;
 
+const TXN_TOAST_MS = 3000;
+
 function isReturnToPortfolioTab(returnTo: string | undefined): boolean {
   return returnTo === '/' || returnTo === '/(tabs)/index' || returnTo === '/portfolio' || returnTo === '/(tabs)/portfolio';
 }
@@ -335,7 +337,7 @@ export default function AssetEntryScreen() {
     setSpotCurrency(routeSpotCurrency || null);
   }, [assetId, routeSpotCurrency]);
 
-  const handleBack = () => {
+  const handleBack = useCallback(() => {
     if (returnTo === '/(tabs)/asset-list' && returnCategoryId != null) {
       router.replace({
         pathname: '/(tabs)/asset-list',
@@ -347,8 +349,12 @@ export default function AssetEntryScreen() {
       router.replace(PORTFOLIO_TAB_HREF);
       return;
     }
-    router.back();
-  };
+    if (router.canGoBack()) {
+      router.back();
+    } else {
+      router.replace(PORTFOLIO_TAB_HREF);
+    }
+  }, [returnTo, returnCategoryId, returnLabel, router]);
 
   const openChartScreen = () => {
     if (!assetId) return;
@@ -405,6 +411,8 @@ export default function AssetEntryScreen() {
   const [transactionOpen, setTransactionOpen] = useState(false);
   const [actionToast, setActionToast] = useState<'add' | 'reduce' | null>(null);
   const actionToastTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const actionToastEpochRef = useRef(0);
+  const lastEntryFocusKeyRef = useRef('');
   const scrollViewRef = useRef<ScrollView>(null);
   const keyboardHeightRef = useRef(0);
   const scrollViewLayoutHRef = useRef(0);
@@ -499,26 +507,48 @@ export default function AssetEntryScreen() {
     setTransactionOpen(true);
   }, []);
 
+  const cancelActionToast = useCallback(() => {
+    actionToastEpochRef.current += 1;
+    if (actionToastTimerRef.current) {
+      clearTimeout(actionToastTimerRef.current);
+      actionToastTimerRef.current = null;
+    }
+    setActionToast(null);
+  }, []);
+
   const closeTransactionSheet = useCallback(() => {
+    cancelActionToast();
     Keyboard.dismiss();
     setCostDatePickerVisible(false);
     setTransactionOpen(false);
     if (openTransactionOnEntry) {
       handleBack();
     }
-  }, [openTransactionOnEntry, handleBack]);
+  }, [cancelActionToast, openTransactionOnEntry, handleBack]);
 
-  const showActionToast = useCallback((kind: 'add' | 'reduce') => {
-    if (actionToastTimerRef.current) {
-      clearTimeout(actionToastTimerRef.current);
-      actionToastTimerRef.current = null;
-    }
-    setActionToast(kind);
-    actionToastTimerRef.current = setTimeout(() => {
-      setActionToast(null);
-      actionToastTimerRef.current = null;
-    }, 3000);
+  const dismissTransactionSheetAfterToast = useCallback(() => {
+    setTransactionOpen(false);
   }, []);
+
+  const showActionToast = useCallback(
+    (kind: 'add' | 'reduce', options?: { afterDismiss?: () => void }) => {
+      const epoch = actionToastEpochRef.current + 1;
+      actionToastEpochRef.current = epoch;
+      if (actionToastTimerRef.current) {
+        clearTimeout(actionToastTimerRef.current);
+        actionToastTimerRef.current = null;
+      }
+      setCostDatePickerVisible(false);
+      setActionToast(kind);
+      actionToastTimerRef.current = setTimeout(() => {
+        if (actionToastEpochRef.current !== epoch) return;
+        setActionToast(null);
+        actionToastTimerRef.current = null;
+        options?.afterDismiss?.();
+      }, TXN_TOAST_MS);
+    },
+    [],
+  );
 
   const scrollFormFieldsIntoView = useCallback(() => {
     const scrollEnd = () => scrollViewRef.current?.scrollToEnd({ animated: true });
@@ -570,6 +600,11 @@ export default function AssetEntryScreen() {
       }
       setNumericAccessoryOpen(false);
       setDecimalFieldFocus(null);
+
+      const focusKey = `${assetId ?? ''}|${routeHoldingId ?? ''}|${openTransactionOnEntry ? '1' : '0'}`;
+      if (lastEntryFocusKeyRef.current === focusKey) return;
+      lastEntryFocusKeyRef.current = focusKey;
+
       setFormMode('add');
       setInputQtyStr('');
       setInputCost('');
@@ -580,7 +615,7 @@ export default function AssetEntryScreen() {
       } else {
         setTransactionOpen(false);
       }
-    }, [assetId, portfolioId, routeHoldingId, openTransactionOnEntry]),
+    }, [assetId, routeHoldingId, openTransactionOnEntry]),
   );
 
   useEffect(() => {
@@ -1104,6 +1139,7 @@ export default function AssetEntryScreen() {
       }
     }
     setSaving(true);
+    const sheetWasOpen = transactionOpen;
     try {
       if (holdingId) {
         const newQty = qty + inputQty;
@@ -1194,9 +1230,12 @@ export default function AssetEntryScreen() {
         scrollViewRef.current?.scrollTo({ y: 0, animated: true });
       });
       if (openTransactionOnEntry) {
-        navigateBack({ txnToast: 'add' });
-      } else {
+        setCostDatePickerVisible(false);
         setTransactionOpen(false);
+        navigateBack({ txnToast: 'add' });
+      } else if (sheetWasOpen) {
+        showActionToast('add', { afterDismiss: dismissTransactionSheetAfterToast });
+      } else {
         showActionToast('add');
       }
     } catch (e: any) {
@@ -1229,6 +1268,7 @@ export default function AssetEntryScreen() {
     }
     Keyboard.dismiss();
     const newQty = qty - inputQty;
+    const sheetWasOpen = transactionOpen;
     setSaving(true);
     if (newQty <= 0) {
       const { data: deleted, error } = await supabase
@@ -1264,8 +1304,11 @@ export default function AssetEntryScreen() {
       requestAnimationFrame(() => {
         scrollViewRef.current?.scrollTo({ y: 0, animated: true });
       });
-      setTransactionOpen(false);
-      showActionToast('reduce');
+      if (sheetWasOpen) {
+        showActionToast('reduce', { afterDismiss: dismissTransactionSheetAfterToast });
+      } else {
+        showActionToast('reduce');
+      }
     }
   };
 
@@ -1614,9 +1657,8 @@ export default function AssetEntryScreen() {
 
     if (formMode === 'add') {
       return (
-        <TouchableOpacity
+        <Pressable
           style={[...ctaBase, styles.transactionSheetCtaAdd]}
-          activeOpacity={0.9}
           onPress={handleAdd}
           disabled={saving}>
           {saving ? (
@@ -1624,14 +1666,13 @@ export default function AssetEntryScreen() {
           ) : (
             <ThemedText style={ctaTextWhite}>{t('assetEntry.btnSubmitTransaction')}</ThemedText>
           )}
-        </TouchableOpacity>
+        </Pressable>
       );
     }
     if (formMode === 'reduce') {
       return (
-        <TouchableOpacity
+        <Pressable
           style={[...ctaBase, styles.transactionSheetCtaReduce]}
-          activeOpacity={0.9}
           onPress={handleReduce}
           disabled={saving}>
           {saving ? (
@@ -1639,14 +1680,13 @@ export default function AssetEntryScreen() {
           ) : (
             <ThemedText style={ctaTextWhite}>{t('assetEntry.btnSubmitTransaction')}</ThemedText>
           )}
-        </TouchableOpacity>
+        </Pressable>
       );
     }
     if (formMode === 'delete' && holdingId) {
       return (
-        <TouchableOpacity
+        <Pressable
           style={[...ctaBase, styles.transactionSheetCtaDelete]}
-          activeOpacity={0.9}
           onPress={handleDeleteConfirm}
           disabled={saving}>
           {saving ? (
@@ -1654,7 +1694,7 @@ export default function AssetEntryScreen() {
           ) : (
             <ThemedText style={ctaTextWhite}>{t('assetEntry.btnDelete')}</ThemedText>
           )}
-        </TouchableOpacity>
+        </Pressable>
       );
     }
     return null;
@@ -1842,15 +1882,14 @@ export default function AssetEntryScreen() {
             behavior={Platform.OS === 'ios' ? 'padding' : undefined}
             keyboardVerticalOffset={Platform.OS === 'ios' ? insets.top : 0}>
             <View style={[styles.transactionSheetTopBar, { paddingTop: Math.max(insets.top, 14) }]}>
-                <TouchableOpacity
+                <Pressable
                   onPress={closeTransactionSheet}
                   hitSlop={12}
-                  activeOpacity={0.8}
                   style={styles.transactionSheetCloseBtn}
                   accessibilityRole="button"
                   accessibilityLabel={t('settings.cancel')}>
                   <Ionicons name="close" size={26} color="#ffffff" />
-                </TouchableOpacity>
+                </Pressable>
               </View>
 
               <View style={styles.transactionSheetAssetHeader}>
@@ -2103,17 +2142,34 @@ export default function AssetEntryScreen() {
                   </View>
                 </View>
               ) : null}
-
-              <LocalizedDatePickerSheet
-                embedded
-                visible={costDatePickerVisible}
-                value={costDatePickerValue}
-                maximumDate={new Date()}
-                onClose={() => setCostDatePickerVisible(false)}
-                onConfirm={confirmCostDatePicker}
-                onChange={onCostDatePickerChange}
-              />
             </KeyboardAvoidingView>
+
+          <LocalizedDatePickerSheet
+            embedded
+            visible={costDatePickerVisible}
+            value={costDatePickerValue}
+            maximumDate={new Date()}
+            onClose={() => setCostDatePickerVisible(false)}
+            onConfirm={confirmCostDatePicker}
+            onChange={onCostDatePickerChange}
+          />
+
+          {actionToast ? (
+            <View
+              pointerEvents="none"
+              style={[
+                styles.actionToastSheetOverlay,
+                { paddingBottom: Math.max(insets.bottom, 16) + 88 },
+              ]}>
+              <View style={styles.actionToastCard}>
+                <Text style={styles.actionToastText}>
+                  {actionToast === 'add'
+                    ? t('assetEntry.toastAddDone')
+                    : t('assetEntry.toastReduceDone')}
+                </Text>
+              </View>
+            </View>
+          ) : null}
         </View>
       </Modal>
 
@@ -2225,30 +2281,22 @@ export default function AssetEntryScreen() {
         </View>
       </Modal>
 
-      <Modal
-        visible={actionToast != null}
-        transparent
-        animationType="fade"
-        statusBarTranslucent
-        presentationStyle={Platform.OS === 'ios' ? 'overFullScreen' : undefined}
-        onRequestClose={() => {}}>
+      {actionToast && !transactionOpen ? (
         <View
           pointerEvents="none"
           style={[
-            styles.actionToastModalRoot,
+            styles.actionToastPageOverlay,
             { paddingBottom: insets.bottom + 28 },
           ]}>
-          {actionToast ? (
-            <View style={styles.actionToastCard}>
-              <Text style={styles.actionToastText}>
-                {actionToast === 'add'
-                  ? t('assetEntry.toastAddDone')
-                  : t('assetEntry.toastReduceDone')}
-              </Text>
-            </View>
-          ) : null}
+          <View style={styles.actionToastCard}>
+            <Text style={styles.actionToastText}>
+              {actionToast === 'add'
+                ? t('assetEntry.toastAddDone')
+                : t('assetEntry.toastReduceDone')}
+            </Text>
+          </View>
         </View>
-      </Modal>
+      ) : null}
     </ThemedView>
   );
 }
@@ -3374,11 +3422,19 @@ const styles = StyleSheet.create({
   },
 
   /* ---- Delete Modal ---- */
-  actionToastModalRoot: {
-    flex: 1,
+  actionToastSheetOverlay: {
+    ...StyleSheet.absoluteFillObject,
     justifyContent: 'flex-end',
     alignItems: 'center',
-    backgroundColor: 'transparent',
+    zIndex: 200,
+    elevation: 200,
+  },
+  actionToastPageOverlay: {
+    ...StyleSheet.absoluteFillObject,
+    justifyContent: 'flex-end',
+    alignItems: 'center',
+    zIndex: 2000,
+    elevation: 2000,
   },
   actionToastCard: {
     backgroundColor: SURFACE_HIGH,
@@ -3386,8 +3442,8 @@ const styles = StyleSheet.create({
     paddingHorizontal: 22,
     borderRadius: 14,
     maxWidth: '88%',
-    borderWidth: StyleSheet.hairlineWidth,
-    borderColor: 'rgba(255,255,255,0.12)',
+    borderWidth: 1,
+    borderColor: 'rgba(137, 172, 255, 0.45)',
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 4 },
     shadowOpacity: 0.35,
