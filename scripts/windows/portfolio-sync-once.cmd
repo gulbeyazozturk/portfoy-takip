@@ -18,7 +18,6 @@ node scripts\sync-doviz-dev.js || goto :err
 node scripts\sync-emtia-scrape.js || goto :err
 node scripts\sync-kapalicarsi-gold.js || goto :err
 node scripts\sync-yurtdisi-prices.js --mode=holdings --batch=500 --delay=140 || goto :err
-node scripts\snapshot-prices.js || goto :err
 popd
 exit /b 0
 :err

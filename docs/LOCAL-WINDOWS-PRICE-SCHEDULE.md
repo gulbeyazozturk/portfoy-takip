@@ -44,7 +44,8 @@ powershell -ExecutionPolicy Bypass -File .\scripts\windows\register-local-price-
 - `scripts/sync-emtia-scrape.js`
 - `scripts/sync-kapalicarsi-gold.js`
 - `scripts/sync-yurtdisi-prices.js --mode=holdings --batch=500 --delay=140`
-- `scripts/snapshot-prices.js`
+
+(`price_history` snapshot devre disi — migration 021)
 
 ### ABD (10 dk)
 

@@ -48,6 +48,7 @@ async function batchInsert(sb, rows) {
 }
 
 async function main() {
+  require('./lib/price-history-writes').exitIfPriceHistoryWritesDisabled('backfill-fon');
   await loadEnv();
   const { createClient } = require('@supabase/supabase-js');
   const url = process.env.EXPO_PUBLIC_SUPABASE_URL;

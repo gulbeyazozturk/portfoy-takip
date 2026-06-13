@@ -1,9 +1,11 @@
 /**
- * Tüm varlıkların mevcut fiyatlarını price_history tablosuna kaydeder.
- * Sync scriptleri çalıştıktan sonra çağrılmalıdır.
+ * (Devre dışı) Tüm varlıkların mevcut fiyatlarını price_history tablosuna kaydeder.
+ * Yazım kapalı — migration 021 + sync pipeline'dan çıkarıldı.
  *
- * Çalıştırma: node scripts/snapshot-prices.js
+ * Tekrar açmak: PRICE_HISTORY_WRITES=1 + 021 trigger'ını kaldır.
  */
+
+const { exitIfPriceHistoryWritesDisabled } = require('./lib/price-history-writes');
 
 async function loadEnv() {
   const path = require('path');
@@ -20,6 +22,8 @@ async function loadEnv() {
 }
 
 async function main() {
+  exitIfPriceHistoryWritesDisabled('snapshot-prices');
+
   await loadEnv();
   const { createClient } = require('@supabase/supabase-js');
   const url = process.env.EXPO_PUBLIC_SUPABASE_URL || process.env.SUPABASE_URL;

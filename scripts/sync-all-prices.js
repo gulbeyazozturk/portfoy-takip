@@ -1,6 +1,7 @@
 /**
  * Tüm varlık türleri için güncel fiyatları çeker (listeleri doldurmaz; mevcut assets satırlarını günceller).
- * Sıra: döviz → kripto → BIST scrape → BIST Yahoo → emtia → kapalıçarşı → yurtdışı fiyat → TEFAS → price_history anlık görüntü.
+ * Sıra: döviz → kripto → BIST scrape → BIST Yahoo → emtia → kapalıçarşı → yurtdışı fiyat → TEFAS.
+ * price_history snapshot kapalı (021).
  *
  *   node scripts/sync-all-prices.js
  *
@@ -21,7 +22,6 @@ const SCRIPTS = [
   // Full evrenden kademeli güncelleme (rate-limit dostu)
   { file: 'sync-yurtdisi-prices.js', args: ['--mode=full', '--batch=500', '--delay=180'] },
   { file: 'sync-tefas-funds.js', args: [] },
-  { file: 'snapshot-prices.js', args: [] },
 ];
 
 const root = path.resolve(__dirname, '..');
@@ -47,7 +47,7 @@ function runScript(job) {
 
 function main() {
   console.log(
-    'Fiyat senkronu: döviz → kripto → BIST → emtia → kapalıçarşı → yurtdışı fiyat → TEFAS → snapshot\n',
+    'Fiyat senkronu: döviz → kripto → BIST → emtia → kapalıçarşı → yurtdışı fiyat → TEFAS\n',
   );
   for (const s of SCRIPTS) runScript(s);
   console.log('\n[sync-all-prices] Tamam.');

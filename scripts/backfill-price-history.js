@@ -308,6 +308,7 @@ async function backfillTEFAS(sb, assets) {
 
 // ─── Main ──────────────────────────────────────────────────────
 async function main() {
+  require('./lib/price-history-writes').exitIfPriceHistoryWritesDisabled('backfill-price-history');
   await loadEnv();
   const { createClient } = require('@supabase/supabase-js');
   const YahooFinance = require('yahoo-finance2').default;

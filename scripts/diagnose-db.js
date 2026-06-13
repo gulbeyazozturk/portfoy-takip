@@ -84,8 +84,7 @@ async function main() {
   console.log('2) Sahipsiz portföy varsa: node scripts/assign-user-data.js <email> --include-null-portfolios');
   console.log('3) Kripto seed (sadece Hasim, diğer veriye dokunmaz): npm run seed-hasim -- <email>');
   console.log('4) Varlık fiyatlarını güncelle: npm run sync-crypto (ve BIST/döviz scriptleri gerektiği gibi)');
-  console.log('5) Bugünden price_history biriktir: node scripts/snapshot-prices.js');
-  console.log('6) Geçmiş grafikleri yeniden doldurmak (uzun): node scripts/backfill-price-history.js');
+  console.log('5) price_history yazımı kapalı (021); snapshot/backfill çalıştırma');
 }
 
 main().catch((e) => {

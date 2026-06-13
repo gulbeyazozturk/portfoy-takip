@@ -1,4 +1,5 @@
-# Senkron: kripto, BIST scrape, döviz, emtia, altın, TEFAS (TSİ 07–12), yurtdışı holdings, snapshot, kademeli günlük push.
+# Senkron: kripto, BIST scrape, döviz, emtia, altın, TEFAS (TSİ 07–12), yurtdışı holdings, kademeli günlük push.
+# price_history snapshot kapalı (021).
 #
 # Zamanlama GitHub cron ile değil: Supabase pg_cron (~15 dk) → Edge dispatch-portfolio-sync
 # → bu workflow workflow_dispatch ile tetiklenir. TEFAS adımı yalnızca Europe/Istanbul 07:00–12:59 arasında çalışır; diğer saatlerde atlanır.
@@ -75,9 +76,6 @@ jobs:
 
       - name: Sync ABD (yalnızca holdings)
         run: node scripts/sync-yurtdisi-prices.js --mode=holdings --batch=500 --delay=140
-
-      - name: Snapshot prices (grafik geçmişi)
-        run: node scripts/snapshot-prices.js
 
       - name: Push kademeli gunluk % uyarıları (±4/7/10/15)
         env:
