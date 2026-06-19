@@ -1,4 +1,7 @@
-/** price_history yazımı kapalı; açmak için PRICE_HISTORY_WRITES=1 + migration 021 trigger kaldır. */
+/**
+ * price_history yazımı yalnızca günlük bakım RPC/script ile (migration 022).
+ * Eski snapshot/backfill script'leri bu modülü kullanmamalı.
+ */
 
 function priceHistoryWritesEnabled() {
   return process.env.PRICE_HISTORY_WRITES === '1';
@@ -7,7 +10,7 @@ function priceHistoryWritesEnabled() {
 function exitIfPriceHistoryWritesDisabled(scriptName) {
   if (priceHistoryWritesEnabled()) return;
   console.log(
-    `[${scriptName}] price_history yazımı kapalı. Atlanıyor. (Tekrar açmak: PRICE_HISTORY_WRITES=1 + DB trigger kaldır)`,
+    `[${scriptName}] price_history toplu yazım devre dışı. Günlük bakım: npm run daily-price-history`,
   );
   process.exit(0);
 }

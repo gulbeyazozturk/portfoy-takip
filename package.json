@@ -20,6 +20,8 @@
     "repair-kripto-usd": "node ./scripts/repair-kripto-usd.js",
     "seed-hasim": "node ./scripts/seed-hasim-crypto-portfolio.js",
     "truncate:price-history": "node ./scripts/truncate-price-history.js",
+    "daily-price-history": "node ./scripts/daily-price-history-maintenance.js",
+    "setup:daily-price-history": "node ./scripts/setup-daily-price-history-supabase.mjs",
     "diagnose-db": "node ./scripts/diagnose-db.js",
     "ensure-portfolio": "node ./scripts/ensure-user-portfolio.js",
     "delete-user": "node ./scripts/delete-user-by-email.js",

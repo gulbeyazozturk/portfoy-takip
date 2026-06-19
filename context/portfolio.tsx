@@ -7,6 +7,7 @@ import {
   LEGACY_DEFAULT_PORTFOLIO_NAME,
 } from '@/lib/portfolio-name-loose';
 import { portfolioNamesConflict } from '@/lib/portfolio-name-normalize';
+import { pruneLocalPortfolioCaches } from '@/lib/prune-local-portfolio-cache';
 import { supabase } from '@/lib/supabase';
 
 function isUniqueOrDuplicateDbError(err: { code?: string; message?: string } | null | undefined): boolean {
@@ -218,6 +219,7 @@ export function PortfolioProvider({ children }: { children: React.ReactNode }) {
       }
 
       setPortfolios(rows);
+      void pruneLocalPortfolioCaches(rows.map((p) => p.id));
 
       const chosen = await resolveSelection(rows, portfolioIdRef.current);
       setPortfolioId(chosen);

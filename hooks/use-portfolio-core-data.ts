@@ -18,6 +18,21 @@ import {
   type AssetRow,
   type HoldingRow,
 } from '@/lib/portfolio-holdings';
+import {
+  mergeHoldingsIntoAssetLastPriceCache,
+  readAssetLastPriceCache,
+  type AssetLastPriceMap,
+} from '@/lib/asset-last-price-cache';
+import {
+  applyLastKnownPricesToHoldings,
+  collectAssetIdsNeedingSeed,
+  fetchLatestPriceHistoryByAsset,
+} from '@/lib/seed-holdings-last-known-prices';
+import {
+  persistPortfolioSummaryCache,
+  readPortfolioSummaryCache,
+} from '@/lib/portfolio-summary-cache';
+import { pruneLocalPortfolioCaches } from '@/lib/prune-local-portfolio-cache';
 import { MIN_VALID_USD_TRY_RATE, persistUsdTryRate, readCachedUsdTryRate } from '@/lib/usdtry-cache';
 import { supabase } from '@/lib/supabase';
 
@@ -72,6 +87,9 @@ export function usePortfolioCoreData() {
   const minuteTick = useMinuteTick();
   const holdingsFetchGenRef = useRef(0);
   const holdingsPortfolioRef = useRef<string | null>(null);
+  const devicePriceCacheRef = useRef<AssetLastPriceMap>({});
+  const usdTryFallbackRef = useRef<number>(0);
+  const [summaryEpoch, setSummaryEpoch] = useState(0);
 
   type MetricsBundle = {
     allocationData: DonutSlice[];
@@ -165,100 +183,83 @@ export function usePortfolioCoreData() {
     } else {
       const rawHoldings = ((data as unknown as HoldingRow[]) ?? []).slice();
 
-      // Bazı kategorilerde assets.current_price geçici olarak boş/eksik kalabiliyor
-      // (özellikle FON ve bazen yurtdışı hisseler). Bu durumda price_history'den
-      // son birim fiyatı seed ederek listeyi avg_price'a düşürmeyelim.
-      const seedFromHistoryAssetIds = new Set<string>();
-      for (const h of rawHoldings) {
-        const a = Array.isArray(h.asset) ? h.asset[0] : h.asset;
-        if (!a) continue;
-        if (a.category_id !== 'fon' && a.category_id !== 'yurtdisi') continue;
-        const p = Number(a.current_price ?? 0);
-        const ch = a.change_24h_pct;
-        const needsChange = ch == null || !Number.isFinite(Number(ch));
-        if (!Number.isFinite(p) || p <= 0 || needsChange) {
-          seedFromHistoryAssetIds.add(String(a.id));
-        }
+      let deviceByAsset = devicePriceCacheRef.current;
+      if (!Object.keys(deviceByAsset).length) {
+        deviceByAsset = await readAssetLastPriceCache();
+        devicePriceCacheRef.current = deviceByAsset;
       }
 
-      let updatedHoldings = rawHoldings;
-      if (seedFromHistoryAssetIds.size > 0) {
-        const ids = Array.from(seedFromHistoryAssetIds);
-        const { data: phRows, error: phErr } = await supabase
-          .from('price_history')
-          .select('asset_id, price, recorded_at')
-          .in('asset_id', ids)
-          .not('price', 'is', null)
-          .order('recorded_at', { ascending: false });
-        if (phErr) {
-          // Fiyat seed edilemezse mevcut (null) kalsın; UI "Fiyat güncelleniyor..." gösterebilir.
-        } else {
-          const pricesByAsset = new Map<string, number[]>();
-          for (const row of phRows ?? []) {
-            const aid = String(row.asset_id);
-            const p = Number(row.price);
-            if (!Number.isFinite(p) || p <= 0) continue;
-            if (!pricesByAsset.has(aid)) pricesByAsset.set(aid, []);
-            const arr = pricesByAsset.get(aid)!;
-            // Aynı değeri tekrar ekleme (bazı kayıtlarda tekrar olabiliyor)
-            if (!arr.length || Math.abs(arr[0] - p) > 1e-12) arr.push(p);
-            // Her asset için sadece son 2 değere ihtiyacımız var.
-            if (arr.length >= 2) continue;
-          }
+      const seedIds = collectAssetIdsNeedingSeed(rawHoldings);
+      const phPricesByAsset =
+        seedIds.length > 0 ? await fetchLatestPriceHistoryByAsset(supabase, seedIds) : new Map();
 
-          updatedHoldings = rawHoldings.map((h) => {
-            const a = Array.isArray(h.asset) ? h.asset[0] : h.asset;
-            if (!a) return h;
-            if (a.category_id !== 'fon' && a.category_id !== 'yurtdisi') return h;
-            const cur = Number(a.current_price ?? 0);
-            const needsCurrentSeed = !Number.isFinite(cur) || cur <= 0;
-            const needsChangeSeed = a.change_24h_pct == null || !Number.isFinite(Number(a.change_24h_pct));
-            const prices = pricesByAsset.get(String(a.id)) ?? [];
-            const latest = prices[0];
-            const prev = prices[1];
-            if (!needsCurrentSeed && !needsChangeSeed) return h;
-            if (latest == null) return h;
-
-            const nextAsset: any = { ...a };
-            if (needsCurrentSeed) nextAsset.current_price = latest;
-            if (needsChangeSeed) {
-              if (prev != null && Number.isFinite(prev) && prev > 0 && latest > 0) {
-                nextAsset.change_24h_pct = ((latest - prev) / prev) * 100;
-              } else {
-                nextAsset.change_24h_pct = null;
-              }
-            }
-            if (Array.isArray(h.asset)) {
-              return { ...h, asset: [nextAsset, ...h.asset.slice(1)] };
-            }
-            return { ...h, asset: nextAsset };
-          });
-        }
-      }
+      let updatedHoldings = applyLastKnownPricesToHoldings(
+        rawHoldings,
+        deviceByAsset,
+        phPricesByAsset,
+      );
 
       if (fetchGen !== holdingsFetchGenRef.current) return;
-      setHoldings((prev) =>
-        portfolioSwitched || !prev.length
-          ? updatedHoldings
-          : mergeHoldingsPreservePrices(prev, updatedHoldings),
-      );
+      setHoldings((prev) => {
+        const merged =
+          portfolioSwitched || !prev.length
+            ? updatedHoldings
+            : mergeHoldingsPreservePrices(prev, updatedHoldings);
+        void (async () => {
+          await mergeHoldingsIntoAssetLastPriceCache(merged);
+          if (portfolios.length > 0) {
+            await pruneLocalPortfolioCaches(portfolios.map((p) => p.id));
+          }
+          devicePriceCacheRef.current = await readAssetLastPriceCache();
+        })();
+        return merged;
+      });
     }
     if (fetchGen === holdingsFetchGenRef.current) {
       setLoading(false);
     }
-  }, [portfolioId]);
+  }, [portfolioId, portfolios]);
 
   useEffect(() => {
     let alive = true;
     void (async () => {
       const cached = await readCachedUsdTryRate();
       if (!alive || cached == null) return;
+      usdTryFallbackRef.current = cached;
       setUsdTry((prev) => (prev > MIN_VALID_USD_TRY_RATE ? prev : cached));
     })();
     return () => {
       alive = false;
     };
   }, []);
+
+  useEffect(() => {
+    if (!portfolioId) return;
+    let alive = true;
+    void (async () => {
+      const [assetCache, summaryRow, usdCached] = await Promise.all([
+        readAssetLastPriceCache(),
+        readPortfolioSummaryCache(portfolioId),
+        readCachedUsdTryRate(),
+      ]);
+      if (!alive) return;
+      devicePriceCacheRef.current = assetCache;
+      if (usdCached != null && usdCached > MIN_VALID_USD_TRY_RATE) {
+        usdTryFallbackRef.current = usdCached;
+        setUsdTry((prev) => (prev > MIN_VALID_USD_TRY_RATE ? prev : usdCached));
+      }
+      if (summaryRow?.data) {
+        lastMetricsRef.current = {
+          portfolioId,
+          data: summaryRow.data as MetricsBundle,
+        };
+        setSummaryEpoch((n) => n + 1);
+      }
+    })();
+    return () => {
+      alive = false;
+    };
+  }, [portfolioId]);
 
   useEffect(() => {
     fetchCategories();
@@ -268,8 +269,12 @@ export function usePortfolioCoreData() {
   useEffect(() => {
     holdingsPortfolioRef.current = null;
     lastMetricsRef.current = { portfolioId: portfolioId ?? null, data: null };
+    devicePriceCacheRef.current = {};
     setHoldings([]);
     setLoading(true);
+    void readAssetLastPriceCache().then((map) => {
+      devicePriceCacheRef.current = map;
+    });
     fetchHoldings();
   }, [fetchHoldings, portfolioId]);
 
@@ -302,16 +307,33 @@ export function usePortfolioCoreData() {
       const a = normalizeAsset(h.asset);
       return a != null && isUsdNativeCategory(a.category_id);
     });
-    return !needs || usdTry > MIN_VALID_USD_TRY_RATE;
-  }, [holdings, usdTry]);
+    const rate =
+      usdTry > MIN_VALID_USD_TRY_RATE
+        ? usdTry
+        : usdTryFallbackRef.current > MIN_VALID_USD_TRY_RATE
+          ? usdTryFallbackRef.current
+          : usdTry;
+    return !needs || rate > MIN_VALID_USD_TRY_RATE;
+  }, [holdings, usdTry, summaryEpoch]);
 
   const valuationReady = useMemo(() => {
     if (holdings.length === 0) return true;
-    const rate = usdTry > MIN_VALID_USD_TRY_RATE ? usdTry : 1;
+    const rate =
+      usdTry > MIN_VALID_USD_TRY_RATE
+        ? usdTry
+        : usdTryFallbackRef.current > MIN_VALID_USD_TRY_RATE
+          ? usdTryFallbackRef.current
+          : 1;
     return holdings.every((h) => isHoldingMarketPriceReady(h, rate));
-  }, [holdings, usdTry]);
+  }, [holdings, usdTry, summaryEpoch]);
 
   const metricsReady = fxRateReady && valuationReady;
+
+  const effectiveUsdTry = useMemo(() => {
+    if (usdTry > MIN_VALID_USD_TRY_RATE) return usdTry;
+    if (usdTryFallbackRef.current > MIN_VALID_USD_TRY_RATE) return usdTryFallbackRef.current;
+    return usdTry;
+  }, [usdTry, summaryEpoch]);
 
   const liveMetrics = useMemo((): MetricsBundle => {
     const emptyMetrics = {
@@ -339,18 +361,7 @@ export function usePortfolioCoreData() {
     const withAsset = holdings.map((h) => ({ ...h, asset: normalizeAsset(h.asset) })).filter((h) => h.asset);
     if (withAsset.length === 0) return empty;
 
-    const portfolioNeedsUsdTry = withAsset.some((h) =>
-      isUsdNativeCategory((h.asset as AssetRow).category_id),
-    );
-    if (portfolioNeedsUsdTry && !(usdTry > MIN_VALID_USD_TRY_RATE)) {
-      return empty;
-    }
-
-    const rateForReady = usdTry > MIN_VALID_USD_TRY_RATE ? usdTry : 1;
-    if (!withAsset.every((h) => isHoldingMarketPriceReady(h, rateForReady))) {
-      return empty;
-    }
-
+    const safeRate = effectiveUsdTry > MIN_VALID_USD_TRY_RATE ? effectiveUsdTry : 1;
     const now = new Date();
 
     const byCategoryTL: Record<string, number> = {};
@@ -362,14 +373,14 @@ export function usePortfolioCoreData() {
     let dailyChangeUSD = 0;
     let costBasisTL = 0;
     let costBasisUSD = 0;
-    const safeRate = usdTry > MIN_VALID_USD_TRY_RATE ? usdTry : 1;
     const usdDailyFactor = 1 + (Number.isFinite(usdTryDailyPct) ? usdTryDailyPct : 0) / 100;
     const safeRatePrev = usdDailyFactor > 0 ? safeRate / usdDailyFactor : safeRate;
 
     for (const h of withAsset) {
+      if (!(h.quantity > 0)) continue;
       const { unitNative, asset: valuedAsset } = holdingMarketUnitNative(h, safeRate);
       const asset = valuedAsset as AssetRow;
-      if (!asset) continue;
+      if (!asset || !(unitNative > 0)) continue;
       const isUSD = isUsdNativeCategory(asset.category_id);
       const rateTL = isUSD ? safeRate : 1;
       const rateUSD = isUSD ? 1 : 1 / safeRate;
@@ -510,17 +521,19 @@ export function usePortfolioCoreData() {
       },
       categoryPerformanceById,
     };
-  }, [holdings, categories, usdTry, usdTryDailyPct, dovizSpotBySymbol, t, minuteTick]);
+  }, [holdings, categories, effectiveUsdTry, usdTryDailyPct, dovizSpotBySymbol, t, minuteTick]);
 
   const { allocationData, allocationBreakdown, portfolioMetrics, categoryPerformanceById } = useMemo(() => {
     const live = liveMetrics;
     const canCommit =
-      metricsReady &&
-      (holdings.length === 0 ||
-        (live.portfolioMetrics.totalValueTL > 0 &&
-          Number.isFinite(live.portfolioMetrics.totalValueTL)));
+      holdings.length === 0 ||
+      (live.portfolioMetrics.totalValueTL > 0 &&
+        Number.isFinite(live.portfolioMetrics.totalValueTL));
     if (canCommit) {
       lastMetricsRef.current = { portfolioId: portfolioId ?? null, data: live };
+      if (portfolioId && holdings.length > 0) {
+        void persistPortfolioSummaryCache(portfolioId, live);
+      }
       return live;
     }
     const cached = lastMetricsRef.current;
@@ -528,7 +541,7 @@ export function usePortfolioCoreData() {
       return cached.data;
     }
     return live;
-  }, [liveMetrics, metricsReady, holdings.length, portfolioId]);
+  }, [liveMetrics, holdings.length, portfolioId, summaryEpoch]);
 
   return {
     categories,

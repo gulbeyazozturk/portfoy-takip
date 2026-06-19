@@ -1,8 +1,7 @@
 /**
- * (Devre dışı) Tüm varlıkların mevcut fiyatlarını price_history tablosuna kaydeder.
- * Yazım kapalı — migration 021 + sync pipeline'dan çıkarıldı.
- *
- * Tekrar açmak: PRICE_HISTORY_WRITES=1 + 021 trigger'ını kaldır.
+ * (Devre dışı) Eski per-sync snapshot. Yerine günlük bakım:
+ *   npm run daily-price-history
+ *   node scripts/setup-daily-price-history-supabase.mjs
  */
 
 const { exitIfPriceHistoryWritesDisabled } = require('./lib/price-history-writes');

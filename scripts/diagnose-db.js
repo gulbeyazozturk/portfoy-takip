@@ -84,7 +84,7 @@ async function main() {
   console.log('2) Sahipsiz portföy varsa: node scripts/assign-user-data.js <email> --include-null-portfolios');
   console.log('3) Kripto seed (sadece Hasim, diğer veriye dokunmaz): npm run seed-hasim -- <email>');
   console.log('4) Varlık fiyatlarını güncelle: npm run sync-crypto (ve BIST/döviz scriptleri gerektiği gibi)');
-  console.log('5) price_history yazımı kapalı (021); snapshot/backfill çalıştırma');
+  console.log('5) price_history günlük bakım: npm run daily-price-history (migration 022, 2 gün tutulur)');
 }
 
 main().catch((e) => {

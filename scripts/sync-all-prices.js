@@ -1,7 +1,7 @@
 /**
  * Tüm varlık türleri için güncel fiyatları çeker (listeleri doldurmaz; mevcut assets satırlarını günceller).
  * Sıra: döviz → kripto → BIST scrape → BIST Yahoo → emtia → kapalıçarşı → yurtdışı fiyat → TEFAS.
- * price_history snapshot kapalı (021).
+ * price_history: günlük RPC (022); sync sırasında snapshot yazılmaz.
  *
  *   node scripts/sync-all-prices.js
  *

@@ -5,7 +5,6 @@ import { useFonts } from 'expo-font';
 import { type Href, useRouter } from 'expo-router';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
-  ActivityIndicator,
   Platform,
   Pressable,
   ScrollView,
@@ -94,7 +93,6 @@ export default function HomeScreen() {
     allocationBreakdown,
     portfolioMetrics,
     categoryPerformanceById,
-    loading,
     error,
     portfolioId,
     portfolios,
@@ -198,13 +196,7 @@ export default function HomeScreen() {
           </View>
         ) : null}
 
-        {loading && !allocationData.length ? (
-          <View style={styles.loadingWrap}>
-            <ActivityIndicator size="large" color={PRIMARY} />
-            <Text style={styles.loadingText}>{t('portfolio.loading')}</Text>
-          </View>
-        ) : (
-          <ScrollView
+        <ScrollView
             ref={scrollRef}
             style={styles.scroll}
             contentContainerStyle={[
@@ -469,7 +461,6 @@ export default function HomeScreen() {
             {/* Kısa içerikte kalan boşluğa dokununca da vurgu kapanır */}
             <View style={styles.scrollBottomClear} pointerEvents="none" />
           </ScrollView>
-        )}
       </SafeAreaView>
 
       <PortfolioPickerModal
