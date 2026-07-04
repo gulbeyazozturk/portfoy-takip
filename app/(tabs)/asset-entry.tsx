@@ -17,6 +17,7 @@ import {
   TextInput,
   TouchableOpacity,
   View,
+  InteractionManager,
 } from 'react-native';
 import { Pressable } from 'react-native-gesture-handler';
 import Svg, { Circle, Defs, LinearGradient, Path, Stop } from 'react-native-svg';
@@ -520,6 +521,7 @@ export default function AssetEntryScreen() {
     cancelActionToast();
     Keyboard.dismiss();
     setCostDatePickerVisible(false);
+    setShowDeleteModal(false);
     setTransactionOpen(false);
     if (openTransactionOnEntry) {
       handleBack();
@@ -1284,7 +1286,15 @@ export default function AssetEntryScreen() {
         Alert.alert(t('assetEntry.errorTitle'), t('assetEntry.updateNoRow'));
         return;
       }
-      navigateBack();
+      setCostDatePickerVisible(false);
+      setTransactionOpen(false);
+      if (Platform.OS === 'web') {
+        navigateBack();
+      } else {
+        InteractionManager.runAfterInteractions(() => {
+          setTimeout(() => navigateBack(), 280);
+        });
+      }
     } else {
       const { data: updated, error } = await supabase
         .from('holdings')
@@ -1315,6 +1325,30 @@ export default function AssetEntryScreen() {
   const handleDeleteConfirm = () => {
     if (!holdingId) return;
     setShowDeleteModal(true);
+  };
+
+  /** iOS/Android: Modal kapanma animasyonu bitmeden navigate edilirse ekran donmuş kalabilir. */
+  const finishDeleteAndLeave = () => {
+    cancelActionToast();
+    Keyboard.dismiss();
+    setCostDatePickerVisible(false);
+    setShowDeleteModal(false);
+    setTransactionOpen(false);
+    setHoldingId(undefined);
+    setAmount('');
+    setUnitPrice('');
+    setHoldingNotes(null);
+    setInputQtyStr('');
+    setInputCost('');
+    setCostDateText('');
+    const go = () => navigateBack();
+    if (Platform.OS === 'web') {
+      go();
+      return;
+    }
+    InteractionManager.runAfterInteractions(() => {
+      setTimeout(go, 280);
+    });
   };
 
   const performDelete = async () => {
@@ -1349,7 +1383,7 @@ export default function AssetEntryScreen() {
       }
       return;
     }
-    router.replace(PORTFOLIO_TAB_HREF);
+    finishDeleteAndLeave();
   };
 
   const isUSD = isUsdNativeCategory(categoryId);
@@ -1875,7 +1909,13 @@ export default function AssetEntryScreen() {
         visible={transactionOpen}
         animationType="slide"
         presentationStyle="fullScreen"
-        onRequestClose={closeTransactionSheet}>
+        onRequestClose={() => {
+          if (showDeleteModal) {
+            setShowDeleteModal(false);
+            return;
+          }
+          closeTransactionSheet();
+        }}>
         <View style={styles.transactionSheetPage}>
           <KeyboardAvoidingView
             style={styles.transactionSheetAvoidFull}
@@ -2170,6 +2210,40 @@ export default function AssetEntryScreen() {
               </View>
             </View>
           ) : null}
+
+          {showDeleteModal ? (
+            <View style={styles.deleteConfirmOverlay}>
+              <View style={styles.modalCard}>
+                <View style={styles.modalIconWrap}>
+                  <Ionicons name="warning" size={32} color={Brand.chartNegative} />
+                </View>
+                <ThemedText style={styles.modalTitle}>{t('assetEntry.modalTitle')}</ThemedText>
+                <ThemedText style={styles.modalMessage}>
+                  {t('assetEntry.modalMessage', {
+                    qty: qty.toLocaleString(numberLocale, { maximumFractionDigits: 10 }),
+                    symbol: symbol || name,
+                  })}
+                </ThemedText>
+                <View style={styles.modalBtnRow}>
+                  <TouchableOpacity
+                    style={styles.modalBtnCancel}
+                    activeOpacity={0.8}
+                    onPress={() => setShowDeleteModal(false)}>
+                    <ThemedText style={styles.modalBtnCancelText}>{t('assetEntry.modalNo')}</ThemedText>
+                  </TouchableOpacity>
+                  <TouchableOpacity
+                    style={styles.modalBtnConfirm}
+                    activeOpacity={0.8}
+                    onPress={() => {
+                      setShowDeleteModal(false);
+                      performDelete();
+                    }}>
+                    <ThemedText style={styles.modalBtnConfirmText}>{t('assetEntry.modalYes')}</ThemedText>
+                  </TouchableOpacity>
+                </View>
+              </View>
+            </View>
+          ) : null}
         </View>
       </Modal>
 
@@ -2244,42 +2318,6 @@ export default function AssetEntryScreen() {
           </View>
         </View>
       ) : null}
-
-      {/* Delete confirmation modal */}
-      <Modal
-        visible={showDeleteModal}
-        transparent
-        animationType="fade"
-        onRequestClose={() => setShowDeleteModal(false)}>
-        <View style={styles.modalOverlay}>
-          <View style={styles.modalCard}>
-            <View style={styles.modalIconWrap}>
-              <Ionicons name="warning" size={32} color={Brand.chartNegative} />
-            </View>
-            <ThemedText style={styles.modalTitle}>{t('assetEntry.modalTitle')}</ThemedText>
-            <ThemedText style={styles.modalMessage}>
-              {t('assetEntry.modalMessage', {
-                qty: qty.toLocaleString(numberLocale, { maximumFractionDigits: 10 }),
-                symbol: symbol || name,
-              })}
-            </ThemedText>
-            <View style={styles.modalBtnRow}>
-              <TouchableOpacity
-                style={styles.modalBtnCancel}
-                activeOpacity={0.8}
-                onPress={() => setShowDeleteModal(false)}>
-                <ThemedText style={styles.modalBtnCancelText}>{t('assetEntry.modalNo')}</ThemedText>
-              </TouchableOpacity>
-              <TouchableOpacity
-                style={styles.modalBtnConfirm}
-                activeOpacity={0.8}
-                onPress={() => { setShowDeleteModal(false); performDelete(); }}>
-                <ThemedText style={styles.modalBtnConfirmText}>{t('assetEntry.modalYes')}</ThemedText>
-              </TouchableOpacity>
-            </View>
-          </View>
-        </View>
-      </Modal>
 
       {actionToast && !transactionOpen ? (
         <View
@@ -3457,6 +3495,14 @@ const styles = StyleSheet.create({
   },
   modalOverlay: {
     flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.7)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    paddingHorizontal: 32,
+  },
+  deleteConfirmOverlay: {
+    ...StyleSheet.absoluteFillObject,
+    zIndex: 100,
     backgroundColor: 'rgba(0,0,0,0.7)',
     justifyContent: 'center',
     alignItems: 'center',
