@@ -55,8 +55,14 @@
         "expo-localization",
         {
           "supportedLocales": {
-            "ios": ["en", "tr"],
-            "android": ["tr", "en"]
+            "ios": [
+              "en",
+              "tr"
+            ],
+            "android": [
+              "tr",
+              "en"
+            ]
           },
           "allowDynamicLocaleChangesAndroid": true
         }
@@ -80,7 +86,9 @@
           "faceIDPermission": "Omnifolio portföy verilerinize yalnızca sizin erişebilmeniz için Face ID kullanılır."
         }
       ],
-      "@react-native-community/datetimepicker"
+      "@react-native-community/datetimepicker",
+      "expo-font",
+      "expo-web-browser"
     ],
     "experiments": {
       "typedRoutes": true,
