@@ -77,9 +77,9 @@ export default function TabLayout() {
         }}
       />
       <Tabs.Screen
-        name="trend"
+        name="analysis"
         options={{
-          title: t('tabs.trend'),
+          title: t('tabs.analysis'),
           tabBarButton: HapticTab,
           tabBarIcon: ({ color }) => <TabIcon name="analytics-outline" color={color} />,
         }}
