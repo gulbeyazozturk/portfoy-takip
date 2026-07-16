@@ -56,6 +56,20 @@ const BIST_BIGPARA_NAME_LOOKUP_LIMIT = Math.max(
 );
 const BIGPARA_NON_SYMBOL_STOPWORDS = new Set(['OCAK', 'SUBAT', 'MART', 'NISAN', 'MAYIS', 'EYLUL', 'EKIM', 'KASIM']);
 
+/**
+ * Manuel olarak zorunlu eklenecek BIST sembolleri.
+ * Kullanım amacı: Kaynak listelerde henüz görünmeyen (yeni/istisna) hisseleri
+ * geçici olarak envantere dahil etmek. Fiyat alanı isteğe bağlı olarak 0 yapılır.
+ *
+ * Not: Bu liste yalnızca mevcut birleşik listede olmayan sembolleri ekler.
+ * Kaynaklar sembolü içermeye başladığında bu kayıtlar normal akışla güncellenir.
+ */
+const BIST_MANUAL_ADDITIONS = [
+  // İstek: "Ekim" ve "sarae" — semboller büyük harf ile eklenir
+  { code: 'EKIM', name: 'EKIM', last: 0, changePct: null, updatedAtIso: new Date().toISOString() },
+  { code: 'SARAE', name: 'SARAE', last: 0, changePct: null, updatedAtIso: new Date().toISOString() },
+];
+
 function sleep(ms) {
   return new Promise((r) => setTimeout(r, ms));
 }
@@ -687,6 +701,20 @@ async function buildBistRows(supabase, scrapedRows) {
     } catch (e2) {
       console.warn('[sync-bist-scrape] BigPara sembol evreni alınamadı, mevcut listeyle devam ediliyor:', e2?.message || e2);
     }
+  }
+
+  // Manuel zorunlu eklemeler: mevcut listede yoksa ekle
+  try {
+    const currentSymbols = new Set(rows.map((r) => String(r.code || '').trim().toUpperCase()).filter(Boolean));
+    const toAdd = BIST_MANUAL_ADDITIONS.filter(
+      (r) => r.code && !currentSymbols.has(String(r.code).trim().toUpperCase()),
+    );
+    if (toAdd.length > 0) {
+      console.log('Manuel eklenen BIST sembolleri:', toAdd.map((r) => r.code).join(', '));
+      rows.push(...toAdd);
+    }
+  } catch (e) {
+    console.warn('[sync-bist-scrape] Manuel eklemeler uygulanamadı:', e?.message || e);
   }
 
   return rows;
