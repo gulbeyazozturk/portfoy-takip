@@ -75,6 +75,45 @@ const BIST_MANUAL_ADDITIONS = [
   { code: 'METEN', name: 'Metgün Enerji Yatırımları', last: 20, changePct: null, updatedAtIso: new Date().toISOString() },
 ];
 
+/** Manuel listede fiyat > 0 olan semboller scrape/Yahoo sonrası da baz fiyatla kalabilir (insert adımı). */
+function applyManualAdditionOverrides(rows) {
+  const byCode = new Map(
+    rows.map((r) => [String(r.code || '').trim().toUpperCase(), r]),
+  );
+  const added = [];
+  const overridden = [];
+
+  for (const manual of BIST_MANUAL_ADDITIONS) {
+    const code = String(manual.code || '').trim().toUpperCase();
+    if (!code) continue;
+    const price = Number(manual.last);
+    const hasManualPrice = Number.isFinite(price) && price > 0;
+    const existing = byCode.get(code);
+
+    if (!existing) {
+      byCode.set(code, { ...manual, code });
+      added.push(code);
+      continue;
+    }
+
+    if (!hasManualPrice) continue;
+
+    byCode.set(code, {
+      ...existing,
+      name: manual.name || existing.name,
+      last: price,
+      changePct: manual.changePct != null ? manual.changePct : existing.changePct,
+      updatedAtIso: manual.updatedAtIso || new Date().toISOString(),
+    });
+    overridden.push(code);
+  }
+
+  if (added.length) console.log('Manuel eklenen BIST sembolleri:', added.join(', '));
+  if (overridden.length) console.log('Manuel fiyat/ad güncellenen BIST sembolleri:', overridden.join(', '));
+
+  return Array.from(byCode.values());
+}
+
 function sleep(ms) {
   return new Promise((r) => setTimeout(r, ms));
 }
@@ -708,16 +747,9 @@ async function buildBistRows(supabase, scrapedRows) {
     }
   }
 
-  // Manuel zorunlu eklemeler: mevcut listede yoksa ekle
+  // Manuel zorunlu eklemeler ve baz fiyat (halka arz) düzeltmeleri
   try {
-    const currentSymbols = new Set(rows.map((r) => String(r.code || '').trim().toUpperCase()).filter(Boolean));
-    const toAdd = BIST_MANUAL_ADDITIONS.filter(
-      (r) => r.code && !currentSymbols.has(String(r.code).trim().toUpperCase()),
-    );
-    if (toAdd.length > 0) {
-      console.log('Manuel eklenen BIST sembolleri:', toAdd.map((r) => r.code).join(', '));
-      rows.push(...toAdd);
-    }
+    rows = applyManualAdditionOverrides(rows);
   } catch (e) {
     console.warn('[sync-bist-scrape] Manuel eklemeler uygulanamadı:', e?.message || e);
   }
