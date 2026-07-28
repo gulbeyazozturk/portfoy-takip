@@ -68,6 +68,11 @@ const BIST_MANUAL_ADDITIONS = [
   // İstek: "Ekim" ve "sarae" — semboller büyük harf ile eklenir
   { code: 'EKIM', name: 'EKIM', last: 0, changePct: null, updatedAtIso: new Date().toISOString() },
   { code: 'SARAE', name: 'SARAE', last: 0, changePct: null, updatedAtIso: new Date().toISOString() },
+  // Temmuz 2026 halka arzları — kaynak listelerinde gecikme olabilir
+  { code: 'ALBTN', name: 'Albayrak Hazır Beton', last: 38.6, changePct: null, updatedAtIso: new Date().toISOString() },
+  { code: 'KARCL', name: 'Kardemir Çelik Sanayi', last: 35, changePct: null, updatedAtIso: new Date().toISOString() },
+  { code: 'MASFN', name: 'Masfen Enerji', last: 45.68, changePct: null, updatedAtIso: new Date().toISOString() },
+  { code: 'METEN', name: 'Metgün Enerji Yatırımları', last: 20, changePct: null, updatedAtIso: new Date().toISOString() },
 ];
 
 function sleep(ms) {
