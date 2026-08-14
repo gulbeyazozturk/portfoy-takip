@@ -20,7 +20,6 @@ function ensureForegroundHandler() {
   if (handlerSet || !isPushNotificationsRuntimeSupported()) return;
   Notifications.setNotificationHandler({
     handleNotification: async () => ({
-      shouldShowAlert: true,
       shouldShowBanner: true,
       shouldShowList: true,
       shouldPlaySound: false,
