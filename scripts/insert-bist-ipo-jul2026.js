@@ -1,7 +1,9 @@
 /**
- * Temmuz 2026 BIST halka arzları — assets tablosuna upsert.
- * Semboller ve halka arz baz fiyatları:
- *   ALBTN 38,60 | KARCL 35,00 | MASFN 45,68 | METEN 20,00 TL
+ * Temmuz 2026 BIST halka arzları — yalnızca eksik envanter tohumu.
+ * Semboller: ALBTN, KARCL, MASFN, METEN.
+ *
+ * Canlı fiyatı olan satırları ezmez. Periyodik portfolio-sync bu script'i
+ * çalıştırmaz; fiyat scrape + Yahoo ile gelir.
  *
  * Not: Kardemir Çelik borsa kodu KARCL (KARCK değil).
  *
@@ -30,6 +32,11 @@ const BIST_IPO_JUL2026 = [
   { symbol: 'METEN', name: 'Metgün Enerji Yatırımları', price: 20 },
 ];
 
+function hasPositivePrice(value) {
+  const n = Number(value);
+  return Number.isFinite(n) && n > 0;
+}
+
 async function main() {
   await loadEnv();
 
@@ -49,29 +56,57 @@ async function main() {
   const { createClient } = require('@supabase/supabase-js');
   const supabase = createClient(url, key);
   const now = new Date().toISOString();
+  const symbols = BIST_IPO_JUL2026.map((row) => row.symbol);
 
-  const assets = BIST_IPO_JUL2026.map((row) => ({
-    category_id: 'bist',
-    symbol: row.symbol,
-    name: row.name,
-    currency: 'TRY',
-    external_id: row.symbol,
-    current_price: row.price,
-    price_updated_at: now,
-  }));
+  const { data: existing, error: selectError } = await supabase
+    .from('assets')
+    .select('symbol, current_price')
+    .eq('category_id', 'bist')
+    .in('symbol', symbols);
+  if (selectError) {
+    console.error('BIST IPO mevcut kayıt okunamadı:', selectError.message);
+    process.exit(1);
+  }
+
+  const existingBySymbol = new Map(
+    (existing || []).map((row) => [String(row.symbol || '').trim().toUpperCase(), row]),
+  );
+
+  const toSeed = [];
+  for (const row of BIST_IPO_JUL2026) {
+    const prev = existingBySymbol.get(row.symbol);
+    if (prev && hasPositivePrice(prev.current_price)) {
+      console.log(`  ${row.symbol} — canlı fiyat korunuyor (${prev.current_price})`);
+      continue;
+    }
+    toSeed.push({
+      category_id: 'bist',
+      symbol: row.symbol,
+      name: row.name,
+      currency: 'TRY',
+      external_id: row.symbol,
+      current_price: row.price,
+      price_updated_at: now,
+    });
+  }
+
+  if (!toSeed.length) {
+    console.log('BIST halka arz varlıkları zaten canlı fiyatlı; seed atlandı.');
+    return;
+  }
 
   const { error, count } = await supabase
     .from('assets')
-    .upsert(assets, { onConflict: 'category_id,symbol', ignoreDuplicates: false, count: 'exact' });
+    .upsert(toSeed, { onConflict: 'category_id,symbol', ignoreDuplicates: false, count: 'exact' });
 
   if (error) {
     console.error('BIST IPO upsert hatası:', error.message);
     process.exit(1);
   }
 
-  console.log(`BIST halka arz varlıkları upsert edildi (${count ?? assets.length} satır):`);
-  for (const row of BIST_IPO_JUL2026) {
-    console.log(`  ${row.symbol} — ${row.name} — ${row.price} TL`);
+  console.log(`BIST halka arz varlıkları tohumlandı (${count ?? toSeed.length} satır):`);
+  for (const row of toSeed) {
+    console.log(`  ${row.symbol} — ${row.name} — ${row.current_price} TL`);
   }
 }
 

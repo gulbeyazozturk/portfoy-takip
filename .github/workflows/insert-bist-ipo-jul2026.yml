@@ -1,4 +1,5 @@
-# Tek seferlik: Temmuz 2026 BIST halka arzları (ALBTN, KARCL, MASFN, METEN)
+# Tek seferlik tohum: Temmuz 2026 BIST halka arzları (ALBTN, KARCL, MASFN, METEN)
+# Canlı fiyatı olan satırları ezmez; periyodik portfolio-sync bu workflow'u çalıştırmaz.
 name: Insert BIST IPO Jul 2026
 
 on:

@@ -59,35 +59,39 @@ const BIGPARA_NON_SYMBOL_STOPWORDS = new Set(['OCAK', 'SUBAT', 'MART', 'NISAN', 
 /**
  * Manuel olarak zorunlu eklenecek BIST sembolleri.
  * Kullanım amacı: Kaynak listelerde henüz görünmeyen (yeni/istisna) hisseleri
- * geçici olarak envantere dahil etmek. Fiyat alanı isteğe bağlı olarak 0 yapılır.
+ * geçici olarak envantere dahil etmek. Fiyat alanı 0/null ise yalnızca sembol eklenir;
+ * canlı fiyat scrape veya Yahoo adımından gelir.
  *
  * Not: Bu liste yalnızca mevcut birleşik listede olmayan sembolleri ekler.
- * Kaynaklar sembolü içermeye başladığında bu kayıtlar normal akışla güncellenir.
+ * Kaynaklar sembolü içermeye başladığında fiyat normal BIST akışıyla güncellenir.
  */
 const BIST_MANUAL_ADDITIONS = [
   // İstek: "Ekim" ve "sarae" — semboller büyük harf ile eklenir
   { code: 'EKIM', name: 'EKIM', last: 0, changePct: null, updatedAtIso: new Date().toISOString() },
   { code: 'SARAE', name: 'SARAE', last: 0, changePct: null, updatedAtIso: new Date().toISOString() },
-  // Temmuz 2026 halka arzları — kaynak listelerinde gecikme olabilir
-  { code: 'ALBTN', name: 'Albayrak Hazır Beton', last: 38.6, changePct: null, updatedAtIso: new Date().toISOString() },
-  { code: 'KARCL', name: 'Kardemir Çelik Sanayi', last: 35, changePct: null, updatedAtIso: new Date().toISOString() },
-  { code: 'MASFN', name: 'Masfen Enerji', last: 45.68, changePct: null, updatedAtIso: new Date().toISOString() },
-  { code: 'METEN', name: 'Metgün Enerji Yatırımları', last: 20, changePct: null, updatedAtIso: new Date().toISOString() },
+  // Temmuz 2026 halka arzları — envanter yedeği; fiyat ezilmez
+  { code: 'ALBTN', name: 'Albayrak Hazır Beton', last: 0, changePct: null, updatedAtIso: new Date().toISOString() },
+  { code: 'KARCL', name: 'Kardemir Çelik Sanayi', last: 0, changePct: null, updatedAtIso: new Date().toISOString() },
+  { code: 'MASFN', name: 'Masfen Enerji', last: 0, changePct: null, updatedAtIso: new Date().toISOString() },
+  { code: 'METEN', name: 'Metgün Enerji Yatırımları', last: 0, changePct: null, updatedAtIso: new Date().toISOString() },
 ];
 
-/** Manuel listede fiyat > 0 olan semboller scrape/Yahoo sonrası da baz fiyatla kalabilir (insert adımı). */
-function applyManualAdditionOverrides(rows) {
+function hasPositivePrice(last) {
+  const n = Number(last);
+  return Number.isFinite(n) && n > 0;
+}
+
+/** Eksik sembolleri envantere ekler; mevcut canlı fiyatı asla ezmez. */
+function applyManualAdditions(rows) {
   const byCode = new Map(
     rows.map((r) => [String(r.code || '').trim().toUpperCase(), r]),
   );
   const added = [];
-  const overridden = [];
+  const named = [];
 
   for (const manual of BIST_MANUAL_ADDITIONS) {
     const code = String(manual.code || '').trim().toUpperCase();
     if (!code) continue;
-    const price = Number(manual.last);
-    const hasManualPrice = Number.isFinite(price) && price > 0;
     const existing = byCode.get(code);
 
     if (!existing) {
@@ -96,20 +100,14 @@ function applyManualAdditionOverrides(rows) {
       continue;
     }
 
-    if (!hasManualPrice) continue;
-
-    byCode.set(code, {
-      ...existing,
-      name: manual.name || existing.name,
-      last: price,
-      changePct: manual.changePct != null ? manual.changePct : existing.changePct,
-      updatedAtIso: manual.updatedAtIso || new Date().toISOString(),
-    });
-    overridden.push(code);
+    if (!hasUsefulName(existing.name, code) && hasUsefulName(manual.name, code)) {
+      byCode.set(code, { ...existing, name: manual.name });
+      named.push(code);
+    }
   }
 
   if (added.length) console.log('Manuel eklenen BIST sembolleri:', added.join(', '));
-  if (overridden.length) console.log('Manuel fiyat/ad güncellenen BIST sembolleri:', overridden.join(', '));
+  if (named.length) console.log('Manuel ad doldurulan BIST sembolleri:', named.join(', '));
 
   return Array.from(byCode.values());
 }
@@ -627,28 +625,48 @@ async function upsertBistAssets(supabase, rows) {
     );
   }
 
-  const payload = dedupedRows.map((r) => ({
+  const inventoryPayload = dedupedRows.map((r) => ({
     category_id: 'bist',
     symbol: r.code,
     name: r.name,
     currency: 'TRY',
     external_id: r.code,
-    current_price: r.last,
-    change_24h_pct: r.changePct,
-    price_updated_at: r.updatedAtIso || now,
   }));
 
+  const pricePayload = dedupedRows
+    .filter((r) => hasPositivePrice(r.last))
+    .map((r) => ({
+      category_id: 'bist',
+      symbol: r.code,
+      name: r.name,
+      currency: 'TRY',
+      external_id: r.code,
+      current_price: r.last,
+      change_24h_pct: r.changePct,
+      price_updated_at: r.updatedAtIso || now,
+    }));
+
   const chunkSize = 500;
-  let affected = 0;
-  for (let i = 0; i < payload.length; i += chunkSize) {
-    const slice = payload.slice(i, i + chunkSize);
-    const { error, count } = await supabase
-      .from('assets')
-      .upsert(slice, { onConflict: 'category_id,symbol', ignoreDuplicates: false, count: 'exact' });
-    if (error) throw new Error('BIST upsert hatası: ' + error.message);
-    if (typeof count === 'number') affected += count;
+  async function upsertChunks(payload, label) {
+    for (let i = 0; i < payload.length; i += chunkSize) {
+      const slice = payload.slice(i, i + chunkSize);
+      const { error } = await supabase
+        .from('assets')
+        .upsert(slice, { onConflict: 'category_id,symbol', ignoreDuplicates: false });
+      if (error) throw new Error(`BIST upsert hatası (${label}): ` + error.message);
+    }
   }
-  return affected || payload.length;
+
+  // Fiyatsız evren satırları mevcut current_price'ı silmesin (Yahoo / önceki scrape korunsun).
+  await upsertChunks(inventoryPayload, 'envanter');
+  if (pricePayload.length !== dedupedRows.length) {
+    console.log(
+      `[sync-bist-scrape] Canlı fiyatı olan satır: ${pricePayload.length}/${dedupedRows.length} ` +
+        '(fiyatsız sembollerde mevcut fiyat korunur).',
+    );
+  }
+  await upsertChunks(pricePayload, 'fiyat');
+  return inventoryPayload.length;
 }
 
 async function deleteRemovedBistAssets(supabase, validCodes) {
@@ -747,9 +765,9 @@ async function buildBistRows(supabase, scrapedRows) {
     }
   }
 
-  // Manuel zorunlu eklemeler ve baz fiyat (halka arz) düzeltmeleri
+  // Manuel zorunlu eklemeler: yalnızca listede yoksa sembol ekle; fiyat ezilmez
   try {
-    rows = applyManualAdditionOverrides(rows);
+    rows = applyManualAdditions(rows);
   } catch (e) {
     console.warn('[sync-bist-scrape] Manuel eklemeler uygulanamadı:', e?.message || e);
   }
