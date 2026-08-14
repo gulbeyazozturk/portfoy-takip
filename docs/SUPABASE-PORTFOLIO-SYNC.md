@@ -85,7 +85,7 @@ select cron.schedule(
 2. GitHub master BIST JSON,
 3. **BigPara `api/v1/hisse/list`** — yeni halka arz sembolleri (ör. EKDMR) dahil tam evren.
 
-Scrape kaynakları GitHub runner’da düşerse (`BIST_SCRAPE_ALLOW_FAILURE=1`) yine API evreni upsert edilir; ardından `sync-bist-yahoo.js` fiyatları günceller.
+Scrape kaynakları GitHub runner’da düşerse (`BIST_SCRAPE_ALLOW_FAILURE=1`) yine API evreni upsert edilir; ardından `sync-bist-yahoo.js` fiyatları günceller. Fiyatsız evren satırları mevcut `current_price` değerini silmez. Halka arz tohum fiyatları (ör. ALBTN / KARCL / MASFN / METEN) periyodik senkrona yeniden yazılmaz.
 
 ## GitHub workflow: günlük fiyat push’ları
 
