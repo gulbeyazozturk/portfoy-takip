@@ -7,8 +7,8 @@ import { useMinuteTick } from '@/hooks/use-minute-tick';
 import { CATEGORY_CHART_COLORS } from '@/lib/category-chart-colors';
 import { categoryDisplayLabel } from '@/lib/category-display';
 import { legacyCryptoStoredUnitToUsd } from '@/lib/crypto-price-usd';
-import { effectiveChange24hPctForDisplay } from '@/lib/effective-change-24h';
 import { dailyPrevValueFromChangePct } from '@/lib/fon-price-guards';
+import { effectiveHoldingDailyChangePct } from '@/lib/holding-daily-change';
 import { isUsdNativeCategory } from '@/lib/portfolio-currency';
 import {
   holdingMarketUnitNative,
@@ -175,7 +175,7 @@ export function usePortfolioCoreData() {
     const { data, error: e } = await supabase
       .from('holdings')
       .select(
-        'id, quantity, avg_price, created_at, asset:assets(id, name, symbol, category_id, current_price, currency, change_24h_pct, price_updated_at, icon_url)',
+        'id, quantity, avg_price, created_at, notes, asset:assets(id, name, symbol, category_id, current_price, currency, change_24h_pct, price_updated_at, icon_url)',
       )
       .eq('portfolio_id', portfolioId);
     if (e) {
@@ -392,12 +392,17 @@ export function usePortfolioCoreData() {
       totalValueTL += valueTL;
       totalValueUSD += valueUSD;
 
-      const effPct = effectiveChange24hPctForDisplay(
-        asset.category_id,
-        asset.change_24h_pct,
-        asset.price_updated_at,
+      const effPct = effectiveHoldingDailyChangePct({
+        categoryId: asset.category_id,
+        change24hPct: asset.change_24h_pct,
+        priceUpdatedAt: asset.price_updated_at,
+        unitNative,
+        avgPrice: h.avg_price,
+        createdAt: h.created_at,
+        notes: h.notes,
+        usdTry: safeRate,
         now,
-      );
+      });
       const { prevValue, dailyDelta: dailyDeltaNative } = dailyPrevValueFromChangePct(value, effPct);
       const prevValueNative = value - dailyDeltaNative;
       const costUnit =

@@ -293,7 +293,7 @@ export default {
     profitLossUsd: 'P/L',
     costTotal: 'Total cost',
     costBasisExplanation:
-      'Total = quantity × average unit cost (avg_price on this holding). The chart shows market price only; the daily % is vs. the prior close. If this does not match your CSV, check the cost column in bulk upload or unit costs entered on recent adds.',
+      'Total = quantity × average unit cost (avg_price on this holding). The chart shows market price. Daily % is vs. the prior close for positions held overnight; for a position opened the same session it is the move since your average cost. If this does not match your CSV, check the cost column in bulk upload or unit costs entered on recent adds.',
     costBasisImplicitSpot:
       'With no average cost, we use the current market price for display (P/L shows as zero). Enter your unit cost for accurate gain/loss.',
     modeAdd: 'Add',

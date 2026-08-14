@@ -1,6 +1,6 @@
 import { legacyCryptoStoredUnitToUsd } from '@/lib/crypto-price-usd';
-import { effectiveChange24hPctForDisplay } from '@/lib/effective-change-24h';
 import { dailyPrevValueFromChangePct } from '@/lib/fon-price-guards';
+import { effectiveHoldingDailyChangePct } from '@/lib/holding-daily-change';
 import {
   holdingMarketUnitNative,
   normalizeAsset,
@@ -80,12 +80,17 @@ export function computePortfolioPerformanceValues(
     costBasisTL += costVal * rateTL;
     totalValueUSD += value * rateUSD;
     costBasisUSD += costVal * rateUSD;
-    const effPct = effectiveChange24hPctForDisplay(
-      asset.category_id,
-      asset.change_24h_pct,
-      asset.price_updated_at,
+    const effPct = effectiveHoldingDailyChangePct({
+      categoryId: asset.category_id,
+      change24hPct: asset.change_24h_pct,
+      priceUpdatedAt: asset.price_updated_at,
+      unitNative,
+      avgPrice: h.avg_price,
+      createdAt: h.created_at,
+      notes: h.notes,
+      usdTry: safeRate,
       now,
-    );
+    });
     const { dailyDelta: dailyDeltaNative } = dailyPrevValueFromChangePct(value, effPct);
     dailyChangeTL += dailyDeltaNative * rateTL;
     dailyChangeUSD += dailyDeltaNative * rateUSD;

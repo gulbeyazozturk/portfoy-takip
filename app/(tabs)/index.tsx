@@ -37,8 +37,8 @@ import { assetAvatarBg } from '@/lib/asset-avatar';
 import { resolveBistDisplayName } from '@/lib/bist-display-name';
 import { Brand } from '@/constants/brand';
 import { categoryDisplayLabel } from '@/lib/category-display';
-import { effectiveChange24hPctForDisplay } from '@/lib/effective-change-24h';
 import { dailyPrevValueFromChangePct, fonUnitNativeTry } from '@/lib/fon-price-guards';
+import { effectiveHoldingDailyChangePct } from '@/lib/holding-daily-change';
 import { isHoldingMarketPriceReady } from '@/lib/portfolio-holdings';
 import { isUsdNativeCategory } from '@/lib/portfolio-currency';
 import {
@@ -70,16 +70,28 @@ function formatPortfolioMoneyCeil(value: number, currency: DisplayCurrency, loca
 }
 
 /**
- * Sıralama için günlük %: önce change_24h_pct; yoksa (FON vb.) liste satırıyla aynı şekilde maliyetten türetilir.
- * Ürün kararı: Günlükte yalnızca gerçek günlük veri kullanılır; yoksa 0 kabul edilir.
+ * Sıralama için günlük %: holding listesiyle aynı kural (aynı gün girişte maliyetten).
+ * Gösterilecek günlük yoksa 0.
  */
 function effectiveDailyPctForSort(h: HoldingRow, asset: AssetRow, usdTry: number, now: Date): number {
-  const chgEff = effectiveChange24hPctForDisplay(
-    asset.category_id,
-    asset.change_24h_pct,
-    asset.price_updated_at,
+  const rawSpot = Number(asset.current_price ?? h.avg_price ?? 0);
+  const unitNative =
+    asset.category_id === 'kripto'
+      ? kriptoStoredUnitToUsd(rawSpot, usdTry, asset.currency)
+      : asset.category_id === 'fon'
+        ? fonUnitNativeTry(asset.current_price, h.avg_price)
+        : rawSpot;
+  const chgEff = effectiveHoldingDailyChangePct({
+    categoryId: asset.category_id,
+    change24hPct: asset.change_24h_pct,
+    priceUpdatedAt: asset.price_updated_at,
+    unitNative,
+    avgPrice: h.avg_price,
+    createdAt: h.created_at,
+    notes: h.notes,
+    usdTry,
     now,
-  );
+  });
   return chgEff != null && Number.isFinite(chgEff) ? chgEff : 0;
 }
 
@@ -329,12 +341,17 @@ export function PortfolioScreen() {
             ? fonUnitNativeTry(asset.current_price, h.avg_price)
             : rawSpot;
       const value = h.quantity * (Number(spotUsd) || 0);
-      const effChg = effectiveChange24hPctForDisplay(
-        asset.category_id,
-        asset.change_24h_pct,
-        asset.price_updated_at,
+      const effChg = effectiveHoldingDailyChangePct({
+        categoryId: asset.category_id,
+        change24hPct: asset.change_24h_pct,
+        priceUpdatedAt: asset.price_updated_at,
+        unitNative: Number(spotUsd) || 0,
+        avgPrice: h.avg_price,
+        createdAt: h.created_at,
+        notes: h.notes,
+        usdTry,
         now,
-      );
+      });
       const { prevValue, dailyDelta: daily } = dailyPrevValueFromChangePct(value, effChg);
       const costRaw = h.avg_price != null ? Number(h.avg_price) : null;
       const unitCost =
@@ -710,13 +727,17 @@ export function PortfolioScreen() {
                       : rawSpot;
                 const hasLivePrice = Number.isFinite(currentPrice) && currentPrice > 0;
                 const value = h.quantity * currentPrice;
-                const changePct =
-                  effectiveChange24hPctForDisplay(
-                    asset.category_id,
-                    asset.change_24h_pct,
-                    asset.price_updated_at,
-                    new Date(),
-                  ) ?? null;
+                const changePct = effectiveHoldingDailyChangePct({
+                  categoryId: asset.category_id,
+                  change24hPct: asset.change_24h_pct,
+                  priceUpdatedAt: asset.price_updated_at,
+                  unitNative: currentPrice,
+                  avgPrice: h.avg_price,
+                  createdAt: h.created_at,
+                  notes: h.notes,
+                  usdTry: rate,
+                  now: new Date(),
+                });
                 const nativeCurrency = isUsdNativeCategory(asset.category_id) ? 'USD' : 'TL';
                 const displayCurrency = summaryDisplayCurrency;
                 const displayLocale = numberLocale;
