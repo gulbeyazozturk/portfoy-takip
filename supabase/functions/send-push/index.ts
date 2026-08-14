@@ -63,7 +63,7 @@ Deno.serve(async (req: Request) => {
 
   let q = supabase
     .from('user_push_tokens')
-    .select('expo_push_token')
+    .select('user_id, expo_push_token, platform, last_seen_at')
     .eq('enabled', true);
   if (payload.user_ids && payload.user_ids.length > 0) {
     q = q.in('user_id', payload.user_ids);
@@ -71,9 +71,21 @@ Deno.serve(async (req: Request) => {
 
   const { data: rows, error } = await q.limit(10000);
   if (error) return json({ error: error.message }, 500);
-  const tokens = (rows || [])
-    .map((r: { expo_push_token: string | null }) => String(r.expo_push_token || '').trim())
-    .filter((t: string) => t.startsWith('ExponentPushToken['));
+
+  const bestByUserPlatform = new Map<string, { token: string; seen: number }>();
+  for (const row of rows || []) {
+    const token = String(row.expo_push_token || '').trim();
+    if (!token.startsWith('ExponentPushToken[')) continue;
+    const userId = String(row.user_id || '');
+    const platform = String(row.platform || 'unknown');
+    const seen = Date.parse(String(row.last_seen_at || '')) || 0;
+    const key = `${userId}:${platform}`;
+    const prev = bestByUserPlatform.get(key);
+    if (!prev || seen > prev.seen || (seen === prev.seen && token > prev.token)) {
+      bestByUserPlatform.set(key, { token, seen });
+    }
+  }
+  const tokens = [...new Set([...bestByUserPlatform.values()].map((v) => v.token))];
   if (!tokens.length) return json({ ok: true, sent: 0, detail: 'no_tokens' });
 
   const messages = tokens.map((to: string) => ({
