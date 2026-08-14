@@ -19,12 +19,25 @@ export function isPushNotificationsRuntimeSupported(): boolean {
 function ensureForegroundHandler() {
   if (handlerSet || !isPushNotificationsRuntimeSupported()) return;
   Notifications.setNotificationHandler({
-    handleNotification: async () => ({
-      shouldShowBanner: true,
-      shouldShowList: true,
-      shouldPlaySound: false,
-      shouldSetBadge: false,
-    }),
+    handleNotification: async (notification) => {
+      const trigger = notification?.request?.trigger as { type?: string } | null;
+      const isRemotePush = trigger?.type === 'push';
+      // Android FCM zaten sistem bildirimi gösterir; handler da gösterirse birebir aynı mesaj iki kez gelir.
+      if (Platform.OS === 'android' && isRemotePush) {
+        return {
+          shouldShowBanner: false,
+          shouldShowList: false,
+          shouldPlaySound: false,
+          shouldSetBadge: false,
+        };
+      }
+      return {
+        shouldShowBanner: true,
+        shouldShowList: true,
+        shouldPlaySound: false,
+        shouldSetBadge: false,
+      };
+    },
   });
   handlerSet = true;
 }
@@ -93,5 +106,14 @@ export async function syncPushTokenForUser(userId: string): Promise<void> {
     },
     { onConflict: 'expo_push_token', ignoreDuplicates: false },
   );
+
+  // Aynı platformdaki eski token'lar (reinstall / preview + store) aynı telefona ikinci kopya basmasın.
+  await supabase
+    .from('user_push_tokens')
+    .update({ enabled: false, updated_at: new Date().toISOString() })
+    .eq('user_id', userId)
+    .eq('platform', platformLabel())
+    .eq('enabled', true)
+    .neq('expo_push_token', token);
 }
 

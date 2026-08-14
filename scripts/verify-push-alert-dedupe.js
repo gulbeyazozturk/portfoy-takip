@@ -9,6 +9,8 @@ const {
   listCrossedAlertTiers,
   pickStrongestUnsentTier,
   uniqueDeviceTokens,
+  selectLatestDevicesPerPlatform,
+  dedupePushMessages,
 } = require('./lib/daily-gain-push-alerts');
 
 function assert(cond, msg) {
@@ -51,5 +53,43 @@ const devices = uniqueDeviceTokens([
 ]);
 assert(devices.length === 2, 'duplicate expo tokens collapsed');
 assert(devices[0].token === 'ExponentPushToken[aaa]', 'first unique token kept');
+
+const latest = selectLatestDevicesPerPlatform([
+  {
+    token: 'ExponentPushToken[old]',
+    platform: 'android',
+    last_seen_at: '2026-08-01T00:00:00.000Z',
+    timezone: 'Europe/Istanbul',
+  },
+  {
+    token: 'ExponentPushToken[new]',
+    platform: 'android',
+    last_seen_at: '2026-08-14T00:00:00.000Z',
+    timezone: 'Europe/Istanbul',
+  },
+  {
+    token: 'ExponentPushToken[iphone]',
+    platform: 'ios',
+    last_seen_at: '2026-08-10T00:00:00.000Z',
+    timezone: 'Europe/Istanbul',
+  },
+]);
+assert(latest.length === 2, 'one token per platform');
+assert(
+  latest.some((d) => d.token === 'ExponentPushToken[new]') &&
+    !latest.some((d) => d.token === 'ExponentPushToken[old]'),
+  'stale android token dropped',
+);
+assert(
+  latest.some((d) => d.token === 'ExponentPushToken[iphone]'),
+  'ios kept alongside android',
+);
+
+const msgs = dedupePushMessages([
+  { to: 'ExponentPushToken[a]', title: 'T', body: 'same' },
+  { to: 'ExponentPushToken[a]', title: 'T', body: 'same' },
+  { to: 'ExponentPushToken[b]', title: 'T', body: 'same' },
+]);
+assert(msgs.length === 2, 'identical payload to same token sent once');
 
 console.log('verify-push-alert-dedupe: ok');

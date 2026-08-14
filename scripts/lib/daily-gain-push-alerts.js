@@ -54,9 +54,51 @@ function uniqueDeviceTokens(devices) {
   return out;
 }
 
+function lastSeenMs(device) {
+  const t = Date.parse(device?.last_seen_at || '');
+  return Number.isFinite(t) ? t : 0;
+}
+
+/**
+ * Aynı telefonda eski + yeni / Play Store + preview token'ı birebir aynı mesajı iki kez basar.
+ * Kullanıcı + platform başına yalnızca en son görülen token kalır (iOS ve Android ayrı cihaz sayılır).
+ */
+function selectLatestDevicesPerPlatform(devices) {
+  const unique = uniqueDeviceTokens(devices);
+  const best = new Map();
+  for (const d of unique) {
+    const platform = String(d.platform || 'unknown').trim() || 'unknown';
+    const prev = best.get(platform);
+    if (!prev) {
+      best.set(platform, d);
+      continue;
+    }
+    const seen = lastSeenMs(d);
+    const prevSeen = lastSeenMs(prev);
+    if (seen > prevSeen || (seen === prevSeen && d.token > prev.token)) {
+      best.set(platform, d);
+    }
+  }
+  return Array.from(best.values());
+}
+
+function dedupePushMessages(messages) {
+  const seen = new Set();
+  const out = [];
+  for (const m of messages || []) {
+    const key = `${String(m?.to || '')}\n${String(m?.title || '')}\n${String(m?.body || '')}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push(m);
+  }
+  return out;
+}
+
 module.exports = {
   gainDedupeKey,
   listCrossedAlertTiers,
   pickStrongestUnsentTier,
   uniqueDeviceTokens,
+  selectLatestDevicesPerPlatform,
+  dedupePushMessages,
 };

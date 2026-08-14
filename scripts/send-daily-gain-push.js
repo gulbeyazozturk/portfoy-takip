@@ -6,7 +6,8 @@ const {
   gainDedupeKey,
   listCrossedAlertTiers,
   pickStrongestUnsentTier,
-  uniqueDeviceTokens,
+  selectLatestDevicesPerPlatform,
+  dedupePushMessages,
 } = require('./lib/daily-gain-push-alerts');
 
 const SUPABASE_URL =
@@ -301,7 +302,7 @@ async function fetchTokensByUser(userIds) {
   if (!userIds.length) return new Map();
   const { data, error } = await supabase
     .from('user_push_tokens')
-    .select('user_id, expo_push_token, timezone')
+    .select('user_id, expo_push_token, timezone, platform, last_seen_at')
     .eq('enabled', true)
     .in('user_id', userIds)
     .limit(100000);
@@ -314,10 +315,15 @@ async function fetchTokensByUser(userIds) {
     const timezone = String(row.timezone || '').trim() || 'Europe/Istanbul';
     if (!token.startsWith('ExponentPushToken[')) continue;
     if (!map.has(userId)) map.set(userId, []);
-    map.get(userId).push({ token, timezone });
+    map.get(userId).push({
+      token,
+      timezone,
+      platform: String(row.platform || 'unknown'),
+      last_seen_at: row.last_seen_at || null,
+    });
   }
   for (const [uid, devices] of map.entries()) {
-    map.set(uid, uniqueDeviceTokens(devices));
+    map.set(uid, selectLatestDevicesPerPlatform(devices));
   }
   return map;
 }
@@ -952,7 +958,7 @@ async function main() {
     return;
   }
 
-  const result = await sendExpo(pushMessages);
+  const result = await sendExpo(dedupePushMessages(pushMessages));
   if (result.failed.length) {
     console.warn('Some Expo push batches failed:', result.failed);
   }
