@@ -28,6 +28,7 @@ import { ScreenWithFooter } from '@/components/screen-with-footer';
 import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
 import { usePortfolio } from '@/context/portfolio';
+import { useMinuteTick } from '@/hooks/use-minute-tick';
 import { kriptoStoredUnitToUsd, legacyCryptoStoredUnitToUsd } from '@/lib/crypto-price-usd';
 import { isUsdNativeCategory } from '@/lib/portfolio-currency';
 import { formatCostDateText, parseCostDateText, sanitizeCostDateText } from '@/lib/cost-date-input';
@@ -40,7 +41,11 @@ import {
 } from '@/lib/tr-decimal-input';
 import { resolveBistDisplayName } from '@/lib/bist-display-name';
 import { toTitleCaseWords } from '@/lib/display-title-case';
-import { effectiveChange24hPctForDisplay } from '@/lib/effective-change-24h';
+import {
+  effectiveChange24hPctForDisplay,
+  holdingDailyChangePctForDisplay,
+  shouldMarkHoldingAtCost,
+} from '@/lib/effective-change-24h';
 import { dailyPrevValueFromChangePct } from '@/lib/fon-price-guards';
 import { extractCostDateFromNotes, upsertCostDateInNotes } from '@/lib/holding-notes-cost-date';
 import { fetchInstantUnitPrice } from '@/lib/instant-price';
@@ -331,8 +336,11 @@ export default function AssetEntryScreen() {
   const [spotCurrency, setSpotCurrency] = useState<string | null>(() => routeSpotCurrency || null);
   /** Liste/parametre seed; ekranda DB’den güncellenir (yurtdışı/kripto senkron sonrası doğru fiyat ve %). */
   const [livePrice, setLivePrice] = useState(0);
+  const [priceUpdatedAt, setPriceUpdatedAt] = useState<string | null>(null);
+  const [change24hPctRaw, setChange24hPctRaw] = useState<number | null>(null);
   const [iconUrl, setIconUrl] = useState<string | null>(null);
   const priceRaw = livePrice > 0 ? livePrice : routePrice;
+  const minuteTick = useMinuteTick();
 
   useEffect(() => {
     setSpotCurrency(routeSpotCurrency || null);
@@ -664,7 +672,11 @@ export default function AssetEntryScreen() {
   const qty = parseHoldingQtyString(amount);
   const avgCost = unitPrice ? parseFloat(unitPrice.replace(',', '.')) || 0 : 0;
 
-  const currentPrice = useMemo(() => {
+  const holdingOpenedAt = storedCostDateIso
+    ? `${storedCostDateIso}T12:00:00.000Z`
+    : holdingCreatedAt;
+
+  const marketPrice = useMemo(() => {
     if (categoryId !== 'kripto' || usdTry <= 0) return priceRaw;
     return kriptoStoredUnitToUsd(priceRaw, usdTry, spotCurrency);
   }, [categoryId, priceRaw, usdTry, spotCurrency]);
@@ -673,8 +685,17 @@ export default function AssetEntryScreen() {
   const avgCostUsd = useMemo(() => {
     if (categoryId !== 'kripto' || avgCost <= 0) return avgCost;
     if (usdTry <= 0) return avgCost;
-    return legacyCryptoStoredUnitToUsd(avgCost, usdTry, currentPrice);
-  }, [categoryId, avgCost, usdTry, currentPrice]);
+    return legacyCryptoStoredUnitToUsd(avgCost, usdTry, marketPrice);
+  }, [categoryId, avgCost, usdTry, marketPrice]);
+
+  const markAtCost = shouldMarkHoldingAtCost({
+    categoryId: categoryId ?? '',
+    priceUpdatedAt,
+    change24hPct: change24hPctRaw,
+    holdingCreatedAt: holdingOpenedAt,
+  });
+
+  const currentPrice = markAtCost && avgCostUsd > 0 ? avgCostUsd : marketPrice;
 
   const hasExplicitAvgCost = avgCostUsd > 0;
   /** Maliyet girilmemişse gösterimde güncel fiyatı baz al (kazanç ≈ 0); grafikte sahte 0 çizgisi yok. */
@@ -779,6 +800,10 @@ export default function AssetEntryScreen() {
     }
     const nextIcon = data?.icon_url != null && String(data.icon_url).trim() !== '' ? String(data.icon_url) : null;
     setIconUrl(nextIcon);
+    const quoteAt = data?.price_updated_at != null ? String(data.price_updated_at) : null;
+    setPriceUpdatedAt(quoteAt);
+    const rawChg = data?.change_24h_pct != null ? Number(data.change_24h_pct) : NaN;
+    setChange24hPctRaw(Number.isFinite(rawChg) ? rawChg : null);
     let hasValidDbPrice = false;
     if (data?.current_price != null) {
       const p = Number(data.current_price);
@@ -801,18 +826,23 @@ export default function AssetEntryScreen() {
           .eq('id', assetId);
       }
     }
+  }, [assetId, categoryId, symbol]);
+
+  useEffect(() => {
     const eff = effectiveChange24hPctForDisplay(
       categoryId ?? '',
-      data?.change_24h_pct,
-      data?.price_updated_at,
+      change24hPctRaw,
+      priceUpdatedAt,
       new Date(),
     );
     setChange24hPct(eff != null && Number.isFinite(eff) ? eff : null);
-  }, [assetId, categoryId, symbol]);
+  }, [categoryId, change24hPctRaw, priceUpdatedAt, minuteTick]);
 
   useEffect(() => {
     setLivePrice(0);
     setIconUrl(null);
+    setPriceUpdatedAt(null);
+    setChange24hPctRaw(null);
   }, [assetId]);
 
   useEffect(() => {
@@ -1203,27 +1233,12 @@ export default function AssetEntryScreen() {
         }
         if (data) {
           setHoldingId(data.id);
+          setHoldingCreatedAt(new Date().toISOString());
           setHoldingNotes(data.notes ?? null);
           setStoredCostDateIso(extractCostDateFromNotes(data.notes));
         }
         setAmount(String(inputQty));
         setUnitPrice(isMevduat || cost == null ? '' : String(cost));
-      }
-      // Portföy satırlarında "tutar = 0" görünmemesi için ekleme anında spot fiyatı da assets'e yaz.
-      if (!isMevduat && assetId) {
-        const fallbackSpot =
-          instantUnitPrice != null && instantUnitPrice > 0
-            ? instantUnitPrice
-            : (isUsdNative && cost != null && cost > 0 ? cost : null);
-        if (fallbackSpot != null && fallbackSpot > 0) {
-        await supabase
-          .from('assets')
-          .update({
-            current_price: fallbackSpot,
-            price_updated_at: new Date().toISOString(),
-          })
-          .eq('id', assetId);
-        }
       }
       setInputQtyStr('');
       setInputCost('');
@@ -1611,12 +1626,26 @@ export default function AssetEntryScreen() {
     hasExplicitAvgCost && totalCost > 0 ? (totalGainLoss / totalCost) * 100 : null;
 
   const positionDailyReturn = useMemo(() => {
-    if (qty <= 0 || marketValue <= 0 || change24hPct == null || !Number.isFinite(change24hPct)) {
-      return null;
-    }
-    const { dailyDelta } = dailyPrevValueFromChangePct(marketValue, change24hPct);
-    return { amt: dailyDelta, pct: change24hPct };
-  }, [qty, marketValue, change24hPct]);
+    if (qty <= 0 || marketValue <= 0) return null;
+    const dailyPct = holdingDailyChangePctForDisplay({
+      categoryId: categoryId ?? '',
+      change24hPct: change24hPctRaw,
+      priceUpdatedAt,
+      holdingCreatedAt: holdingOpenedAt,
+      markAtCost,
+    });
+    if (dailyPct == null || !Number.isFinite(dailyPct)) return null;
+    const { dailyDelta } = dailyPrevValueFromChangePct(marketValue, dailyPct);
+    return { amt: dailyDelta, pct: dailyPct };
+  }, [
+    qty,
+    marketValue,
+    categoryId,
+    change24hPctRaw,
+    priceUpdatedAt,
+    holdingOpenedAt,
+    markAtCost,
+  ]);
 
   const formatPositionMoney = (v: number) => `${curr}${fmtPositionTotalValue(v)}`;
 

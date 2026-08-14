@@ -32,14 +32,14 @@ import {
 } from '@/hooks/use-portfolio-core-data';
 import { useMinuteTick } from '@/hooks/use-minute-tick';
 import { useScreenLayout } from '@/hooks/use-screen-layout';
-import { kriptoStoredUnitToUsd, legacyCryptoStoredUnitToUsd } from '@/lib/crypto-price-usd';
+import { legacyCryptoStoredUnitToUsd } from '@/lib/crypto-price-usd';
 import { assetAvatarBg } from '@/lib/asset-avatar';
 import { resolveBistDisplayName } from '@/lib/bist-display-name';
 import { Brand } from '@/constants/brand';
 import { categoryDisplayLabel } from '@/lib/category-display';
-import { effectiveChange24hPctForDisplay } from '@/lib/effective-change-24h';
-import { dailyPrevValueFromChangePct, fonUnitNativeTry } from '@/lib/fon-price-guards';
-import { isHoldingMarketPriceReady } from '@/lib/portfolio-holdings';
+import { holdingDailyChangePctForDisplay } from '@/lib/effective-change-24h';
+import { dailyPrevValueFromChangePct } from '@/lib/fon-price-guards';
+import { holdingMarketUnitNative, isHoldingMarketPriceReady } from '@/lib/portfolio-holdings';
 import { isUsdNativeCategory } from '@/lib/portfolio-currency';
 import {
   formatDisplayMoney,
@@ -74,12 +74,13 @@ function formatPortfolioMoneyCeil(value: number, currency: DisplayCurrency, loca
  * Ürün kararı: Günlükte yalnızca gerçek günlük veri kullanılır; yoksa 0 kabul edilir.
  */
 function effectiveDailyPctForSort(h: HoldingRow, asset: AssetRow, usdTry: number, now: Date): number {
-  const chgEff = effectiveChange24hPctForDisplay(
-    asset.category_id,
-    asset.change_24h_pct,
-    asset.price_updated_at,
+  const chgEff = holdingDailyChangePctForDisplay({
+    categoryId: asset.category_id,
+    change24hPct: asset.change_24h_pct,
+    priceUpdatedAt: asset.price_updated_at,
+    holdingCreatedAt: h.created_at,
     now,
-  );
+  });
   return chgEff != null && Number.isFinite(chgEff) ? chgEff : 0;
 }
 
@@ -240,21 +241,8 @@ export function PortfolioScreen() {
     sorted.sort((a, b) => {
       const assetA = normalizeAsset(a.asset);
       const assetB = normalizeAsset(b.asset);
-
-      const rawA = Number((assetA?.current_price ?? a.avg_price ?? 0) || 0);
-      const rawB = Number((assetB?.current_price ?? b.avg_price ?? 0) || 0);
-      const unitA =
-        assetA?.category_id === 'kripto'
-          ? kriptoStoredUnitToUsd(rawA, usdTry, assetA.currency)
-          : assetA?.category_id === 'fon'
-            ? fonUnitNativeTry(assetA.current_price, a.avg_price)
-            : rawA;
-      const unitB =
-        assetB?.category_id === 'kripto'
-          ? kriptoStoredUnitToUsd(rawB, usdTry, assetB.currency)
-          : assetB?.category_id === 'fon'
-            ? fonUnitNativeTry(assetB.current_price, b.avg_price)
-            : rawB;
+      const unitA = holdingMarketUnitNative(a, usdTry, { now }).unitNative;
+      const unitB = holdingMarketUnitNative(b, usdTry, { now }).unitNative;
       const nativeA = a.quantity * unitA;
       const nativeB = b.quantity * unitB;
       const rate = usdTry > MIN_VALID_USD_TRY_RATE ? usdTry : 1;
@@ -321,20 +309,15 @@ export function PortfolioScreen() {
     for (const h of filteredHoldings) {
       const asset = normalizeAsset(h.asset);
       if (!asset) continue;
-      const rawSpot = Number(asset.current_price ?? h.avg_price ?? 0);
-      const spotUsd =
-        asset.category_id === 'kripto'
-          ? kriptoStoredUnitToUsd(rawSpot, usdTry, asset.currency)
-          : asset.category_id === 'fon'
-            ? fonUnitNativeTry(asset.current_price, h.avg_price)
-            : rawSpot;
+      const { unitNative: spotUsd } = holdingMarketUnitNative(h, usdTry, { now });
       const value = h.quantity * (Number(spotUsd) || 0);
-      const effChg = effectiveChange24hPctForDisplay(
-        asset.category_id,
-        asset.change_24h_pct,
-        asset.price_updated_at,
+      const effChg = holdingDailyChangePctForDisplay({
+        categoryId: asset.category_id,
+        change24hPct: asset.change_24h_pct,
+        priceUpdatedAt: asset.price_updated_at,
+        holdingCreatedAt: h.created_at,
         now,
-      );
+      });
       const { prevValue, dailyDelta: daily } = dailyPrevValueFromChangePct(value, effChg);
       const costRaw = h.avg_price != null ? Number(h.avg_price) : null;
       const unitCost =
@@ -700,23 +683,16 @@ export function PortfolioScreen() {
               filteredHoldings.map((h) => {
                 const asset = normalizeAsset(h.asset);
                 if (!asset) return null;
-                const rawSpot = Number(asset.current_price ?? h.avg_price ?? 0);
                 const rate = usdTry > MIN_VALID_USD_TRY_RATE ? usdTry : 1;
-                const currentPrice =
-                  asset.category_id === 'kripto'
-                    ? kriptoStoredUnitToUsd(rawSpot, usdTry, asset.currency)
-                    : asset.category_id === 'fon'
-                      ? fonUnitNativeTry(asset.current_price, h.avg_price)
-                      : rawSpot;
+                const currentPrice = holdingMarketUnitNative(h, usdTry, { now: new Date() }).unitNative;
                 const hasLivePrice = Number.isFinite(currentPrice) && currentPrice > 0;
                 const value = h.quantity * currentPrice;
-                const changePct =
-                  effectiveChange24hPctForDisplay(
-                    asset.category_id,
-                    asset.change_24h_pct,
-                    asset.price_updated_at,
-                    new Date(),
-                  ) ?? null;
+                const changePct = holdingDailyChangePctForDisplay({
+                  categoryId: asset.category_id,
+                  change24hPct: asset.change_24h_pct,
+                  priceUpdatedAt: asset.price_updated_at,
+                  holdingCreatedAt: h.created_at,
+                });
                 const nativeCurrency = isUsdNativeCategory(asset.category_id) ? 'USD' : 'TL';
                 const displayCurrency = summaryDisplayCurrency;
                 const displayLocale = numberLocale;

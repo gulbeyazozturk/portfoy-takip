@@ -1,5 +1,6 @@
-import { kriptoStoredUnitToUsd, legacyCryptoStoredUnitToUsd } from '@/lib/crypto-price-usd';
-import { fonUnitNativeTry } from '@/lib/fon-price-guards';
+import { kriptoStoredUnitToUsd, legacyCryptoStoredUnitToUsd } from './crypto-price-usd';
+import { shouldMarkHoldingAtCost } from './effective-change-24h';
+import { fonUnitNativeTry } from './fon-price-guards';
 
 export type AssetRow = {
   id: string;
@@ -33,26 +34,50 @@ function positivePrice(v: unknown): number | null {
   return Number.isFinite(n) && n > 0 ? n : null;
 }
 
+function holdingAvgUnitNative(
+  holding: HoldingRow,
+  asset: AssetRow,
+  usdTry: number,
+): number | null {
+  const avg = positivePrice(holding.avg_price);
+  if (avg == null) return null;
+  if (asset.category_id === 'kripto') {
+    return legacyCryptoStoredUnitToUsd(avg, usdTry);
+  }
+  return avg;
+}
+
 /** Piyasa birim fiyatı (varlık para biriminde); 0 = henüz güvenilir fiyat yok. */
 export function holdingMarketUnitNative(
   holding: HoldingRow,
   usdTry: number,
+  opts?: { now?: Date },
 ): { unitNative: number; asset: AssetRow | null } {
   const asset = normalizeAsset(holding.asset);
   if (!asset) return { unitNative: 0, asset: null };
 
   const safeRate = usdTry > 0 ? usdTry : 1;
+  const avgNative = holdingAvgUnitNative(holding, asset, safeRate);
+  if (
+    avgNative != null &&
+    shouldMarkHoldingAtCost({
+      categoryId: asset.category_id,
+      priceUpdatedAt: asset.price_updated_at,
+      change24hPct: asset.change_24h_pct,
+      holdingCreatedAt: holding.created_at,
+      now: opts?.now,
+    })
+  ) {
+    return { unitNative: avgNative, asset };
+  }
 
   if (asset.category_id === 'kripto') {
     const live = positivePrice(asset.current_price);
     if (live != null) {
       return { unitNative: kriptoStoredUnitToUsd(live, safeRate, asset.currency), asset };
     }
-    if (holding.avg_price != null) {
-      return {
-        unitNative: legacyCryptoStoredUnitToUsd(Number(holding.avg_price), safeRate),
-        asset,
-      };
+    if (avgNative != null) {
+      return { unitNative: avgNative, asset };
     }
     return { unitNative: 0, asset };
   }
@@ -61,13 +86,17 @@ export function holdingMarketUnitNative(
     return { unitNative: fonUnitNativeTry(asset.current_price, holding.avg_price), asset };
   }
 
-  const spot = positivePrice(asset.current_price) ?? positivePrice(holding.avg_price) ?? 0;
+  const spot = positivePrice(asset.current_price) ?? avgNative ?? 0;
   return { unitNative: spot, asset };
 }
 
-export function isHoldingMarketPriceReady(holding: HoldingRow, usdTry: number): boolean {
+export function isHoldingMarketPriceReady(
+  holding: HoldingRow,
+  usdTry: number,
+  opts?: { now?: Date },
+): boolean {
   if (!(holding.quantity > 0)) return true;
-  const { unitNative } = holdingMarketUnitNative(holding, usdTry);
+  const { unitNative } = holdingMarketUnitNative(holding, usdTry, opts);
   return unitNative > 0;
 }
 
