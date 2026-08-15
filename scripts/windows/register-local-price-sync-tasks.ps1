@@ -1,6 +1,7 @@
 #Requires -Version 5.1
 param(
   [string] $PortfolioTaskName = 'PortfoyTakip-PortfolioSync-Every30m',
+  [string] $CryptoTaskName = 'PortfoyTakip-CryptoSync-Every5m',
   [string] $AbdTaskName = 'PortfoyTakip-AbdSync-Every10m',
   [switch] $Unregister
 )
@@ -8,6 +9,7 @@ param(
 $ErrorActionPreference = 'Stop'
 $RepoRoot = (Resolve-Path (Join-Path $PSScriptRoot '..\..')).Path
 $PortfolioCmd = Join-Path $PSScriptRoot 'portfolio-sync-once.cmd'
+$CryptoCmd = Join-Path $PSScriptRoot 'crypto-sync-once.cmd'
 $AbdCmd = Join-Path $PSScriptRoot 'abd-sync-once.cmd'
 
 function New-RepeatingDailyTrigger([string]$At, [int]$Minutes) {
@@ -54,8 +56,10 @@ function Register-LocalTask([string]$TaskName, [string]$CmdPath, [string]$StartA
 
 if ($Unregister) {
   Unregister-ScheduledTask -TaskName $PortfolioTaskName -Confirm:$false -ErrorAction SilentlyContinue
+  Unregister-ScheduledTask -TaskName $CryptoTaskName -Confirm:$false -ErrorAction SilentlyContinue
   Unregister-ScheduledTask -TaskName $AbdTaskName -Confirm:$false -ErrorAction SilentlyContinue
   Write-Host "Kaldirildi (veya yoktu): $PortfolioTaskName"
+  Write-Host "Kaldirildi (veya yoktu): $CryptoTaskName"
   Write-Host "Kaldirildi (veya yoktu): $AbdTaskName"
   exit 0
 }
@@ -70,7 +74,14 @@ Register-LocalTask `
   -CmdPath $PortfolioCmd `
   -StartAt '00:00' `
   -IntervalMinutes 30 `
-  -Description 'portfoy-takip: local Portfolio sync, her 30 dakikada bir.'
+  -Description 'portfoy-takip: local Portfolio sync (kripto haric), her 30 dakikada bir.'
+
+Register-LocalTask `
+  -TaskName $CryptoTaskName `
+  -CmdPath $CryptoCmd `
+  -StartAt '00:02' `
+  -IntervalMinutes 5 `
+  -Description 'portfoy-takip: local Crypto sync (CoinGecko), her 5 dakikada bir.'
 
 Register-LocalTask `
   -TaskName $AbdTaskName `
@@ -80,4 +91,5 @@ Register-LocalTask `
   -Description 'portfoy-takip: local ABD sync, her 10 dakikada bir.'
 
 Write-Host "Test: Start-ScheduledTask -TaskName '$PortfolioTaskName'"
+Write-Host "Test: Start-ScheduledTask -TaskName '$CryptoTaskName'"
 Write-Host "Test: Start-ScheduledTask -TaskName '$AbdTaskName'"

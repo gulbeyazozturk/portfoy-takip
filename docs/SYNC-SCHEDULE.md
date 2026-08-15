@@ -1,13 +1,14 @@
 # Portföy senkronu — 15 dakikada bir tetikleme
 
-GitHub Actions **`schedule`** güvenilir değil; yük nedeniyle tetikleme saatlerce gecikebiliyor. Bu repoda **Portfolio sync** ve **ABD Sync** için GitHub cron **kapalı**; periyot **Supabase** üzerinden yönetilir.
+GitHub Actions **`schedule`** güvenilir değil; yük nedeniyle tetikleme saatlerce gecikebiliyor. Bu repoda **Portfolio sync**, **Crypto sync** ve **ABD Sync** için GitHub cron **kapalı**; periyot **Supabase** üzerinden yönetilir.
 
 ## Önerilen: Supabase `pg_cron` + Edge
 
-- **Portfolio sync:** Edge `dispatch-portfolio-sync` → `portfolio-sync.yml` — `docs/SUPABASE-PORTFOLIO-SYNC.md`
+- **Crypto sync (~5 dk):** Edge `dispatch-crypto-sync` → `crypto-sync.yml` — `docs/SUPABASE-CRYPTO-SYNC.md`
+- **Portfolio sync (~15 dk):** Edge `dispatch-portfolio-sync` → `portfolio-sync.yml` — `docs/SUPABASE-PORTFOLIO-SYNC.md`
 - **ABD Sync:** Edge `sync-abd-prices` (`ABD_PRICE_SOURCE=github_dispatch`) → `us-sync.yml` — `docs/SUPABASE-ABD-SYNC.md`
 
-Her ikisi de aynı GitHub PAT/repo secret’larını (`GITHUB_DISPATCH_PAT`, `GITHUB_DISPATCH_REPO`) kullanabilir; cron doğrulama header’ları ayrıdır (`x-portfolio-cron` / `x-abd-cron`).
+Üçü de aynı GitHub PAT/repo secret’larını (`GITHUB_DISPATCH_PAT`, `GITHUB_DISPATCH_REPO`) kullanabilir; cron doğrulama header’ları ayrıdır (`x-crypto-cron` / `x-portfolio-cron` / `x-abd-cron`).
 
 ## Alternatif: Harici cron (ör. cron-job.org)
 

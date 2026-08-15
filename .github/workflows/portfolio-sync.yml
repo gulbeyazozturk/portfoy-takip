@@ -1,4 +1,5 @@
-# Senkron: kripto, BIST scrape, döviz, emtia, altın, TEFAS (TSİ 07–12), yurtdışı holdings, kademeli günlük push.
+# Senkron: BIST scrape, döviz, emtia, altın, TEFAS (TSİ 07–12), yurtdışı holdings, kademeli günlük push.
+# Kripto ayrı iş: crypto-sync.yml (~5 dk) — docs/SUPABASE-CRYPTO-SYNC.md
 # price_history snapshot kapalı (021).
 #
 # Zamanlama GitHub cron ile değil: Supabase pg_cron (~15 dk) → Edge dispatch-portfolio-sync
@@ -43,9 +44,6 @@ jobs:
           echo "EXPO_PUBLIC_SUPABASE_URL=${{ secrets.SUPABASE_URL }}" >> $GITHUB_ENV
           echo "EXPO_PUBLIC_SUPABASE_ANON_KEY=${{ secrets.EXPO_PUBLIC_SUPABASE_ANON_KEY }}" >> $GITHUB_ENV
           echo "SUPABASE_SERVICE_ROLE_KEY=${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}" >> $GITHUB_ENV
-
-      - name: Sync crypto (CoinGecko)
-        run: node scripts/sync-crypto-prices.js
 
       - name: Sync BIST list and prices (scrape + BigPara API universe)
         run: node scripts/sync-bist-scrape.js

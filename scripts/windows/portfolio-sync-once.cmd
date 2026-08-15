@@ -1,7 +1,7 @@
 @echo off
 setlocal
 pushd "%~dp0..\.."
-if not exist "scripts\sync-crypto-prices.js" (
+if not exist "scripts\sync-bist-scrape.js" (
   echo Hata: scriptler bulunamadi. Klasor: %CD%
   popd
   exit /b 1
@@ -12,7 +12,6 @@ if errorlevel 1 (
   popd
   exit /b 1
 )
-node scripts\sync-crypto-prices.js || goto :err
 node scripts\sync-bist-scrape.js || goto :err
 node scripts\sync-doviz-dev.js || goto :err
 node scripts\sync-emtia-scrape.js || goto :err

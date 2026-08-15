@@ -4,7 +4,7 @@
  *
  *   node scripts/move-xaut-paxg-to-emtia.js
  *
- * Not: Günlük sync (sync-crypto-prices.js) bu taşımayı zaten otomatik yapar;
+ * Not: Periyodik crypto-sync (sync-crypto-prices.js) bu taşımayı zaten otomatik yapar;
  * bu script manuel veya acil durum içindir.
  */
 

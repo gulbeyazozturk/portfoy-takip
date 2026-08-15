@@ -27,9 +27,10 @@ Bu dosya Cursor ve benzeri araçlar için **proje özgü** kısa kurallar içeri
 ## Sync ve script’ler
 - Node script’leri `scripts/` altında; fonksiyonel isimler (`sync-tefas-funds.js`, `reset-for-csv-import.js`, vb.).
 - TEFAS (GitHub Actions IP engeli): üretimde `supabase/functions/sync-tefas` + `docs/SUPABASE-TEFAS-EDGE.md` (pg_cron + pg_net). Sync fon tipleri: **YAT, EMK, BYF, GYF, GSYF** (proje GYF’ler `GYF` altında, örn. TN1). Yerel Windows zamanlama (ör. 07:30–12:30): `scripts/windows/register-tefas-morning-task.ps1` + `docs/LOCAL-TEFAS-WINDOWS-SCHEDULE.md`.
-- Yerel Windows fiyat scheduler: Portfolio 30 dk + ABD 10 dk için `scripts/windows/register-local-price-sync-tasks.ps1` + `docs/LOCAL-WINDOWS-PRICE-SCHEDULE.md`.
+- Yerel Windows fiyat scheduler: Kripto 5 dk + Portfolio 30 dk + ABD 10 dk için `scripts/windows/register-local-price-sync-tasks.ps1` + `docs/LOCAL-WINDOWS-PRICE-SCHEDULE.md`.
 - ABD (yurtdışı) fiyatları: Yahoo GitHub runner’da (`us-sync.yml`); periyot **Supabase** `pg_cron` → Edge `sync-abd-prices` (`github_dispatch`). GitHub’da `schedule` yok: `docs/SUPABASE-ABD-SYNC.md`.
-- **Portfolio sync** (kripto/BIST/döviz/emtıa/holdings yurtdışı; sync sırasında PH yazılmaz): `portfolio-sync.yml`; periyot **Supabase** `pg_cron` → Edge `dispatch-portfolio-sync`: `docs/SUPABASE-PORTFOLIO-SYNC.md`.
+- **Crypto sync** (CoinGecko; XAUT/PAXG emtia token; PH yazılmaz): `crypto-sync.yml`; periyot **Supabase** `pg_cron` ~5 dk → Edge `dispatch-crypto-sync`: `docs/SUPABASE-CRYPTO-SYNC.md`.
+- **Portfolio sync** (BIST/döviz/emtia/holdings yurtdışı/push; sync sırasında PH yazılmaz; kripto ayrı iş): `portfolio-sync.yml`; periyot **Supabase** `pg_cron` → Edge `dispatch-portfolio-sync`: `docs/SUPABASE-PORTFOLIO-SYNC.md`.
 - **price_history** (2 gün, günde 1 satır/varlık): migration `022_price_history_daily_two_day_retention.sql`; pg_cron **23:55 TSİ** → `run_daily_price_history_maintenance()`; kurulum `npm run setup:daily-price-history`; manuel `npm run daily-price-history`.
 - Açılış fiyat yedeği: `lib/asset-last-price-cache.ts` + `lib/portfolio-summary-cache.ts` (telefon); `lib/prune-local-portfolio-cache.ts` aktif portföy/holding dışındaki yerel önbelleği siler.
 - Kullanıcı verisini silme/temizlik: `reset-for-csv-import.js` (master `assets` silmez); tam kullanıcı silme: `delete-user-by-email.js`.

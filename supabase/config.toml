@@ -50,6 +50,9 @@ verify_jwt = false
 [functions.dispatch-portfolio-sync]
 verify_jwt = false
 
+[functions.dispatch-crypto-sync]
+verify_jwt = false
+
 [functions.send-push]
 verify_jwt = false
 

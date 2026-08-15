@@ -147,7 +147,7 @@ async function main() {
   const migrationsOk = tables.every((t) => t.ok);
 
   console.log('\n=== Edge functions (HTTP probe — secret olmadan) ===');
-  const fnNames = ['sync-tefas', 'dispatch-portfolio-sync', 'sync-abd-prices', 'send-push'];
+  const fnNames = ['sync-tefas', 'dispatch-portfolio-sync', 'dispatch-crypto-sync', 'sync-abd-prices', 'send-push'];
   const edgeProbes = await Promise.all(fnNames.map((fn) => probeEdge(url, fn)));
   for (const p of edgeProbes) {
     const label = p.deployed
@@ -161,7 +161,7 @@ async function main() {
   console.log('\n=== Edge functions (Supabase CLI list) ===');
   const cliList = await listEdgeViaCli(projectRef);
   if (cliList) {
-    const lines = cliList.split('\n').filter((l) => /sync-tefas|dispatch-portfolio|sync-abd|send-push/i.test(l));
+    const lines = cliList.split('\n').filter((l) => /sync-tefas|dispatch-portfolio|dispatch-crypto|sync-abd|send-push/i.test(l));
     if (lines.length) lines.forEach((l) => console.log(' ', l.trim()));
     else console.log(' (CLI çıktısında beklenen fonksiyon satırı yok — tam liste için dashboard)');
   } else {

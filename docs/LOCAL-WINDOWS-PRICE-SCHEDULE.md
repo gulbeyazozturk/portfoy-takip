@@ -1,8 +1,9 @@
 # Local Windows price scheduler
 
-Bu kurulum, bilgisayarinda Windows Task Scheduler ile iki yerel gorev olusturur:
+Bu kurulum, bilgisayarinda Windows Task Scheduler ile uc yerel gorev olusturur:
 
-- `PortfoyTakip-PortfolioSync-Every30m` -> her **30 dk** (`:00`, `:30`)
+- `PortfoyTakip-CryptoSync-Every5m` -> her **5 dk** (`:02`, `:07`, `:12`, ...)
+- `PortfoyTakip-PortfolioSync-Every30m` -> her **30 dk** (`:00`, `:30`) — kripto yok
 - `PortfoyTakip-AbdSync-Every10m` -> her **10 dk** (`:05`, `:15`, `:25`, ...)
 
 Her iki gorev de repo altindaki Node scriptlerini calistirir; `.env` dosyasi ve `node` PATH'i gerekli.
@@ -18,6 +19,7 @@ powershell -ExecutionPolicy Bypass -File .\scripts\windows\register-local-price-
 
 ```powershell
 Start-ScheduledTask -TaskName 'PortfoyTakip-PortfolioSync-Every30m'
+Start-ScheduledTask -TaskName 'PortfoyTakip-CryptoSync-Every5m'
 Start-ScheduledTask -TaskName 'PortfoyTakip-AbdSync-Every10m'
 ```
 
@@ -25,6 +27,7 @@ Start-ScheduledTask -TaskName 'PortfoyTakip-AbdSync-Every10m'
 
 ```powershell
 Get-ScheduledTaskInfo -TaskName 'PortfoyTakip-PortfolioSync-Every30m'
+Get-ScheduledTaskInfo -TaskName 'PortfoyTakip-CryptoSync-Every5m'
 Get-ScheduledTaskInfo -TaskName 'PortfoyTakip-AbdSync-Every10m'
 ```
 
@@ -36,9 +39,14 @@ powershell -ExecutionPolicy Bypass -File .\scripts\windows\register-local-price-
 
 ## Calistirilan scriptler
 
+### Kripto (5 dk)
+
+- `scripts/sync-crypto-prices.js` (CoinGecko; XAUT/PAXG emtia token)
+
+Uretim karsiligi: GitHub `crypto-sync.yml` — `docs/SUPABASE-CRYPTO-SYNC.md`
+
 ### Portfolio (30 dk)
 
-- `scripts/sync-crypto-prices.js`
 - `scripts/sync-bist-scrape.js`
 - `scripts/sync-doviz-dev.js`
 - `scripts/sync-emtia-scrape.js`
@@ -58,3 +66,4 @@ powershell -ExecutionPolicy Bypass -File .\scripts\windows\register-local-price-
 - Gorevler `Interactive` kaydolur; kullanici oturumu acikken calisir.
 - Laptop pildeyken de calismasi icin gorev ayarlari acik birakildi.
 - ABD gorevi bilerek `:05` fazinda baslatilir; Portfolio tetigiyle ayni dakikaya gelerek cakismasi azalir.
+- Kripto gorevi `:02` fazinda baslar; ABD `:05` ile ayni anda calismasin diye.

@@ -2,6 +2,8 @@
 
 **Üretim modeli:** Supabase’de **~15 dakikada bir** `pg_cron` → Edge **`dispatch-portfolio-sync`** → GitHub API **`workflow_dispatch`** → `.github/workflows/portfolio-sync.yml`.
 
+Kripto bu işte **yok**; ayrı `crypto-sync.yml` (~5 dk) — `docs/SUPABASE-CRYPTO-SYNC.md`.
+
 GitHub workflow’unda **`on.schedule` yok**; tetikleme buradan veya Actions’tan manuel çalıştırmadan gelir.
 
 ## Edge fonksiyonu (`dispatch-portfolio-sync`)
@@ -74,6 +76,7 @@ select cron.schedule(
 
 ## İlişkili
 
+- Kripto senkronu (~5 dk): `docs/SUPABASE-CRYPTO-SYNC.md`
 - ABD tam senkron (ayrı workflow): `docs/SUPABASE-ABD-SYNC.md`
 - Harici cron (cron-job.org) alternatifi: `docs/SYNC-SCHEDULE.md`
 

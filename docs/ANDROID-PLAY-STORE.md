@@ -84,7 +84,7 @@ Repo → **Settings** → **Secrets and variables** → **Actions**:
 - `SUPABASE_SERVICE_ROLE_KEY`
 - `EXPO_PUBLIC_SUPABASE_ANON_KEY`
 
-`portfolio-sync.yml` bu secret’larla fiyat senkronu ve `send-daily-gain-push.js` çalıştırır.
+`portfolio-sync.yml` bu secret’larla BIST/döviz/emtia/ABD holdings ve `send-daily-gain-push.js` çalıştırır. Kripto ayrı `crypto-sync.yml` (~5 dk).
 
 ---
 

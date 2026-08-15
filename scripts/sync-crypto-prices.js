@@ -3,7 +3,8 @@
  * - CoinGecko'dan top coin listesini çeker (kripto: USD, XAUT/PAXG: TRY emtia)
  * - Kripto: category_id = 'kripto' UPSERT (XAUT, PAXG bu grupta tutulmaz).
  * - Emtia: XAUT ve PAXG CoinGecko ile UPSERT (altın token’lar); önce kripto’da kalan satırlar emtia’ya taşınır (aynı id).
- * Günde 1 defa çalıştır (Windows Task Scheduler / cron / GitHub Actions).
+ * Üretim: bağımsız GitHub `crypto-sync.yml` (~5 dk; Supabase pg_cron → dispatch-crypto-sync).
+ * Genel `portfolio-sync.yml` bu script’i çalıştırmaz. Manuel: `npm run sync-crypto`.
  *
  * Gereksinim: .env içinde EXPO_PUBLIC_SUPABASE_URL ve EXPO_PUBLIC_SUPABASE_ANON_KEY
  * (veya yazma için SUPABASE_SERVICE_ROLE_KEY). Node 18+ (fetch built-in).
