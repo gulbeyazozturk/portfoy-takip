@@ -59,12 +59,21 @@ export default {
     home: 'Ana sayfa',
     portfolio: 'Portföy',
     add: 'Ekle',
-    trend: 'Trend',
+    analysis: 'Analiz',
     settings: 'Ayarlar',
   },
-  trend: {
-    historyExplainer:
-      'Grafik, pozisyonların eklenme tarihinden sonra geçmiş fiyatlar ve günlük USD/TRY ile hesaplanır. Veri aralığında kayıt yoksa son bilinen fiyat kullanılır.',
+  analysis: {
+    summaryTitle: 'Performans özeti',
+    categoryContribution: 'Kategori katkısı',
+    todayMovers: 'Bugünün hareketlileri',
+    topPerformers: 'En iyi ve en kötü',
+    topGainers: 'En çok artanlar',
+    topLosers: 'En çok düşenler',
+    bestPerformers: 'En iyi performans',
+    worstPerformers: 'En kötü performans',
+    concentration: 'Konsantrasyon',
+    top3Weight: 'En büyük 3 pozisyon',
+    largestCategory: 'En büyük kategori',
   },
   settings: {
     title: 'Ayarlar',
@@ -93,7 +102,7 @@ export default {
     notificationsToggleHint: 'Kapalıyken uygulamadaki tüm bildirimler durdurulur.',
     portfoliosSection: 'Portföyler',
     portfoliosHint:
-      'Birden fazla portföy oluşturup ana sayfadaki daire ortasından veya Portföy / Trend sekmesindeki menüden geçiş yapabilirsiniz.',
+      'Birden fazla portföy oluşturup ana sayfadaki daire ortasından veya Portföy / Analiz sekmesindeki menüden geçiş yapabilirsiniz.',
     addPortfolio: 'Yeni portföy ekle',
     renamePortfolio: 'Adı değiştir',
     deletePortfolio: 'Sil',

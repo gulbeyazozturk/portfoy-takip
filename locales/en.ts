@@ -57,12 +57,21 @@ export default {
     home: 'Home',
     portfolio: 'Portfolio',
     add: 'Add',
-    trend: 'Trend',
+    analysis: 'Analysis',
     settings: 'Settings',
   },
-  trend: {
-    historyExplainer:
-      'The chart uses historical prices and daily USD/TRY from after each position was added. When a date has no quote, the last known price is carried forward.',
+  analysis: {
+    summaryTitle: 'Performance summary',
+    categoryContribution: 'Category contribution',
+    todayMovers: "Today's movers",
+    topPerformers: 'Best and worst',
+    topGainers: 'Top gainers',
+    topLosers: 'Top losers',
+    bestPerformers: 'Best performers',
+    worstPerformers: 'Worst performers',
+    concentration: 'Concentration',
+    top3Weight: 'Top 3 positions',
+    largestCategory: 'Largest category',
   },
   settings: {
     title: 'Settings',
@@ -91,7 +100,7 @@ export default {
     notificationsToggleHint: 'When off, all app notifications are disabled.',
     portfoliosSection: 'Portfolios',
     portfoliosHint:
-      'Create multiple portfolios and switch from the donut on Home or the menu on the Portfolio / Trend tabs.',
+      'Create multiple portfolios and switch from the donut on Home or the menu on the Portfolio / Analysis tabs.',
     addPortfolio: 'Add portfolio',
     renamePortfolio: 'Rename',
     deletePortfolio: 'Delete',
