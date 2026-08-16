@@ -20,7 +20,6 @@ import {
   InteractionManager,
 } from 'react-native';
 import { Pressable } from 'react-native-gesture-handler';
-import Svg, { Circle, Defs, LinearGradient, Path, Stop } from 'react-native-svg';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { LocalizedDatePickerSheet } from '@/components/localized-date-picker-sheet';
@@ -52,11 +51,16 @@ import { useTranslation } from 'react-i18next';
 
 /** Portföy sekmesi (`portfolio.tsx`). */
 const PORTFOLIO_TAB_HREF = '/portfolio' as Href;
+const ANALYSIS_TAB_HREF = '/(tabs)/analysis' as Href;
 
 const TXN_TOAST_MS = 3000;
 
 function isReturnToPortfolioTab(returnTo: string | undefined): boolean {
   return returnTo === '/' || returnTo === '/(tabs)/index' || returnTo === '/portfolio' || returnTo === '/(tabs)/portfolio';
+}
+
+function isReturnToAnalysisTab(returnTo: string | undefined): boolean {
+  return returnTo === '/analysis' || returnTo === '/(tabs)/analysis';
 }
 
 /** Expo Router aynı param anahtarını bazen string[] döndürebilir. */
@@ -87,9 +91,6 @@ function parseHoldingQtyString(raw: string | undefined): number {
   return Number.isFinite(n) ? n : 0;
 }
 
-const CHART_W = 300;
-const CHART_H = 165;
-/** Obsidian-style palette (HTML referans) */
 const PRIMARY = '#89acff';
 const CHART_GREEN = Brand.chartPositive;
 const CHART_RED = Brand.chartNegative;
@@ -104,181 +105,11 @@ const SURFACE_LOW = '#131313';
 const SURFACE_HIGH = '#1f1f1f';
 const ON_SURFACE_MUTED = '#ababab';
 const ON_PRIMARY_FIXED = '#000000';
-const TIMEFRAMES = ['1D', '1W', '1M', '1Y', '5Y'] as const;
 
 /** Ekleme/azaltma sayısal alanları: iOS klavye üstü / Android klavye üstü çubuk. */
 const NUMERIC_KEYBOARD_ACCESSORY_ID = 'assetEntryNumericKeyboardDone';
 const DECIMAL_KEYBOARD_ACCESSORY_ID = 'assetEntryDecimalKeyboard';
-type Timeframe = (typeof TIMEFRAMES)[number];
 
-function timeframeMs(tf: Timeframe): number {
-  switch (tf) {
-    case '1D': return 86_400_000;
-    case '1W': return 7 * 86_400_000;
-    case '1M': return 30 * 86_400_000;
-    case '1Y': return 365 * 86_400_000;
-    case '5Y': return 5 * 365 * 86_400_000;
-  }
-}
-
-function PriceChart({
-  series,
-  isPositive,
-  currPre,
-  currSuf,
-  selectedIdx,
-  onSelect,
-  numberLocale,
-}: {
-  series: number[];
-  isPositive: boolean;
-  currPre: string;
-  currSuf: string;
-  selectedIdx: number | null;
-  onSelect: (idx: number | null) => void;
-  numberLocale: string;
-}) {
-  const [chartWidth, setChartWidth] = useState(0);
-
-  if (series.length < 2) return null;
-  const vals = series;
-  const minVal = Math.min(...vals);
-  const maxVal = Math.max(...vals);
-  const range = maxVal - minVal || 1;
-  const padding = range * 0.1;
-  const vMin = minVal - padding;
-  const vMax = maxVal + padding;
-  const vRange = vMax - vMin || 1;
-  const toY = (v: number) => CHART_H - ((v - vMin) / vRange) * CHART_H;
-  const lineColor = isPositive ? CHART_GREEN : CHART_RED;
-
-  let dLine = '';
-  vals.forEach((v, idx) => {
-    const x = (CHART_W * idx) / (vals.length - 1);
-    const y = toY(v);
-    dLine += idx === 0 ? `M ${x} ${y}` : ` L ${x} ${y}`;
-  });
-  const dFill = `${dLine} L ${CHART_W} ${CHART_H} L 0 ${CHART_H} Z`;
-
-  const midVal = (minVal + maxVal) / 2;
-  const gridVals = [maxVal, midVal, minVal];
-
-  const fmtLabel = (v: number) => {
-    const abs = Math.abs(v);
-    let maxDec = 2;
-    if (abs > 0 && abs < 0.01) maxDec = 10;
-    else if (abs >= 0.01 && abs < 1) maxDec = 6;
-    else if (abs >= 1 && abs < 10) maxDec = 4;
-    const formatted = abs.toLocaleString(numberLocale, { minimumFractionDigits: 2, maximumFractionDigits: maxDec });
-    const trimmed = formatted.replace(/0+$/, '').replace(/[,.]$/, '');
-    return `${currPre}${v < 0 ? `-${trimmed}` : trimmed}${currSuf}`;
-  };
-
-  const handleTouch = (e: any) => {
-    if (chartWidth <= 0 || vals.length < 2) return;
-    const x = e.nativeEvent.locationX;
-    const idx = Math.round((x / chartWidth) * (vals.length - 1));
-    onSelect(Math.max(0, Math.min(vals.length - 1, idx)));
-  };
-
-  const selX = selectedIdx != null ? (CHART_W * selectedIdx) / (vals.length - 1) : 0;
-  const selY = selectedIdx != null ? toY(vals[selectedIdx]) : 0;
-
-  return (
-    <View style={chartStyles.wrapper}>
-      <View
-        style={chartStyles.svgWrap}
-        onLayout={(e) => setChartWidth(e.nativeEvent.layout.width)}
-        onStartShouldSetResponder={() => true}
-        onMoveShouldSetResponder={() => true}
-        onResponderGrant={handleTouch}
-        onResponderMove={handleTouch}
-        onResponderRelease={() => onSelect(null)}
-      >
-        <Svg width="100%" height={CHART_H} viewBox={`0 0 ${CHART_W} ${CHART_H}`} preserveAspectRatio="none">
-          <Defs>
-            <LinearGradient id="priceGrad" x1="0%" x2="0%" y1="0%" y2="100%">
-              <Stop offset="0%" stopColor={lineColor} stopOpacity="0.35" />
-              <Stop offset="100%" stopColor={lineColor} stopOpacity="0" />
-            </LinearGradient>
-          </Defs>
-          {gridVals.map((gv, i) => {
-            const y = toY(gv);
-            return (
-              <Path
-                key={i}
-                d={`M 0 ${y} L ${CHART_W} ${y}`}
-                stroke="rgba(255,255,255,0.06)"
-                strokeWidth={1}
-                strokeDasharray="4 4"
-              />
-            );
-          })}
-          <Path d={dFill} fill="url(#priceGrad)" />
-          <Path
-            d={dLine}
-            fill="none"
-            stroke={lineColor}
-            strokeWidth={3}
-            strokeLinecap="round"
-            strokeLinejoin="round"
-          />
-          {selectedIdx != null && (
-            <Path
-              d={`M ${selX} 0 L ${selX} ${CHART_H}`}
-              stroke="rgba(255,255,255,0.4)"
-              strokeWidth={1}
-            />
-          )}
-        </Svg>
-        {selectedIdx != null && chartWidth > 0 && (
-          <View
-            pointerEvents="none"
-            style={{
-              position: 'absolute',
-              left: (selectedIdx / (vals.length - 1)) * chartWidth - 6,
-              top: selY - 6,
-              width: 12,
-              height: 12,
-              borderRadius: 6,
-              backgroundColor: lineColor,
-              borderWidth: 2,
-              borderColor: '#ffffff',
-            }}
-          />
-        )}
-      </View>
-      <View style={chartStyles.labelCol}>
-        {gridVals.map((gv, i) => (
-          <ThemedText key={i} style={chartStyles.labelText}>{fmtLabel(gv)}</ThemedText>
-        ))}
-      </View>
-    </View>
-  );
-}
-
-const chartStyles = StyleSheet.create({
-  wrapper: {
-    flexDirection: 'row',
-    marginHorizontal: 16,
-    marginTop: 8,
-    marginBottom: 12,
-  },
-  svgWrap: {
-    flex: 1,
-  },
-  labelCol: {
-    width: 56,
-    justifyContent: 'space-between',
-    paddingVertical: 2,
-    alignItems: 'flex-end',
-    paddingLeft: 8,
-  },
-  labelText: {
-    fontSize: 10,
-    color: ON_SURFACE_MUTED,
-  },
-});
 
 export default function AssetEntryScreen() {
   const { t, i18n } = useTranslation();
@@ -346,6 +177,10 @@ export default function AssetEntryScreen() {
       });
       return;
     }
+    if (isReturnToAnalysisTab(returnTo)) {
+      router.replace(ANALYSIS_TAB_HREF);
+      return;
+    }
     if (isReturnToPortfolioTab(returnTo)) {
       router.replace(PORTFOLIO_TAB_HREF);
       return;
@@ -356,28 +191,6 @@ export default function AssetEntryScreen() {
       router.replace(PORTFOLIO_TAB_HREF);
     }
   }, [returnTo, returnCategoryId, returnLabel, router]);
-
-  const openChartScreen = () => {
-    if (!assetId) return;
-    router.push({
-      pathname: '/(tabs)/asset-chart',
-      params: {
-        assetId,
-        categoryId: categoryId ?? '',
-        symbol,
-        name,
-        price: String(currentPrice || 0),
-        spotCurrency: spotCurrency ?? '',
-        holdingId: holdingId ?? '',
-        returnTo: '/(tabs)/asset-entry',
-        entryReturnTo: returnTo ?? '',
-        entryReturnCategoryId: returnCategoryId ?? '',
-        entryReturnLabel: returnLabel ?? '',
-        entryQuantity: amount,
-        entryAvgPrice: unitPrice,
-      },
-    });
-  };
 
   const amountUnitLabel = useMemo(() => {
     if (categoryId === 'mevduat') return 'TL';
@@ -647,19 +460,12 @@ export default function AssetEntryScreen() {
     [],
   );
 
-  const [activeTimeframe, setActiveTimeframe] = useState<Timeframe>('1D');
-  const [priceHistory, setPriceHistory] = useState<number[]>([]);
-  const [chartDates, setChartDates] = useState<(Date | null)[]>([]);
-  const [loadingChart, setLoadingChart] = useState(false);
   const [change24hPct, setChange24hPct] = useState<number | null>(null);
   const [holdingCreatedAt, setHoldingCreatedAt] = useState<string | null>(null);
   /** price_history birim fiyatı (assets.current_price ile aynı birimde). */
   const [addTimePriceRaw, setAddTimePriceRaw] = useState<number | null>(null);
-  const [selectedIdx, setSelectedIdx] = useState<number | null>(null);
   const [usdTry, setUsdTry] = useState(1);
   const [usdTryAtCostDate, setUsdTryAtCostDate] = useState<number | null>(null);
-  /** Grafik altı % / tutar: piyasa kotasyonlarının penceredeki ilk ve son değeri (maliyet noktası hariç). */
-  const [chartRangeForPct, setChartRangeForPct] = useState<{ first: number; last: number } | null>(null);
 
   const qty = parseHoldingQtyString(amount);
   const avgCost = unitPrice ? parseFloat(unitPrice.replace(',', '.')) || 0 : 0;
@@ -929,121 +735,6 @@ export default function AssetEntryScreen() {
     };
   }, [assetId, holdingCreatedAt]);
 
-  useEffect(() => {
-    if (!assetId || currentPrice <= 0 || categoryId === 'mevduat') return;
-    let cancelled = false;
-    (async () => {
-      setLoadingChart(true);
-      setSelectedIdx(null);
-
-      const tfFrom = new Date(Date.now() - timeframeMs(activeTimeframe));
-      const windowStartMs = tfFrom.getTime();
-      const holdStart = holdingCreatedAt ? new Date(holdingCreatedAt) : null;
-      /** Piyasa çizgisi: seçilen zaman penceresi ∩ pozisyon açılışından sonra (ortalama maliyet seriye eklenmez). */
-      const historyFromMs =
-        holdStart != null ? Math.max(holdStart.getTime(), windowStartMs) : windowStartMs;
-
-      const { data, error } = await supabase
-        .from('price_history')
-        .select('price, recorded_at')
-        .eq('asset_id', assetId)
-        .gte('recorded_at', new Date(historyFromMs).toISOString())
-        .order('recorded_at', { ascending: true });
-
-      if (cancelled) return;
-
-      const historyPrices = !error && data ? data.map((d) => Number(d.price)) : [];
-      const historyDates = !error && data ? data.map((d) => new Date(d.recorded_at)) : [];
-
-      const prices: number[] = [];
-      const dates: (Date | null)[] = [];
-
-      if (holdStart != null && holdStart.getTime() > windowStartMs) {
-        const zeroSpan = holdStart.getTime() - windowStartMs;
-        const zeroPoints = Math.max(2, Math.round((zeroSpan / Math.max(1, Date.now() - windowStartMs)) * 20));
-        const padPrice = currentPrice > 0 ? currentPrice : 0;
-        for (let p = 0; p < zeroPoints; p++) {
-          const tMs =
-            windowStartMs + (p / Math.max(1, zeroPoints - 1)) * (holdStart.getTime() - windowStartMs);
-          prices.push(padPrice);
-          dates.push(new Date(tMs));
-        }
-      }
-
-      for (let i = 0; i < historyPrices.length; i++) {
-        prices.push(historyPrices[i]);
-        dates.push(historyDates[i]);
-      }
-
-      if (currentPrice > 0) {
-        if (prices.length === 0) {
-          prices.push(currentPrice, currentPrice);
-          dates.push(new Date(historyFromMs), new Date());
-        } else {
-          const last = prices[prices.length - 1];
-          const relDiff =
-            Number.isFinite(last) && last > 0 ? Math.abs(last - currentPrice) / currentPrice : 1;
-          if (relDiff > 0.0005) {
-            prices.push(currentPrice);
-            dates.push(new Date());
-          } else {
-            prices[prices.length - 1] = currentPrice;
-            dates[dates.length - 1] = new Date();
-          }
-        }
-      }
-
-      if (categoryId === 'kripto' && usdTry > 0 && currentPrice > 0) {
-        for (let i = 0; i < prices.length; i++) {
-          const p = prices[i];
-          prices[i] = p <= 0 ? p : kriptoStoredUnitToUsd(p, usdTry, spotCurrency, currentPrice);
-        }
-      }
-
-      let rangeFirst: number | null = null;
-      const rangeLast = currentPrice;
-      if (historyPrices.length >= 1) {
-        let first = historyPrices[0];
-        if (categoryId === 'kripto' && usdTry > 0 && rangeLast > 0) {
-          first = kriptoStoredUnitToUsd(first, usdTry, spotCurrency, rangeLast);
-        }
-        rangeFirst = first;
-      }
-
-      if (!cancelled) {
-        if (rangeFirst != null && rangeFirst > 0 && rangeLast > 0) {
-          setChartRangeForPct({ first: rangeFirst, last: rangeLast });
-        } else {
-          setChartRangeForPct(null);
-        }
-      }
-
-      if (prices.length >= 2) {
-        setPriceHistory(prices);
-        setChartDates(dates);
-      } else if (currentPrice > 0) {
-        setPriceHistory([currentPrice * 0.998, currentPrice]);
-        setChartDates([new Date(historyFromMs), new Date()]);
-      } else {
-        setPriceHistory([]);
-        setChartDates([]);
-      }
-
-      setLoadingChart(false);
-    })();
-    return () => { cancelled = true; };
-  }, [
-    assetId,
-    activeTimeframe,
-    currentPrice,
-    categoryId,
-    holdingCreatedAt,
-    avgCost,
-    avgCostUsd,
-    usdTry,
-    spotCurrency,
-  ]);
-
   const inputQty = useMemo(() => parseTrDecimal(inputQtyStr), [inputQtyStr]);
 
   const onInputQtyChange = useCallback((txt: string) => {
@@ -1087,6 +778,8 @@ export default function AssetEntryScreen() {
           ...(options?.txnToast ? { txnToast: options.txnToast } : {}),
         },
       });
+    } else if (isReturnToAnalysisTab(returnTo)) {
+      router.replace(ANALYSIS_TAB_HREF);
     } else if (isReturnToPortfolioTab(returnTo)) {
       router.replace(PORTFOLIO_TAB_HREF);
     } else {
@@ -1471,17 +1164,6 @@ export default function AssetEntryScreen() {
 
   const gainLossUsdPositive = gainLossUsd != null && gainLossUsd >= 0;
 
-  const fmtVal = (v: number) => {
-    const abs = Math.abs(v);
-    let maxDec = 2;
-    if (abs > 0 && abs < 0.01) maxDec = 10;
-    else if (abs >= 0.01 && abs < 1) maxDec = 6;
-    else if (abs >= 1 && abs < 10) maxDec = 4;
-    const formatted = abs.toLocaleString(numberLocale, { minimumFractionDigits: 2, maximumFractionDigits: maxDec });
-    const trimmed = formatted.replace(/0+$/, '').replace(/[,.]$/, '');
-    return v < 0 ? `-${trimmed}` : trimmed;
-  };
-
   /** Hero spot fiyat: her zaman 2 ondalık (ör. ₺126,20). */
   const fmtHeroSpotPrice = (v: number) => {
     if (!Number.isFinite(v) || v <= 0) return '—';
@@ -1537,75 +1219,6 @@ export default function AssetEntryScreen() {
   };
 
   const showPriceSection = currentPrice > 0 && categoryId !== 'mevduat';
-
-  const displayPrice = useMemo(() => {
-    if (selectedIdx != null && priceHistory[selectedIdx] != null) {
-      return priceHistory[selectedIdx];
-    }
-    return currentPrice;
-  }, [selectedIdx, priceHistory, currentPrice]);
-
-  const bigPriceText = `${curr}${fmtVal(displayPrice)}`;
-
-  const chartChange = useMemo(() => {
-    const refClose =
-      change24hPct != null && Number.isFinite(change24hPct) && currentPrice > 0
-        ? currentPrice / (1 + change24hPct / 100)
-        : null;
-
-    /** 1G: Yahoo / CoinGecko günlük % (son işlem günü kapanışa göre); grafikteki maliyet noktası karışmasın. */
-    if (
-      activeTimeframe === '1D' &&
-      refClose != null &&
-      change24hPct != null &&
-      Number.isFinite(change24hPct)
-    ) {
-      if (selectedIdx != null && priceHistory[selectedIdx] != null) {
-        const p = priceHistory[selectedIdx];
-        const ref = refClose;
-        return {
-          amount: p - ref,
-          percentage: ref > 0 ? ((p - ref) / ref) * 100 : 0,
-        };
-      }
-      return {
-        amount: currentPrice - refClose,
-        percentage: change24hPct,
-      };
-    }
-
-    const baseFirst = chartRangeForPct?.first;
-    if (baseFirst != null && baseFirst > 0 && priceHistory.length >= 1) {
-      const targetIdx = selectedIdx != null ? selectedIdx : priceHistory.length - 1;
-      const p = priceHistory[targetIdx];
-      if (p != null && p > 0) {
-        const diff = p - baseFirst;
-        return { amount: diff, percentage: (diff / baseFirst) * 100 };
-      }
-    }
-
-    return null;
-  }, [
-    activeTimeframe,
-    change24hPct,
-    currentPrice,
-    chartRangeForPct,
-    priceHistory,
-    selectedIdx,
-  ]);
-
-  const selectedDate = useMemo(() => {
-    if (selectedIdx != null && chartDates[selectedIdx]) {
-      return chartDates[selectedIdx]!.toLocaleDateString(numberLocale, {
-        day: 'numeric',
-        month: 'short',
-        year: 'numeric',
-      });
-    }
-    return null;
-  }, [selectedIdx, chartDates, numberLocale]);
-
-  const isChartPositive = chartChange ? chartChange.amount >= 0 : true;
 
   const positionGainPct =
     hasExplicitAvgCost && totalCost > 0 ? (totalGainLoss / totalCost) * 100 : null;
@@ -1777,31 +1390,18 @@ export default function AssetEntryScreen() {
                     {fmtHeroSpotPrice(currentPrice)}
                   </ThemedText>
                   {change24hPct != null && Number.isFinite(change24hPct) ? (
-                    <>
-                      <ThemedText
-                        style={[
-                          styles.heroDayPct,
-                          { color: change24hPct >= 0 ? CHART_GREEN : CHART_RED },
-                        ]}>
-                        ({change24hPct >= 0 ? '+' : ''}
-                        {change24hPct.toLocaleString(numberLocale, {
-                          minimumFractionDigits: 2,
-                          maximumFractionDigits: 2,
-                        })}
-                        %)
-                      </ThemedText>
-                      <TouchableOpacity
-                        onPress={openChartScreen}
-                        activeOpacity={0.8}
-                        hitSlop={10}
-                        style={styles.chartOpenBtn}>
-                        <Ionicons
-                          name="analytics-outline"
-                          size={20}
-                          color={change24hPct >= 0 ? CHART_GREEN : CHART_RED}
-                        />
-                      </TouchableOpacity>
-                    </>
+                    <ThemedText
+                      style={[
+                        styles.heroDayPct,
+                        { color: change24hPct >= 0 ? CHART_GREEN : CHART_RED },
+                      ]}>
+                      ({change24hPct >= 0 ? '+' : ''}
+                      {change24hPct.toLocaleString(numberLocale, {
+                        minimumFractionDigits: 2,
+                        maximumFractionDigits: 2,
+                      })}
+                      %)
+                    </ThemedText>
                   ) : null}
                 </View>
               </View>
@@ -2430,76 +2030,6 @@ const styles = StyleSheet.create({
     fontSize: 17,
     fontWeight: '700',
     letterSpacing: -0.2,
-  },
-  chartOpenBtn: {
-    paddingHorizontal: 2,
-    paddingVertical: 2,
-  },
-  chartScrubBanner: {
-    alignSelf: 'center',
-    marginTop: 8,
-    paddingHorizontal: 14,
-    paddingVertical: 8,
-    borderRadius: 14,
-    backgroundColor: 'rgba(31,31,31,0.75)',
-    borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.06)',
-  },
-  chartScrubPrice: {
-    fontSize: 14,
-    fontWeight: '700',
-    color: '#ffffff',
-    textAlign: 'center',
-  },
-  chartScrubDate: {
-    fontSize: 11,
-    color: ON_SURFACE_MUTED,
-    textAlign: 'center',
-    marginTop: 2,
-  },
-  tfRowObsidian: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    flexWrap: 'wrap',
-    gap: 6,
-    marginHorizontal: 16,
-    marginTop: 16,
-    marginBottom: 8,
-    padding: 6,
-    borderRadius: 999,
-    backgroundColor: SURFACE_LOW,
-  },
-  tfPill: {
-    paddingHorizontal: 16,
-    paddingVertical: 10,
-    borderRadius: 999,
-  },
-  tfPillActive: {
-    backgroundColor: PRIMARY,
-    shadowColor: PRIMARY,
-    shadowOffset: { width: 0, height: 0 },
-    shadowOpacity: 0.35,
-    shadowRadius: 12,
-    elevation: 4,
-  },
-  tfPillText: {
-    fontSize: 12,
-    fontWeight: '700',
-    color: ON_SURFACE_MUTED,
-  },
-  tfPillTextActive: {
-    color: ON_PRIMARY_FIXED,
-  },
-  sectionKicker: {
-    marginTop: 28,
-    marginBottom: 10,
-    paddingHorizontal: 22,
-    fontSize: 12,
-    fontWeight: '700',
-    color: ON_SURFACE_MUTED,
-    letterSpacing: 2,
-    textTransform: 'uppercase',
   },
   positionCard: {
     marginHorizontal: 16,

@@ -77,9 +77,9 @@ export default function TabLayout() {
         }}
       />
       <Tabs.Screen
-        name="trend"
+        name="analysis"
         options={{
-          title: t('tabs.trend'),
+          title: t('tabs.analysis'),
           tabBarButton: HapticTab,
           tabBarIcon: ({ color }) => <TabIcon name="analytics-outline" color={color} />,
         }}
@@ -114,10 +114,6 @@ export default function TabLayout() {
       />
       <Tabs.Screen
         name="asset-list"
-        options={{ href: null }}
-      />
-      <Tabs.Screen
-        name="asset-chart"
         options={{ href: null }}
       />
     </Tabs>

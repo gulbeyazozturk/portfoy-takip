@@ -47,7 +47,7 @@ export type ScreenLayoutMetrics = {
   heroMarginBottomPortfolio: number;
   bottomSpacerHeight: number;
   chartHeight: number;
-  trendTotalValueFontSize: number;
+  analysisSummaryValueFontSize: number;
   sectionPadding: number;
 };
 
@@ -85,7 +85,7 @@ function metricsForTier(tier: ScreenLayoutTier, width: number): Omit<ScreenLayou
     heroMarginBottomPortfolio: compact ? 16 : 28,
     bottomSpacerHeight: compact ? 72 : 120,
     chartHeight: compact ? 88 : spacious ? 128 : 120,
-    trendTotalValueFontSize: compact ? 24 : spacious ? 28 : 26,
+    analysisSummaryValueFontSize: compact ? 24 : spacious ? 28 : 26,
     sectionPadding: compact ? 12 : 16,
   };
 }
