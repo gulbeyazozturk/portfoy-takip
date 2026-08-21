@@ -144,6 +144,7 @@ const BIST_NAMES: Record<string, string> = {
   KARCL: 'Kardemir Çelik Sanayi',
   MASFN: 'Masfen Enerji',
   METEN: 'Metgün Enerji Yatırımları',
+  CITAS: 'Çitlekçi Mağazacılık',
   EKDMR: 'Ekinciler Demir ve Çelik',
   EGGUB: 'Ege Gübre',
   FENER: 'Fenerbahçe Futbol',

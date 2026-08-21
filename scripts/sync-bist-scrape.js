@@ -74,6 +74,8 @@ const BIST_MANUAL_ADDITIONS = [
   { code: 'KARCL', name: 'Kardemir Çelik Sanayi', last: 0, changePct: null, updatedAtIso: new Date().toISOString() },
   { code: 'MASFN', name: 'Masfen Enerji', last: 0, changePct: null, updatedAtIso: new Date().toISOString() },
   { code: 'METEN', name: 'Metgün Enerji Yatırımları', last: 0, changePct: null, updatedAtIso: new Date().toISOString() },
+  // Ağustos 2026 — Çitlekçi (18.08.2026); BigPara API 401 / master list gecikmeli
+  { code: 'CITAS', name: 'Çitlekçi Mağazacılık', last: 0, changePct: null, updatedAtIso: new Date().toISOString() },
 ];
 
 function hasPositivePrice(last) {
