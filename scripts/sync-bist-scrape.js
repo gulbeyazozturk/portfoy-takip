@@ -74,8 +74,11 @@ const BIST_MANUAL_ADDITIONS = [
   { code: 'KARCL', name: 'Kardemir Çelik Sanayi', last: 0, changePct: null, updatedAtIso: new Date().toISOString() },
   { code: 'MASFN', name: 'Masfen Enerji', last: 0, changePct: null, updatedAtIso: new Date().toISOString() },
   { code: 'METEN', name: 'Metgün Enerji Yatırımları', last: 0, changePct: null, updatedAtIso: new Date().toISOString() },
-  // Ağustos 2026 — Çitlekçi (18.08.2026); BigPara API 401 / master list gecikmeli
+  // Ağustos 2026 — BigPara API 401 / master gecikmesi yedeği; fiyat Yahoo’dan gelir
   { code: 'CITAS', name: 'Çitlekçi Mağazacılık', last: 0, changePct: null, updatedAtIso: new Date().toISOString() },
+  { code: 'VEYAS', name: 'Türker Vangölü Enerji', last: 0, changePct: null, updatedAtIso: new Date().toISOString() },
+  { code: 'TKNKA', name: 'Teknika Plast', last: 0, changePct: null, updatedAtIso: new Date().toISOString() },
+  { code: 'KPEKS', name: 'Kapeks Kimya', last: 0, changePct: null, updatedAtIso: new Date().toISOString() },
 ];
 
 function hasPositivePrice(last) {
@@ -161,15 +164,21 @@ async function fetchJsonOnce(url) {
   const controller = new AbortController();
   const t = setTimeout(() => controller.abort(), Number(process.env.BIST_SCRAPE_FETCH_TIMEOUT_MS || '45000'));
   try {
+    const headers = {
+      'User-Agent':
+        process.env.BIST_SCRAPE_USER_AGENT ||
+        'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36',
+      Accept: 'application/json,text/plain;q=0.9,*/*;q=0.8',
+      'Accept-Language': 'tr-TR,tr;q=0.9,en-US;q=0.8,en;q=0.7',
+    };
+    // BigPara API Referer/Origin olmadan 401 döner; yeni halka arz evreni bu endpoint’e bağlı.
+    if (/bigpara\.hurriyet\.com\.tr/i.test(String(url))) {
+      headers.Referer = 'https://bigpara.hurriyet.com.tr/borsa/hisse-fiyatlari/';
+      headers.Origin = 'https://bigpara.hurriyet.com.tr';
+    }
     const res = await fetch(url, {
       signal: controller.signal,
-      headers: {
-        'User-Agent':
-          process.env.BIST_SCRAPE_USER_AGENT ||
-          'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36',
-        Accept: 'application/json,text/plain;q=0.9,*/*;q=0.8',
-        'Accept-Language': 'tr-TR,tr;q=0.9,en-US;q=0.8,en;q=0.7',
-      },
+      headers,
     });
     if (!res.ok) {
       const body = await res.text().catch(() => '');
