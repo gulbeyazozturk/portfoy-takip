@@ -390,36 +390,25 @@ export default function AnalysisScreen() {
   }, [holdings, usdTry, fundTaxMetadata, minuteTick]);
 
   const netPortfolioRows = useMemo(() => {
-    const totalNet =
-      displayCurrency === 'TL' ? netPortfolioSummary.totalNetTL : netPortfolioSummary.totalNetUSD;
-
     return allocationBreakdown
       .map((row) => {
         const totals = netPortfolioSummary.byCategory[row.categoryId];
         if (!totals) return null;
         const netAmt = displayCurrency === 'TL' ? totals.netTL : totals.netUSD;
-        const stopajAmt = displayCurrency === 'TL' ? totals.stopajTL : totals.stopajTL / (usdTry > MIN_VALID_USD_TRY_RATE ? usdTry : 1);
         if (netAmt <= 0) return null;
         return {
           categoryId: row.categoryId,
           label: row.label,
           color: CATEGORY_CHART_COLORS[row.categoryId] ?? row.color,
           netAmt,
-          stopajAmt,
-          weightPct: totalNet > 0 ? (netAmt / totalNet) * 100 : 0,
         };
       })
       .filter((r): r is NonNullable<typeof r> => r != null)
       .sort((a, b) => b.netAmt - a.netAmt);
-  }, [allocationBreakdown, netPortfolioSummary, displayCurrency, usdTry]);
+  }, [allocationBreakdown, netPortfolioSummary, displayCurrency]);
 
   const totalNetValue =
     displayCurrency === 'TL' ? netPortfolioSummary.totalNetTL : netPortfolioSummary.totalNetUSD;
-
-  const maxNetCategory = useMemo(
-    () => Math.max(...netPortfolioRows.map((r) => r.netAmt), 1),
-    [netPortfolioRows],
-  );
 
   const openHolding = (item: HoldingMetric) => {
     const { holding: h, asset } = item;
@@ -774,42 +763,21 @@ export default function AnalysisScreen() {
                 <Text style={[styles.netPortfolioHint, { fontFamily: fontBody }]}>{t('analysis.netPortfolioHint')}</Text>
 
                 {netPortfolioRows.map((row) => {
-                  const barWidth = Math.max(4, (row.netAmt / maxNetCategory) * 100);
                   const iconName = CATEGORY_ICONS[row.categoryId] ?? 'pricetag-outline';
-                  const showStopaj = row.categoryId === 'fon' && row.stopajAmt > 0.005;
                   return (
-                    <View key={`net-${row.categoryId}`} style={styles.contribRow}>
-                      <View style={styles.contribHeader}>
-                        <View style={styles.contribLabelRow}>
-                          <View style={[styles.contribIconWrap, { backgroundColor: `${row.color}24` }]}>
-                            <Ionicons name={iconName} size={14} color={row.color} />
-                          </View>
-                          <Text style={[styles.contribLabel, { fontFamily: fontBodySemi }]} numberOfLines={1}>
-                            {categoryDisplayLabel(row.categoryId, row.label, t)}
-                          </Text>
+                    <View key={`net-${row.categoryId}`} style={styles.netPortfolioRow}>
+                      <View style={styles.contribLabelRow}>
+                        <View style={[styles.contribIconWrap, { backgroundColor: `${row.color}24` }]}>
+                          <Ionicons name={iconName} size={14} color={row.color} />
                         </View>
-                        <Text
-                          style={[styles.contribAmt, styles.netPortfolioAmt, { fontFamily: fontHead700 }]}
-                          numberOfLines={1}>
-                          {formatDisplayMoneyCeil(row.netAmt, displayCurrency, numberLocale)}
+                        <Text style={[styles.contribLabel, { fontFamily: fontBodySemi }]} numberOfLines={1}>
+                          {categoryDisplayLabel(row.categoryId, row.label, t)}
                         </Text>
                       </View>
-                      <View style={styles.contribBarTrack}>
-                        <View
-                          style={[
-                            styles.contribBarFill,
-                            {
-                              width: `${barWidth}%`,
-                              backgroundColor: row.color,
-                            },
-                          ]}
-                        />
-                      </View>
-                      <Text style={[styles.contribMeta, { fontFamily: fontBody }]}>
-                        {row.weightPct.toFixed(1)}%
-                        {showStopaj
-                          ? ` · ${t('analysis.netPortfolioStopaj')} ${formatDisplayMoneyCeil(row.stopajAmt, displayCurrency, numberLocale)}`
-                          : ''}
+                      <Text
+                        style={[styles.contribAmt, styles.netPortfolioAmt, { fontFamily: fontHead700 }]}
+                        numberOfLines={1}>
+                        {formatDisplayMoneyCeil(row.netAmt, displayCurrency, numberLocale)}
                       </Text>
                     </View>
                   );
@@ -896,6 +864,13 @@ const styles = StyleSheet.create({
     alignItems: 'flex-start',
   },
   netPortfolioAmt: { color: ON_SURFACE },
+  netPortfolioRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 10,
+    marginBottom: 12,
+  },
   pillsRow: {
     flexDirection: 'row',
     flexWrap: 'wrap',
