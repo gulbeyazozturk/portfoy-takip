@@ -232,14 +232,9 @@ async function main() {
     const hisseYogunCandidate = /HİSSE\s*SENEDİ\s*YOĞUN/i.test(rec.fundName);
     const serbestCandidate = /\bSERBEST\b/i.test(rec.fundName);
 
-    // Profil API yalnızca TEFAS durumu belirsiz veya TEFAS dışı serbest HY için gerekli.
-    const needsProfile =
-      enrichAll ||
-      (tefasListed == null && !bulk) ||
-      (tefasListed == null && serbestCandidate && hisseYogunCandidate);
-
-    // Kategori API yalnızca bulk'ta olmayan (DB'de kalmış) fonlar için.
-    const needsCategory = enrichAll || (!category && !bulk);
+    // Günlük sync: bulk + unvan/şemsiye yeterli; detay API yalnızca FUND_TAX_ENRICH_ALL=1 ile.
+    const needsProfile = enrichAll && (tefasListed == null || (serbestCandidate && hisseYogunCandidate));
+    const needsCategory = enrichAll && !category && !bulk;
 
     if (needsProfile || needsCategory) {
       if (detailCalls > 0) await sleep(detailDelayMs);
