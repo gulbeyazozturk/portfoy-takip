@@ -68,6 +68,10 @@ jobs:
           if [ "$H" -ge 7 ] && [ "$H" -le 12 ]; then
             echo "TEFAS senkronu (TSİ saat ${H}) çalıştırılıyor…"
             node scripts/sync-tefas-funds.js
+            if [ "$H" -eq 7 ]; then
+              echo "Fon stopaj metadata (günlük) çalıştırılıyor…"
+              npm run sync-fund-tax-metadata
+            fi
           else
             echo "TEFAS bu turda atlandı (TSİ saat ${H}; pencere 07–12)."
           fi

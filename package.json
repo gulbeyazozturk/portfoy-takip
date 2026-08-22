@@ -39,6 +39,7 @@
     "sync-yurtdisi-prices": "node ./scripts/sync-yurtdisi-prices.js",
     "send-daily-gain-push": "node ./scripts/send-daily-gain-push.js",
     "sync-tefas-funds": "node ./scripts/sync-tefas-funds.js",
+    "sync-fund-tax-metadata": "npx tsx scripts/sync-fund-tax-metadata.ts",
     "sync-all-master-assets": "node ./scripts/sync-all-master-assets.js",
     "clear-kripto-prices": "node ./scripts/clear-kripto-price-history-and-fields.js",
     "sync-all-prices": "node ./scripts/sync-all-prices.js",
