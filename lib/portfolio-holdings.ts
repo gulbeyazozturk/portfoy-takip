@@ -18,6 +18,7 @@ export type HoldingRow = {
   quantity: number;
   avg_price: number | null;
   created_at: string;
+  notes?: string | null;
   asset: AssetRow | AssetRow[] | null;
 };
 

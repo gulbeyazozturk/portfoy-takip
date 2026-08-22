@@ -175,7 +175,7 @@ export function usePortfolioCoreData() {
     const { data, error: e } = await supabase
       .from('holdings')
       .select(
-        'id, quantity, avg_price, created_at, asset:assets(id, name, symbol, category_id, current_price, currency, change_24h_pct, price_updated_at, icon_url)',
+        'id, quantity, avg_price, created_at, notes, asset:assets(id, name, symbol, category_id, current_price, currency, change_24h_pct, price_updated_at, icon_url)',
       )
       .eq('portfolio_id', portfolioId);
     if (e) {

@@ -72,6 +72,10 @@ export default {
     concentration: 'Concentration',
     top3Weight: 'Top 3 positions',
     largestCategory: 'Largest category',
+    netPortfolioTitle: 'Net portfolio after withholding tax',
+    netPortfolioTotal: 'Total balance',
+    netPortfolioHint: 'Estimated proceeds if sold today (fund gains net of withholding tax).',
+    netPortfolioStopaj: 'Withholding',
   },
   settings: {
     title: 'Settings',

@@ -74,6 +74,10 @@ export default {
     concentration: 'Konsantrasyon',
     top3Weight: 'En büyük 3 pozisyon',
     largestCategory: 'En büyük kategori',
+    netPortfolioTitle: 'Stopaj sonrası net portföy',
+    netPortfolioTotal: 'Toplam bakiye',
+    netPortfolioHint: 'Bugün satış yapılsaydı ele geçecek tutar (fonlarda kazanç stopajı düşülmüş).',
+    netPortfolioStopaj: 'Stopaj',
   },
   settings: {
     title: 'Ayarlar',

@@ -20,12 +20,14 @@ import { PortfolioPickerModal } from '@/components/portfolio-picker-modal';
 import { TabScreenRoot } from '@/components/tab-screen-root';
 import { Brand } from '@/constants/brand';
 import { usePortfolioCoreData, type AssetRow, type HoldingRow } from '@/hooks/use-portfolio-core-data';
+import { useFundTaxMetadata } from '@/hooks/use-fund-tax-metadata';
 import { useMinuteTick } from '@/hooks/use-minute-tick';
 import { useScreenLayout } from '@/hooks/use-screen-layout';
 import { assetAvatarBg } from '@/lib/asset-avatar';
 import { resolveBistDisplayName } from '@/lib/bist-display-name';
 import { CATEGORY_CHART_COLORS } from '@/lib/category-chart-colors';
 import { categoryDisplayLabel } from '@/lib/category-display';
+import { computeNetPortfolioSummary } from '@/lib/net-portfolio-after-stopaj';
 import { legacyCryptoStoredUnitToUsd } from '@/lib/crypto-price-usd';
 import { effectiveChange24hPctForDisplay } from '@/lib/effective-change-24h';
 import {
@@ -277,6 +279,8 @@ export default function AnalysisScreen() {
     categoryPerformanceById,
   } = usePortfolioCoreData();
 
+  const { fundTaxMetadata, loading: fundTaxLoading } = useFundTaxMetadata(holdings);
+
   const totalValue =
     displayCurrency === 'TL' ? portfolioMetrics.totalValueTL : portfolioMetrics.totalValueUSD;
 
@@ -378,6 +382,43 @@ export default function AnalysisScreen() {
   const topThreeWeight = useMemo(
     () => concentrationPositions.reduce((sum, p) => sum + p.weightPct, 0),
     [concentrationPositions],
+  );
+
+  const netPortfolioSummary = useMemo(() => {
+    void minuteTick;
+    return computeNetPortfolioSummary(holdings, usdTry, fundTaxMetadata);
+  }, [holdings, usdTry, fundTaxMetadata, minuteTick]);
+
+  const netPortfolioRows = useMemo(() => {
+    const totalNet =
+      displayCurrency === 'TL' ? netPortfolioSummary.totalNetTL : netPortfolioSummary.totalNetUSD;
+
+    return allocationBreakdown
+      .map((row) => {
+        const totals = netPortfolioSummary.byCategory[row.categoryId];
+        if (!totals) return null;
+        const netAmt = displayCurrency === 'TL' ? totals.netTL : totals.netUSD;
+        const stopajAmt = displayCurrency === 'TL' ? totals.stopajTL : totals.stopajTL / (usdTry > MIN_VALID_USD_TRY_RATE ? usdTry : 1);
+        if (netAmt <= 0) return null;
+        return {
+          categoryId: row.categoryId,
+          label: row.label,
+          color: CATEGORY_CHART_COLORS[row.categoryId] ?? row.color,
+          netAmt,
+          stopajAmt,
+          weightPct: totalNet > 0 ? (netAmt / totalNet) * 100 : 0,
+        };
+      })
+      .filter((r): r is NonNullable<typeof r> => r != null)
+      .sort((a, b) => b.netAmt - a.netAmt);
+  }, [allocationBreakdown, netPortfolioSummary, displayCurrency, usdTry]);
+
+  const totalNetValue =
+    displayCurrency === 'TL' ? netPortfolioSummary.totalNetTL : netPortfolioSummary.totalNetUSD;
+
+  const maxNetCategory = useMemo(
+    () => Math.max(...netPortfolioRows.map((r) => r.netAmt), 1),
+    [netPortfolioRows],
   );
 
   const openHolding = (item: HoldingMetric) => {
@@ -714,6 +755,69 @@ export default function AnalysisScreen() {
             </View>
           ) : null}
 
+          {/* Stopaj sonrası net portföy */}
+          {netPortfolioRows.length > 0 ? (
+            <View style={styles.card}>
+              <Text style={[styles.sectionTitle, { fontFamily: fontBodySemi, padding: layout.sectionPadding }]}>
+                {t('analysis.netPortfolioTitle')}
+              </Text>
+              <View style={[styles.sectionBody, { padding: layout.sectionPadding, paddingTop: 0 }]}>
+                <Text style={[styles.totalLabel, { fontFamily: fontBody }]}>{t('analysis.netPortfolioTotal')}</Text>
+                <Text style={[styles.netPortfolioTotal, { fontFamily: fontHead800, fontSize: layout.analysisSummaryValueFontSize }]}>
+                  {formatDisplayMoneyCeil(totalNetValue, displayCurrency, numberLocale)}
+                </Text>
+                {fundTaxLoading ? (
+                  <View style={styles.netPortfolioLoadingRow}>
+                    <ActivityIndicator size="small" color={PRIMARY} />
+                  </View>
+                ) : null}
+                <Text style={[styles.netPortfolioHint, { fontFamily: fontBody }]}>{t('analysis.netPortfolioHint')}</Text>
+
+                {netPortfolioRows.map((row) => {
+                  const barWidth = Math.max(4, (row.netAmt / maxNetCategory) * 100);
+                  const iconName = CATEGORY_ICONS[row.categoryId] ?? 'pricetag-outline';
+                  const showStopaj = row.categoryId === 'fon' && row.stopajAmt > 0.005;
+                  return (
+                    <View key={`net-${row.categoryId}`} style={styles.contribRow}>
+                      <View style={styles.contribHeader}>
+                        <View style={styles.contribLabelRow}>
+                          <View style={[styles.contribIconWrap, { backgroundColor: `${row.color}24` }]}>
+                            <Ionicons name={iconName} size={14} color={row.color} />
+                          </View>
+                          <Text style={[styles.contribLabel, { fontFamily: fontBodySemi }]} numberOfLines={1}>
+                            {categoryDisplayLabel(row.categoryId, row.label, t)}
+                          </Text>
+                        </View>
+                        <Text
+                          style={[styles.contribAmt, styles.netPortfolioAmt, { fontFamily: fontHead700 }]}
+                          numberOfLines={1}>
+                          {formatDisplayMoneyCeil(row.netAmt, displayCurrency, numberLocale)}
+                        </Text>
+                      </View>
+                      <View style={styles.contribBarTrack}>
+                        <View
+                          style={[
+                            styles.contribBarFill,
+                            {
+                              width: `${barWidth}%`,
+                              backgroundColor: row.color,
+                            },
+                          ]}
+                        />
+                      </View>
+                      <Text style={[styles.contribMeta, { fontFamily: fontBody }]}>
+                        {row.weightPct.toFixed(1)}%
+                        {showStopaj
+                          ? ` · ${t('analysis.netPortfolioStopaj')} ${formatDisplayMoneyCeil(row.stopajAmt, displayCurrency, numberLocale)}`
+                          : ''}
+                      </Text>
+                    </View>
+                  );
+                })}
+              </View>
+            </View>
+          ) : null}
+
           {!loading && holdings.length === 0 ? (
             <View style={styles.emptyWrap}>
               <Text style={[styles.emptyText, { fontFamily: fontBody }]}>{t('portfolio.emptyHoldings')}</Text>
@@ -775,6 +879,23 @@ const styles = StyleSheet.create({
     fontVariant: ['tabular-nums'],
     marginBottom: 14,
   },
+  netPortfolioTotal: {
+    fontWeight: '700',
+    color: ON_SURFACE,
+    fontVariant: ['tabular-nums'],
+    marginBottom: 8,
+  },
+  netPortfolioHint: {
+    fontSize: 11,
+    color: ON_SURFACE_VARIANT,
+    lineHeight: 16,
+    marginBottom: 14,
+  },
+  netPortfolioLoadingRow: {
+    marginBottom: 8,
+    alignItems: 'flex-start',
+  },
+  netPortfolioAmt: { color: ON_SURFACE },
   pillsRow: {
     flexDirection: 'row',
     flexWrap: 'wrap',
