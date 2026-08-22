@@ -1,5 +1,6 @@
 # iOS TestFlight: EAS build + App Store Connect submit
 # Gerekli GitHub secret: EXPO_TOKEN (https://expo.dev/settings/access-tokens)
+# Son tetik: 2026-08-22 — Analiz net portföy + TestFlight
 name: iOS TestFlight
 
 on:
