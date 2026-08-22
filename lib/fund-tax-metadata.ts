@@ -21,6 +21,9 @@ export type FundTaxMetadataRow = {
 
 export type FundTaxMetadataMap = Map<string, FundTaxMetadataRow>;
 
+const STORAGE_BUCKET = 'fund-tax-cache';
+const STORAGE_OBJECT = 'metadata.json';
+
 function rowToClassification(row: FundTaxMetadataRow): FundTaxClassification {
   return {
     symbol: row.symbol,
@@ -51,40 +54,81 @@ export async function fetchFundTaxMetadataMap(
   supabase: SupabaseClient,
   symbols?: string[],
 ): Promise<FundTaxMetadataMap> {
+  const fromTable = await fetchFundTaxMetadataFromTable(supabase, symbols);
+  if (fromTable.size > 0) return fromTable;
+  return fetchFundTaxMetadataFromStorage(supabase, symbols);
+}
+
+async function fetchFundTaxMetadataFromTable(
+  supabase: SupabaseClient,
+  symbols?: string[],
+): Promise<FundTaxMetadataMap> {
   const map: FundTaxMetadataMap = new Map();
   const chunkSize = 200;
   const normalized = symbols?.map((s) => s.trim().toUpperCase()).filter(Boolean);
 
-  if (normalized?.length) {
-    for (let i = 0; i < normalized.length; i += chunkSize) {
-      const slice = normalized.slice(i, i + chunkSize);
+  try {
+    if (normalized?.length) {
+      for (let i = 0; i < normalized.length; i += chunkSize) {
+        const slice = normalized.slice(i, i + chunkSize);
+        const { data, error } = await supabase.from('fund_tax_metadata').select('*').in('symbol', slice);
+        if (error) {
+          if (/Could not find the table|PGRST205|schema cache/i.test(error.message)) return map;
+          throw error;
+        }
+        for (const row of (data ?? []) as FundTaxMetadataRow[]) {
+          map.set(row.symbol.toUpperCase(), row);
+        }
+      }
+      return map;
+    }
+
+    const pageSize = 1000;
+    let from = 0;
+    while (true) {
       const { data, error } = await supabase
         .from('fund_tax_metadata')
         .select('*')
-        .in('symbol', slice);
-      if (error) throw error;
-      for (const row of (data ?? []) as FundTaxMetadataRow[]) {
+        .order('symbol')
+        .range(from, from + pageSize - 1);
+      if (error) {
+        if (/Could not find the table|PGRST205|schema cache/i.test(error.message)) return map;
+        throw error;
+      }
+      const rows = (data ?? []) as FundTaxMetadataRow[];
+      for (const row of rows) {
         map.set(row.symbol.toUpperCase(), row);
       }
+      if (rows.length < pageSize) break;
+      from += pageSize;
     }
+  } catch {
+    return map;
+  }
+  return map;
+}
+
+async function fetchFundTaxMetadataFromStorage(
+  supabase: SupabaseClient,
+  symbols?: string[],
+): Promise<FundTaxMetadataMap> {
+  const map: FundTaxMetadataMap = new Map();
+  const { data, error } = await supabase.storage.from(STORAGE_BUCKET).download(STORAGE_OBJECT);
+  if (error || !data) return map;
+
+  const text = await data.text();
+  let parsed: { rows?: FundTaxMetadataRow[] } | null = null;
+  try {
+    parsed = JSON.parse(text) as { rows?: FundTaxMetadataRow[] };
+  } catch {
     return map;
   }
 
-  const pageSize = 1000;
-  let from = 0;
-  while (true) {
-    const { data, error } = await supabase
-      .from('fund_tax_metadata')
-      .select('*')
-      .order('symbol')
-      .range(from, from + pageSize - 1);
-    if (error) throw error;
-    const rows = (data ?? []) as FundTaxMetadataRow[];
-    for (const row of rows) {
-      map.set(row.symbol.toUpperCase(), row);
-    }
-    if (rows.length < pageSize) break;
-    from += pageSize;
+  const normalized = symbols?.map((s) => s.trim().toUpperCase()).filter(Boolean);
+  for (const row of parsed?.rows ?? []) {
+    const sym = row.symbol.toUpperCase();
+    if (normalized?.length && !normalized.includes(sym)) continue;
+    map.set(sym, row);
   }
   return map;
 }

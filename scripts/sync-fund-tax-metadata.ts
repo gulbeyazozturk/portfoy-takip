@@ -291,13 +291,34 @@ async function main() {
   console.log(`fund_tax_metadata upsert (${upsertRows.length} satır)...`);
   const chunkSize = 300;
   let affected = 0;
+  let tableWriteOk = true;
   for (let i = 0; i < upsertRows.length; i += chunkSize) {
     const slice = upsertRows.slice(i, i + chunkSize);
     const { error, count } = await supabase
       .from('fund_tax_metadata')
       .upsert(slice, { onConflict: 'symbol', ignoreDuplicates: false, count: 'exact' });
-    if (error) throw new Error('fund_tax_metadata upsert: ' + error.message);
+    if (error) {
+      tableWriteOk = false;
+      console.warn('fund_tax_metadata upsert hatası (storage yedeğine geçiliyor):', error.message);
+      break;
+    }
     if (typeof count === 'number') affected += count;
+  }
+
+  if (!tableWriteOk) {
+    const bucket = 'fund-tax-cache';
+    await supabase.storage.createBucket(bucket, { public: true }).catch(() => undefined);
+    const payload = JSON.stringify({
+      source_updated_at: now,
+      row_count: upsertRows.length,
+      rows: upsertRows,
+    });
+    const { error: storageErr } = await supabase.storage.from(bucket).upload('metadata.json', payload, {
+      upsert: true,
+      contentType: 'application/json',
+    });
+    if (storageErr) throw new Error('fund_tax_metadata + storage yedek başarısız: ' + storageErr.message);
+    console.log(`Storage yedeği yazıldı: ${bucket}/metadata.json (${upsertRows.length} fon)`);
   }
 
   const ref0 = upsertRows.filter((r) => r.stopaj_pct_reference === 0).length;

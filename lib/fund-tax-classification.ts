@@ -36,7 +36,7 @@ export function parseTefasListedStatus(value: unknown): boolean | null {
 export function inferCategoryFromUmbrella(umbrellaType: string | null | undefined): string | null {
   const u = String(umbrellaType ?? '').trim().toLowerCase();
   if (!u) return null;
-  if (u.includes('hisse senedi')) return 'Hisse Senedi Yoğun';
+  if (u.includes('hisse senedi')) return 'Hisse Senedi Fonu';
   if (u.includes('para piyasası') || u.includes('para piyasasi')) return 'Para Piyasası Fonu';
   if (u.includes('borçlanma') || u.includes('borclanma')) return 'Borçlanma Araçları Fonu';
   if (u.includes('değişken') || u.includes('degisken')) return 'Değişken Fon';
@@ -82,10 +82,7 @@ export function classifyFundTax(input: {
   const categoryFromApi = input.category?.trim() || null;
   const category = categoryFromApi ?? inferCategoryFromName(fundName);
 
-  const isHisseYogun =
-    category === 'Hisse Senedi Yoğun' ||
-    HISSE_YOGUN_RE.test(fundName) ||
-    (input.umbrellaType?.toLowerCase().includes('hisse senedi') ?? false);
+  const isHisseYogun = category === 'Hisse Senedi Yoğun' || HISSE_YOGUN_RE.test(fundName);
 
   const isSerbest =
     category === 'Serbest Fon' ||

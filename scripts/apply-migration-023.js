@@ -1,6 +1,6 @@
 /**
- * Migration 023'ü stdin ile supabase db query'ye uygular.
- * Supabase CLI bağlı değilse: tablo yoksa migration SQL'ini service role ile uygular (PostgREST değil, pg).
+ * Migration 023 — fund_tax_metadata tablosu.
+ * Öncelik: supabase db query (--project-ref) → pg (DATABASE_URL) → atla (tablo var).
  */
 const { spawnSync } = require('child_process');
 const fs = require('fs');
@@ -25,11 +25,64 @@ function loadEnv() {
   }
 }
 
+function projectRefFromUrl(url) {
+  const m = (url || '').match(/https:\/\/([^.]+)\.supabase\.co/);
+  return m ? m[1] : null;
+}
+
 async function tableExists(supabase) {
-  const { error } = await supabase.from('fund_tax_metadata').select('symbol', { head: true, count: 'exact' });
+  const { error } = await supabase.from('fund_tax_metadata').select('symbol').limit(1);
   if (!error) return true;
-  const msg = String(error.message || error);
-  return !/does not exist|schema cache|Could not find the table/i.test(msg);
+  const msg = String(error.message || error.code || error);
+  if (/PGRST205|does not exist|schema cache|Could not find the table/i.test(msg)) return false;
+  throw new Error(`fund_tax_metadata kontrol hatası: ${msg}`);
+}
+
+function applyViaCliLinked() {
+  const sql = fs.readFileSync(migrationPath, 'utf8');
+  console.log('Migration 023 supabase db query (--linked) deneniyor…');
+  const r = spawnSync('npx', ['supabase', 'db', 'query', '--linked'], {
+    input: sql,
+    encoding: 'utf8',
+    shell: process.platform === 'win32',
+    stdio: ['pipe', 'inherit', 'inherit'],
+    cwd: path.resolve(__dirname, '..'),
+  });
+  return r.status === 0;
+}
+
+function applyViaCliProjectRef(ref) {
+  const sql = fs.readFileSync(migrationPath, 'utf8');
+  console.log(`Migration 023 supabase db query (--project-ref ${ref}) deneniyor…`);
+  const r = spawnSync('npx', ['supabase', 'db', 'query', '--project-ref', ref], {
+    input: sql,
+    encoding: 'utf8',
+    shell: process.platform === 'win32',
+    stdio: ['pipe', 'inherit', 'inherit'],
+    cwd: path.resolve(__dirname, '..'),
+    env: { ...process.env },
+  });
+  return r.status === 0;
+}
+
+async function applyViaPg(dbUrl) {
+  let pg;
+  try {
+    pg = require('pg');
+  } catch {
+    console.error('pg paketi yok.');
+    return false;
+  }
+  const sql = fs.readFileSync(migrationPath, 'utf8');
+  const client = new pg.Client({ connectionString: dbUrl, ssl: { rejectUnauthorized: false } });
+  await client.connect();
+  try {
+    await client.query(sql);
+    console.log('Migration 023 pg ile uygulandı.');
+    return true;
+  } finally {
+    await client.end();
+  }
 }
 
 async function applyViaSupabaseJs() {
@@ -45,51 +98,37 @@ async function applyViaSupabaseJs() {
   const supabase = createClient(url, key);
 
   if (await tableExists(supabase)) {
-    console.log('fund_tax_metadata zaten mevcut — migration atlandı.');
+    console.log('fund_tax_metadata tablosu mevcut.');
     return true;
   }
 
-  const dbUrl = process.env.SUPABASE_DB_URL || process.env.DATABASE_URL;
-  if (!dbUrl) {
-    console.error(
-      'fund_tax_metadata tablosu yok ve SUPABASE_DB_URL tanımlı değil.\n' +
-        'Supabase Dashboard → SQL Editor → database/migrations/023_fund_tax_metadata.sql çalıştırın\n' +
-        'veya ortama SUPABASE_DB_URL (postgres connection string) ekleyin.',
-    );
-    return false;
+  const ref = projectRefFromUrl(url);
+  if (ref && process.env.SUPABASE_ACCESS_TOKEN && applyViaCliProjectRef(ref)) {
+    if (await tableExists(supabase)) return true;
   }
 
-  let pg;
-  try {
-    pg = require('pg');
-  } catch {
-    console.error('pg paketi yok; npm install pg veya Supabase SQL Editor kullanın.');
-    return false;
+  const dbUrl =
+    process.env.SUPABASE_DB_URL ||
+    process.env.DATABASE_URL ||
+    buildPoolerUrl(ref, process.env.SUPABASE_DB_PASSWORD || process.env.POSTGRES_PASSWORD);
+
+  if (dbUrl && (await applyViaPg(dbUrl))) {
+    return await tableExists(supabase);
   }
 
-  const sql = fs.readFileSync(migrationPath, 'utf8');
-  const client = new pg.Client({ connectionString: dbUrl, ssl: { rejectUnauthorized: false } });
-  await client.connect();
-  try {
-    await client.query(sql);
-    console.log('Migration 023 pg ile uygulandı.');
-    return true;
-  } finally {
-    await client.end();
-  }
+  console.error(
+    'fund_tax_metadata tablosu oluşturulamadı.\n' +
+      'Gerekli: SUPABASE_ACCESS_TOKEN + project-ref, veya DATABASE_URL / SUPABASE_DB_PASSWORD.\n' +
+      'Alternatif: Supabase SQL Editor → database/migrations/023_fund_tax_metadata.sql',
+  );
+  return false;
 }
 
-function applyViaCli() {
-  const sql = fs.readFileSync(migrationPath, 'utf8');
-  console.log('Migration 023 supabase db query ile uygulanıyor…');
-  const r = spawnSync('npx', ['supabase', 'db', 'query', '--linked'], {
-    input: sql,
-    encoding: 'utf8',
-    shell: process.platform === 'win32',
-    stdio: ['pipe', 'inherit', 'inherit'],
-    cwd: path.resolve(__dirname, '..'),
-  });
-  return r.status === 0;
+function buildPoolerUrl(ref, password) {
+  if (!ref || !password) return null;
+  const region = process.env.SUPABASE_DB_REGION || 'aws-0-eu-central-1';
+  const enc = encodeURIComponent(password);
+  return `postgresql://postgres.${ref}:${enc}@${region}.pooler.supabase.com:6543/postgres`;
 }
 
 async function main() {
@@ -98,8 +137,17 @@ async function main() {
     process.exit(1);
   }
 
-  if (applyViaCli()) {
-    console.log('Migration 023 tamam (CLI).');
+  loadEnv();
+
+  if (applyViaCliLinked()) {
+    console.log('Migration 023 tamam (CLI linked).');
+    return;
+  }
+
+  const url = process.env.EXPO_PUBLIC_SUPABASE_URL || process.env.SUPABASE_URL;
+  const ref = projectRefFromUrl(url);
+  if (ref && process.env.SUPABASE_ACCESS_TOKEN && applyViaCliProjectRef(ref)) {
+    console.log('Migration 023 tamam (CLI project-ref).');
     return;
   }
 
