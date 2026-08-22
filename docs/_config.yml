@@ -1,0 +1,4 @@
+# GitHub Pages (Jekyll) — docs/ kaynağı
+# Cursor sohbet arşivlerinde {{ }} Liquid sözdizimi olduğu için site build'inden hariç tutulur.
+exclude:
+  - cursor-chat-history
