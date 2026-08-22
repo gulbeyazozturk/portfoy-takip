@@ -2,6 +2,14 @@ name: Fund tax metadata sync
 
 on:
   workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - 'scripts/sync-fund-tax-metadata.ts'
+      - 'lib/fund-stopaj.ts'
+      - 'lib/fund-tax-classification.ts'
+      - 'database/migrations/023_fund_tax_metadata.sql'
+      - '.github/workflows/fund-tax-metadata-sync.yml'
 
 concurrency:
   group: fund-tax-metadata-sync
@@ -33,6 +41,12 @@ jobs:
           echo "SUPABASE_URL=${{ secrets.SUPABASE_URL }}" >> $GITHUB_ENV
           echo "EXPO_PUBLIC_SUPABASE_URL=${{ secrets.SUPABASE_URL }}" >> $GITHUB_ENV
           echo "SUPABASE_SERVICE_ROLE_KEY=${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}" >> $GITHUB_ENV
+          if [ -n "${{ secrets.DATABASE_URL }}" ]; then
+            echo "DATABASE_URL=${{ secrets.DATABASE_URL }}" >> $GITHUB_ENV
+          fi
+          if [ -n "${{ secrets.SUPABASE_DB_URL }}" ]; then
+            echo "SUPABASE_DB_URL=${{ secrets.SUPABASE_DB_URL }}" >> $GITHUB_ENV
+          fi
 
       - name: Apply migration 023 (fund_tax_metadata)
         run: node scripts/apply-migration-023.js
