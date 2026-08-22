@@ -1,0 +1,58 @@
+# iOS TestFlight: EAS build + App Store Connect submit
+# Gerekli GitHub secret: EXPO_TOKEN (https://expo.dev/settings/access-tokens)
+name: iOS TestFlight
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - 'app/**'
+      - 'components/**'
+      - 'hooks/**'
+      - 'lib/**'
+      - 'locales/**'
+      - 'package.json'
+      - 'package-lock.json'
+      - 'app.json'
+      - 'eas.json'
+      - '.github/workflows/ios-testflight.yml'
+
+concurrency:
+  group: ios-testflight
+  cancel-in-progress: false
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    env:
+      FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+      EXPO_TOKEN: ${{ secrets.EXPO_TOKEN }}
+
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v5
+
+      - name: Setup Node
+        uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          package-manager-cache: false
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Verify EXPO_TOKEN
+        run: |
+          if [ -z "$EXPO_TOKEN" ]; then
+            echo "::error::EXPO_TOKEN GitHub secret tanımlı değil."
+            exit 1
+          fi
+          npx eas-cli whoami
+
+      - name: EAS iOS build (testflight)
+        run: npm run ios:testflight:build -- --non-interactive
+
+      - name: Submit to TestFlight
+        run: npm run ios:testflight:submit -- --non-interactive --latest
