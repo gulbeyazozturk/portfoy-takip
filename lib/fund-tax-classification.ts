@@ -33,6 +33,23 @@ export function parseTefasListedStatus(value: unknown): boolean | null {
   return null;
 }
 
+export function inferCategoryFromUmbrella(umbrellaType: string | null | undefined): string | null {
+  const u = String(umbrellaType ?? '').trim().toLowerCase();
+  if (!u) return null;
+  if (u.includes('hisse senedi')) return 'Hisse Senedi Yoğun';
+  if (u.includes('para piyasası') || u.includes('para piyasasi')) return 'Para Piyasası Fonu';
+  if (u.includes('borçlanma') || u.includes('borclanma')) return 'Borçlanma Araçları Fonu';
+  if (u.includes('değişken') || u.includes('degisken')) return 'Değişken Fon';
+  if (u.includes('karma')) return 'Karma Fon';
+  if (u.includes('fon sepet')) return 'Fon Sepeti Fonu';
+  if (u.includes('katılım') || u.includes('katilim')) return 'Katılım Fonu';
+  if (u.includes('kıymetli maden') || u.includes('kiymetli maden')) return 'Kıymetli Madenler Fonu';
+  if (u.includes('serbest')) return 'Serbest Fon';
+  if (u.includes('gayrimenkul')) return 'Gayrimenkul Yatırım Fonları';
+  if (u.includes('girişim') || u.includes('girisim')) return 'Girişim Sermayesi Yatırım Fonları';
+  return null;
+}
+
 export function inferCategoryFromName(fundName: string): string | null {
   const u = fundName.toUpperCase();
   if (HISSE_YOGUN_RE.test(u)) return 'Hisse Senedi Yoğun';

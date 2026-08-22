@@ -12,6 +12,7 @@ import * as path from 'path';
 import {
   classifyFundTax,
   inferCategoryFromName,
+  inferCategoryFromUmbrella,
   normalizeFundSymbol,
   parseTefasListedStatus,
   type FundKind,
@@ -223,6 +224,9 @@ async function main() {
     const bulk = rec.bulk;
     let category = bulk?.fonKategori ? String(bulk.fonKategori).trim() : null;
     if (!category) category = inferCategoryFromName(rec.fundName);
+    if (!category) category = inferCategoryFromUmbrella(rec.umbrellaType);
+    if (!category && rec.fundKind === 'GYF') category = 'Gayrimenkul Yatırım Fonları';
+    if (!category && rec.fundKind === 'GSYF') category = 'Girişim Sermayesi Yatırım Fonları';
 
     let tefasListed = parseTefasListedStatus(bulk?.tefasDurum);
     const hisseYogunCandidate = /HİSSE\s*SENEDİ\s*YOĞUN/i.test(rec.fundName);
@@ -232,10 +236,10 @@ async function main() {
     const needsProfile =
       enrichAll ||
       (tefasListed == null && !bulk) ||
-      (tefasListed == null && serbestCandidate && hisseYogunCandidate) ||
-      (serbestCandidate && hisseYogunCandidate && rec.fundKind !== 'GYF' && rec.fundKind !== 'GSYF' && tefasListed == null);
+      (tefasListed == null && serbestCandidate && hisseYogunCandidate);
 
-    const needsCategory = enrichAll || !category;
+    // Kategori API yalnızca bulk'ta olmayan (DB'de kalmış) fonlar için.
+    const needsCategory = enrichAll || (!category && !bulk);
 
     if (needsProfile || needsCategory) {
       if (detailCalls > 0) await sleep(detailDelayMs);
