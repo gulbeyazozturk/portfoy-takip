@@ -1,0 +1,41 @@
+name: Fund tax metadata sync
+
+on:
+  workflow_dispatch:
+
+concurrency:
+  group: fund-tax-metadata-sync
+  cancel-in-progress: true
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    env:
+      FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+      TEFAS_INTER_KIND_DELAY_MS: "11000"
+      FUND_TAX_DETAIL_DELAY_MS: "11000"
+
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v5
+
+      - name: Setup Node
+        uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          package-manager-cache: false
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Export env from secrets
+        run: |
+          echo "SUPABASE_URL=${{ secrets.SUPABASE_URL }}" >> $GITHUB_ENV
+          echo "EXPO_PUBLIC_SUPABASE_URL=${{ secrets.SUPABASE_URL }}" >> $GITHUB_ENV
+          echo "SUPABASE_SERVICE_ROLE_KEY=${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}" >> $GITHUB_ENV
+
+      - name: Apply migration 023 (fund_tax_metadata)
+        run: node scripts/apply-migration-023.js
+
+      - name: Sync fund stopaj metadata
+        run: npm run sync-fund-tax-metadata
