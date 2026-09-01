@@ -38,6 +38,54 @@ const MIN_RISE_FOR_QUERY = Math.min(...RISE_TIERS);
 const MAX_FALL_FOR_QUERY = Math.max(...FALL_TIERS);
 
 const EXPO_PUSH_URL = 'https://exp.host/--/api/v2/push/send';
+const EXPO_PUSH_FETCH_ATTEMPTS = Math.max(1, Number(process.env.EXPO_PUSH_FETCH_ATTEMPTS || '3'));
+const EXPO_PUSH_RETRY_DELAY_MS = Math.max(0, Number(process.env.EXPO_PUSH_RETRY_DELAY_MS || '1500'));
+
+function sleep(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function isRetryableFetchError(err) {
+  const code = err?.code || err?.cause?.code || '';
+  return (
+    code === 'ECONNRESET' ||
+    code === 'ETIMEDOUT' ||
+    code === 'ECONNREFUSED' ||
+    code === 'EAI_AGAIN' ||
+    String(err?.message || '').toLowerCase().includes('fetch failed')
+  );
+}
+
+async function postExpoPushBatch(batch) {
+  let lastError = null;
+  for (let attempt = 1; attempt <= EXPO_PUSH_FETCH_ATTEMPTS; attempt++) {
+    try {
+      const res = await fetch(EXPO_PUSH_URL, {
+        method: 'POST',
+        headers: {
+          Accept: 'application/json',
+          'Accept-Encoding': 'gzip, deflate',
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(batch),
+      });
+      const body = await res.json().catch(() => null);
+      return { res, body };
+    } catch (err) {
+      lastError = err;
+      if (attempt < EXPO_PUSH_FETCH_ATTEMPTS && isRetryableFetchError(err)) {
+        console.warn(
+          `[send-daily-gain-push] Expo push fetch deneme ${attempt}/${EXPO_PUSH_FETCH_ATTEMPTS} başarısız, yeniden deneniyor:`,
+          err?.message || err,
+        );
+        if (EXPO_PUSH_RETRY_DELAY_MS > 0) await sleep(EXPO_PUSH_RETRY_DELAY_MS * attempt);
+        continue;
+      }
+      throw err;
+    }
+  }
+  throw lastError || new Error('Expo push fetch başarısız.');
+}
 /** Toz miktar / yuvarlama: pratikte sıfır sayılan holding adedi. */
 const MIN_HOLDING_QTY = 1e-8;
 /** Yalnızca bu hesap: push bildirimleri en son eklenen portföyden (created_at); diğer kullanıcılar etkilenmez. */
@@ -582,16 +630,7 @@ async function sendExpo(messages) {
   const invalidTokens = new Set();
   let sent = 0;
   for (const batch of chunk(messages, 100)) {
-    const res = await fetch(EXPO_PUSH_URL, {
-      method: 'POST',
-      headers: {
-        Accept: 'application/json',
-        'Accept-Encoding': 'gzip, deflate',
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify(batch),
-    });
-    const body = await res.json().catch(() => null);
+    const { res, body } = await postExpoPushBatch(batch);
     if (!res.ok) {
       failed.push({ status: res.status, body: JSON.stringify(body).slice(0, 240) });
       continue;
