@@ -32,6 +32,7 @@
     "sync-bist-scrape": "node ./scripts/sync-bist-scrape.js",
     "sync-bist-yahoo": "node ./scripts/sync-bist-yahoo.js",
     "insert:bist-ipo-jul2026": "node ./scripts/insert-bist-ipo-jul2026.js",
+    "insert:bist-ipo-recent": "node ./scripts/insert-bist-ipo-recent.js",
     "sync-doviz-dev": "node ./scripts/sync-doviz-dev.js",
     "sync-emtia-scrape": "node ./scripts/sync-emtia-scrape.js",
     "sync-kapalicarsi-gold": "node ./scripts/sync-kapalicarsi-gold.js",

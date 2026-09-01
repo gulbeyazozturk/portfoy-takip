@@ -148,6 +148,8 @@ const BIST_NAMES: Record<string, string> = {
   VEYAS: 'Türker Vangölü Enerji',
   TKNKA: 'Teknika Plast',
   KPEKS: 'Kapeks Kimya',
+  INTET: 'İntetra Teknoloji',
+  BKRGY: 'Bakırcı GYO',
   EKDMR: 'Ekinciler Demir ve Çelik',
   EGGUB: 'Ege Gübre',
   FENER: 'Fenerbahçe Futbol',
@@ -216,7 +218,7 @@ export function resolveBistCsvToCanonicalSymbol(raw: string): string {
   if (alias) return alias;
   const fromLabel = labelLooseToSymbolMap()[trLoose(trimmed)];
   if (fromLabel) return fromLabel;
-  return trimmed;
+  return compact;
 }
 
 /** BIST için liste / detay başlığında gösterilecek şirket adı */
