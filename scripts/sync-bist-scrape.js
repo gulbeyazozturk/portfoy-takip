@@ -79,9 +79,9 @@ const BIST_MANUAL_ADDITIONS = [
   { code: 'VEYAS', name: 'Türker Vangölü Enerji', last: 0, changePct: null, updatedAtIso: new Date().toISOString() },
   { code: 'TKNKA', name: 'Teknika Plast', last: 0, changePct: null, updatedAtIso: new Date().toISOString() },
   { code: 'KPEKS', name: 'Kapeks Kimya', last: 0, changePct: null, updatedAtIso: new Date().toISOString() },
-  // Eylül 2026 halka arzları — envanter yedeği; fiyat Yahoo’dan gelir
-  { code: 'INTET', name: 'İntetra Teknoloji', last: 0, changePct: null, updatedAtIso: new Date().toISOString() },
-  { code: 'BKRGY', name: 'Bakırcı GYO', last: 0, changePct: null, updatedAtIso: new Date().toISOString() },
+  // Eylül 2026 halka arzları — envanter yedeği; canlı fiyat Yahoo’dan gelir
+  { code: 'INTET', name: 'İntetra Teknoloji', last: 58.95, changePct: null, updatedAtIso: new Date().toISOString() },
+  { code: 'BKRGY', name: 'Bakırcı GYO', last: 12.93, changePct: null, updatedAtIso: new Date().toISOString() },
 ];
 
 function hasPositivePrice(last) {
@@ -89,13 +89,14 @@ function hasPositivePrice(last) {
   return Number.isFinite(n) && n > 0;
 }
 
-/** Eksik sembolleri envantere ekler; mevcut canlı fiyatı asla ezmez. */
+/** Eksik sembolleri envantere ekler; fiyatsız kaynak satırına manuel fiyat/ad doldurur; canlı fiyatı ezmez. */
 function applyManualAdditions(rows) {
   const byCode = new Map(
     rows.map((r) => [String(r.code || '').trim().toUpperCase(), r]),
   );
   const added = [];
   const named = [];
+  const priced = [];
 
   for (const manual of BIST_MANUAL_ADDITIONS) {
     const code = String(manual.code || '').trim().toUpperCase();
@@ -108,14 +109,29 @@ function applyManualAdditions(rows) {
       continue;
     }
 
-    if (!hasUsefulName(existing.name, code) && hasUsefulName(manual.name, code)) {
-      byCode.set(code, { ...existing, name: manual.name });
+    let next = { ...existing };
+    let changed = false;
+
+    if (!hasUsefulName(next.name, code) && hasUsefulName(manual.name, code)) {
+      next.name = manual.name;
+      changed = true;
       named.push(code);
     }
+
+    if (!hasPositivePrice(next.last) && hasPositivePrice(manual.last)) {
+      next.last = manual.last;
+      next.changePct = manual.changePct ?? next.changePct ?? null;
+      next.updatedAtIso = manual.updatedAtIso ?? next.updatedAtIso ?? null;
+      changed = true;
+      priced.push(code);
+    }
+
+    if (changed) byCode.set(code, next);
   }
 
   if (added.length) console.log('Manuel eklenen BIST sembolleri:', added.join(', '));
   if (named.length) console.log('Manuel ad doldurulan BIST sembolleri:', named.join(', '));
+  if (priced.length) console.log('Manuel fiyat doldurulan BIST sembolleri:', priced.join(', '));
 
   return Array.from(byCode.values());
 }

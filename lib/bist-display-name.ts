@@ -218,7 +218,7 @@ export function resolveBistCsvToCanonicalSymbol(raw: string): string {
   if (alias) return alias;
   const fromLabel = labelLooseToSymbolMap()[trLoose(trimmed)];
   if (fromLabel) return fromLabel;
-  return trimmed;
+  return compact;
 }
 
 /** BIST için liste / detay başlığında gösterilecek şirket adı */

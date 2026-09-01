@@ -45,6 +45,9 @@ jobs:
           echo "EXPO_PUBLIC_SUPABASE_ANON_KEY=${{ secrets.EXPO_PUBLIC_SUPABASE_ANON_KEY }}" >> $GITHUB_ENV
           echo "SUPABASE_SERVICE_ROLE_KEY=${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}" >> $GITHUB_ENV
 
+      - name: Seed recent BIST IPO assets (INTET, BKRGY, TKNKA, KPEKS, VEYAS)
+        run: npm run insert:bist-ipo-recent
+
       - name: Sync BIST list and prices (scrape + BigPara API universe)
         run: node scripts/sync-bist-scrape.js
 
