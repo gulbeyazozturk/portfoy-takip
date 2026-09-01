@@ -9,6 +9,12 @@ name: Portfolio sync
 
 on:
   workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - 'scripts/insert-bist-ipo-recent.js'
+      - 'scripts/sync-bist-scrape.js'
+      - '.github/workflows/portfolio-sync.yml'
 
 concurrency:
   group: portfolio-sync
