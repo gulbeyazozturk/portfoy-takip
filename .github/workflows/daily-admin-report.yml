@@ -1,4 +1,5 @@
-# Alternatif: SMTP ile GitHub (önerilen yol Supabase — docs/SUPABASE-DAILY-ADMIN-REPORT.md).
+# Alternatif: SMTP veya Resend ile GitHub (önerilen yol Supabase — docs/SUPABASE-DAILY-ADMIN-REPORT.md).
+# Yapılandırma yoksa adım atlanır (kırmızı CI üretmez); asıl gönderim Supabase Edge + pg_cron.
 # Alıcı varsayılan: hasimozturk@gmail.com (secret DAILY_REPORT_TO ile override).
 
 name: Daily admin report
@@ -38,6 +39,8 @@ jobs:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
           DAILY_REPORT_TO: hasimozturk@gmail.com
+          RESEND_API_KEY: ${{ secrets.RESEND_API_KEY }}
+          RESEND_FROM: ${{ secrets.RESEND_FROM }}
           SMTP_HOST: ${{ secrets.SMTP_HOST }}
           SMTP_PORT: ${{ secrets.SMTP_PORT }}
           SMTP_USER: ${{ secrets.SMTP_USER }}

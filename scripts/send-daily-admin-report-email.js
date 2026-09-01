@@ -118,6 +118,15 @@ async function main() {
   }
 
   const hasSmtp = process.env.SMTP_HOST && process.env.SMTP_USER && process.env.SMTP_PASS;
+  const hasResend = Boolean((process.env.RESEND_API_KEY || '').trim());
+  if (!hasSmtp && !hasResend) {
+    console.warn(
+      'E-posta yapılandırması yok (SMTP_* veya RESEND_API_KEY). ' +
+        'Önerilen yol Supabase Edge daily-admin-report; bu GitHub adımı atlandı.',
+    );
+    return;
+  }
+
   const recipients = hasSmtp
     ? await sendReportEmail({
         subject,
