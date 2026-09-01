@@ -79,6 +79,9 @@ const BIST_MANUAL_ADDITIONS = [
   { code: 'VEYAS', name: 'Türker Vangölü Enerji', last: 0, changePct: null, updatedAtIso: new Date().toISOString() },
   { code: 'TKNKA', name: 'Teknika Plast', last: 0, changePct: null, updatedAtIso: new Date().toISOString() },
   { code: 'KPEKS', name: 'Kapeks Kimya', last: 0, changePct: null, updatedAtIso: new Date().toISOString() },
+  // Eylül 2026 halka arzları — envanter yedeği; fiyat Yahoo’dan gelir
+  { code: 'INTET', name: 'İntetra Teknoloji', last: 0, changePct: null, updatedAtIso: new Date().toISOString() },
+  { code: 'BKRGY', name: 'Bakırcı GYO', last: 0, changePct: null, updatedAtIso: new Date().toISOString() },
 ];
 
 function hasPositivePrice(last) {
