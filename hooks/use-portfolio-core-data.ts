@@ -7,7 +7,7 @@ import { useMinuteTick } from '@/hooks/use-minute-tick';
 import { CATEGORY_CHART_COLORS } from '@/lib/category-chart-colors';
 import { categoryDisplayLabel } from '@/lib/category-display';
 import { legacyCryptoStoredUnitToUsd } from '@/lib/crypto-price-usd';
-import { effectiveChange24hPctForDisplay } from '@/lib/effective-change-24h';
+import { holdingDailyChangePctForDisplay } from '@/lib/effective-change-24h';
 import { dailyPrevValueFromChangePct } from '@/lib/fon-price-guards';
 import { isUsdNativeCategory } from '@/lib/portfolio-currency';
 import {
@@ -378,7 +378,7 @@ export function usePortfolioCoreData() {
 
     for (const h of withAsset) {
       if (!(h.quantity > 0)) continue;
-      const { unitNative, asset: valuedAsset } = holdingMarketUnitNative(h, safeRate);
+      const { unitNative, asset: valuedAsset } = holdingMarketUnitNative(h, safeRate, { now });
       const asset = valuedAsset as AssetRow;
       if (!asset || !(unitNative > 0)) continue;
       const isUSD = isUsdNativeCategory(asset.category_id);
@@ -392,12 +392,13 @@ export function usePortfolioCoreData() {
       totalValueTL += valueTL;
       totalValueUSD += valueUSD;
 
-      const effPct = effectiveChange24hPctForDisplay(
-        asset.category_id,
-        asset.change_24h_pct,
-        asset.price_updated_at,
+      const effPct = holdingDailyChangePctForDisplay({
+        categoryId: asset.category_id,
+        change24hPct: asset.change_24h_pct,
+        priceUpdatedAt: asset.price_updated_at,
+        holdingCreatedAt: h.created_at,
         now,
-      );
+      });
       const { prevValue, dailyDelta: dailyDeltaNative } = dailyPrevValueFromChangePct(value, effPct);
       const prevValueNative = value - dailyDeltaNative;
       const costUnit =
