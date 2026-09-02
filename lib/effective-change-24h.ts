@@ -20,33 +20,50 @@ import {
 const TR_CALENDAR_CATEGORIES = new Set(['emtia', 'doviz', 'mevduat', 'kripto']);
 const TR_TRADING_CATEGORIES = new Set(['bist', 'fon']);
 
-function shouldShowDailyChange(
+/** Günlük % ve aynı gün alış karşılaştırması için saat dilimi. */
+export function dailyChangeTimeZone(categoryId: string): string {
+  return categoryId === 'yurtdisi' ? TZ_US : TZ_TR;
+}
+
+/**
+ * Ekranda duran günlük %’in ait olduğu takvim günü (YYYY-MM-DD); gösterilmiyorsa null.
+ * BIST/fon/ABD: fiyatın işlem günü (hafta sonu boyunca o seans). Kripto/döviz/emtia: TSİ bugün.
+ */
+export function displayedDailySessionDate(
   categoryId: string,
   priceUpdatedAt: string | null | undefined,
-  now: Date,
-): boolean {
+  now: Date = new Date(),
+): string | null {
   if (categoryId === 'yurtdisi') {
     const priceDay = priceUpdatedCalendarDay(priceUpdatedAt, TZ_US);
     const nowDay = calendarDateInTimeZone(now, TZ_US);
-    if (!priceDay || !nowDay) return false;
-    return shouldShowTradingDayChange(priceDay, nowDay, TZ_US);
+    if (!priceDay || !nowDay) return null;
+    return shouldShowTradingDayChange(priceDay, nowDay, TZ_US) ? priceDay : null;
   }
 
   if (TR_TRADING_CATEGORIES.has(categoryId)) {
     const priceDay = priceUpdatedCalendarDay(priceUpdatedAt, TZ_TR);
     const nowDay = calendarDateInTimeZone(now, TZ_TR);
-    if (!priceDay || !nowDay) return false;
-    return shouldShowTradingDayChange(priceDay, nowDay, TZ_TR);
+    if (!priceDay || !nowDay) return null;
+    return shouldShowTradingDayChange(priceDay, nowDay, TZ_TR) ? priceDay : null;
   }
 
   if (TR_CALENDAR_CATEGORIES.has(categoryId)) {
     const priceDay = priceUpdatedCalendarDay(priceUpdatedAt, TZ_TR);
     const nowDay = calendarDateInTimeZone(now, TZ_TR);
-    if (!priceDay || !nowDay) return false;
-    return shouldShowCalendarDayChange(priceDay, nowDay);
+    if (!priceDay || !nowDay) return null;
+    return shouldShowCalendarDayChange(priceDay, nowDay) ? nowDay : null;
   }
 
-  return true;
+  return calendarDateInTimeZone(now, TZ_TR);
+}
+
+function shouldShowDailyChange(
+  categoryId: string,
+  priceUpdatedAt: string | null | undefined,
+  now: Date,
+): boolean {
+  return displayedDailySessionDate(categoryId, priceUpdatedAt, now) != null;
 }
 
 /**

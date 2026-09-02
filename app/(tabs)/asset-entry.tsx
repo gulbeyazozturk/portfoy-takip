@@ -41,6 +41,7 @@ import { resolveBistDisplayName } from '@/lib/bist-display-name';
 import { toTitleCaseWords } from '@/lib/display-title-case';
 import { effectiveChange24hPctForDisplay } from '@/lib/effective-change-24h';
 import { dailyPrevValueFromChangePct } from '@/lib/fon-price-guards';
+import { effectiveHoldingDailyChangePct } from '@/lib/holding-daily-change';
 import { extractCostDateFromNotes, upsertCostDateInNotes } from '@/lib/holding-notes-cost-date';
 import { fetchInstantUnitPrice } from '@/lib/instant-price';
 import { getUsdTryRateForDate } from '@/lib/usdtry-rate-for-date';
@@ -461,6 +462,7 @@ export default function AssetEntryScreen() {
   );
 
   const [change24hPct, setChange24hPct] = useState<number | null>(null);
+  const [priceUpdatedAt, setPriceUpdatedAt] = useState<string | null>(null);
   const [holdingCreatedAt, setHoldingCreatedAt] = useState<string | null>(null);
   /** price_history birim fiyatı (assets.current_price ile aynı birimde). */
   const [addTimePriceRaw, setAddTimePriceRaw] = useState<number | null>(null);
@@ -614,6 +616,7 @@ export default function AssetEntryScreen() {
       new Date(),
     );
     setChange24hPct(eff != null && Number.isFinite(eff) ? eff : null);
+    setPriceUpdatedAt(data?.price_updated_at != null ? String(data.price_updated_at) : null);
   }, [assetId, categoryId, symbol]);
 
   useEffect(() => {
@@ -1224,12 +1227,34 @@ export default function AssetEntryScreen() {
     hasExplicitAvgCost && totalCost > 0 ? (totalGainLoss / totalCost) * 100 : null;
 
   const positionDailyReturn = useMemo(() => {
-    if (qty <= 0 || marketValue <= 0 || change24hPct == null || !Number.isFinite(change24hPct)) {
-      return null;
-    }
-    const { dailyDelta } = dailyPrevValueFromChangePct(marketValue, change24hPct);
-    return { amt: dailyDelta, pct: change24hPct };
-  }, [qty, marketValue, change24hPct]);
+    if (qty <= 0 || marketValue <= 0 || currentPrice <= 0) return null;
+    const pct = effectiveHoldingDailyChangePct({
+      categoryId: categoryId ?? '',
+      change24hPct,
+      priceUpdatedAt,
+      unitNative: currentPrice,
+      avgPrice: avgCost > 0 ? avgCost : null,
+      createdAt: holdingCreatedAt,
+      notes: holdingNotes,
+      costDateIso: storedCostDateIso,
+      usdTry,
+    });
+    if (pct == null || !Number.isFinite(pct)) return null;
+    const { dailyDelta } = dailyPrevValueFromChangePct(marketValue, pct);
+    return { amt: dailyDelta, pct };
+  }, [
+    qty,
+    marketValue,
+    currentPrice,
+    categoryId,
+    change24hPct,
+    priceUpdatedAt,
+    avgCost,
+    holdingCreatedAt,
+    holdingNotes,
+    storedCostDateIso,
+    usdTry,
+  ]);
 
   const formatPositionMoney = (v: number) => `${curr}${fmtPositionTotalValue(v)}`;
 

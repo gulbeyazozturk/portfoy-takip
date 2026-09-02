@@ -311,7 +311,7 @@ export default {
     profitLossUsd: 'KAR/ZARAR',
     costTotal: 'Maliyet toplamı',
     costBasisExplanation:
-      'Toplam = adet × ortalama birim maliyet (holding kaydındaki avg_price). Grafik yalnızca piyasa fiyatını gösterir; günlük % ise önceki kapanışa göredir. CSV ile tutmuyorsa toplu yüklemedeki maliyet sütununu veya son eklemelerde girilen birim maliyeti kontrol edin.',
+      'Toplam = adet × ortalama birim maliyet (holding kaydındaki avg_price). Grafik piyasa fiyatını gösterir. Günlük % gece taşınan pozisyonda önceki kapanışa göredir; aynı gün alınan pozisyonda alış anından (ortalama maliyet) sonraki harekettir. CSV ile tutmuyorsa toplu yüklemedeki maliyet sütununu veya son eklemelerde girilen birim maliyeti kontrol edin.',
     costBasisImplicitSpot:
       'Ortalama maliyet girilmediyse gösterim için güncel piyasa fiyatı kullanılır (kazanç/kayıp bu yüzden 0 görünür). Gerçek maliyetinizi girmeniz yeterli.',
     modeAdd: 'Ekleme',
