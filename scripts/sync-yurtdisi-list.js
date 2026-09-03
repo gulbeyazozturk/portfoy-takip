@@ -204,10 +204,12 @@ function parseEtfCsv2(text) {
   return rows;
 }
 
+const VALID_SYMBOL_RE = /^[A-Za-z0-9.$^=\-/+]+$/;
+
 function mergeIntoMap(map, rows) {
   for (const r of rows) {
     const sym = (r.symbol || '').toString().trim();
-    if (!sym) continue;
+    if (!sym || !VALID_SYMBOL_RE.test(sym)) continue;
     const name = (r.name || sym).toString().trim();
     const key = sym.toUpperCase();
     if (!map.has(key) || (name && name.length > (map.get(key).name || '').length)) {
@@ -223,9 +225,6 @@ async function upsertYurtdisiAssets(supabase, rows) {
     symbol: r.symbol,
     name: (r.name || r.symbol || '').slice(0, 500),
     currency: 'USD',
-    current_price: null,
-    price_updated_at: null,
-    change_24h_pct: null,
   }));
 
   const chunkSize = 200;
@@ -263,9 +262,6 @@ async function main() {
       symbol: r.symbol,
       name: (r.name || r.symbol || '').slice(0, 500),
       currency: 'USD',
-      current_price: null,
-      price_updated_at: null,
-      change_24h_pct: null,
     }));
     const { error: extraErr } = await supabase
       .from('assets')

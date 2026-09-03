@@ -25,6 +25,8 @@ async function loadEnv() {
   }
 }
 
+const VALID_SYMBOL_RE = /^[A-Za-z0-9.$^=\-/+]+$/;
+
 function sleep(ms) {
   return new Promise((r) => setTimeout(r, ms));
 }
@@ -92,7 +94,9 @@ async function getSymbolsForMode(supabase, mode, batch) {
     if (hErr) throw new Error('Assets (holdings) select: ' + hErr.message);
     for (const row of inHoldings || []) {
       if (!row.symbol) continue;
-      symbols.push(String(row.symbol).toUpperCase());
+      const sym = String(row.symbol).toUpperCase();
+      if (!VALID_SYMBOL_RE.test(sym)) continue;
+      symbols.push(sym);
       if (symbols.length >= batch) return symbols;
     }
   }
@@ -112,7 +116,7 @@ async function getSymbolsForMode(supabase, mode, batch) {
     if (!rows || rows.length === 0) break;
     for (const row of rows) {
       const s = String(row.symbol || '').toUpperCase();
-      if (!s) continue;
+      if (!s || !VALID_SYMBOL_RE.test(s)) continue;
       if (symbols.includes(s)) continue;
       symbols.push(s);
       if (symbols.length >= batch) break;
@@ -140,7 +144,7 @@ async function getRotatingFullSymbols(supabase, batch, cycleWindow, cycleEveryMi
     if (!rows || rows.length === 0) break;
     for (const row of rows) {
       const s = String(row.symbol || '').toUpperCase();
-      if (s) all.push(s);
+      if (s && VALID_SYMBOL_RE.test(s)) all.push(s);
     }
     if (rows.length < pageSize) break;
     from += pageSize;
